@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { loadSavedLogHoursCode, saveLogHoursCode } from '../lib/logHoursCode'
 import { Link } from 'react-router-dom'
 import { signInAnonymously } from 'firebase/auth'
@@ -13,6 +13,10 @@ import { studentCommunityHours } from '../lib/calc'
 // in another tab.
 export default function CommunityHours() {
   const [verified, setVerified] = useState(null) // { teamId, students, types, hoursTarget, logs }
+
+  useEffect(() => {
+    document.title = 'AttendX | Log Hours'
+  }, [])
 
   return (
     <div className="login-page">

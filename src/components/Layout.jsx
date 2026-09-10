@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const links = [
@@ -14,6 +14,14 @@ const links = [
 export default function Layout() {
   const { team, memberships, logout } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const location = useLocation()
+
+  useEffect(() => {
+    const current = links.find((l) =>
+      l.end ? location.pathname === l.to : location.pathname.startsWith(l.to)
+    )
+    document.title = current ? `AttendX | ${current.label}` : 'AttendX'
+  }, [location.pathname])
 
   return (
     <div className="app-shell">
@@ -24,7 +32,7 @@ export default function Layout() {
           <span />
         </button>
         <div className="brand">
-          <span className="brand-mark">AttendX</span>
+          <img src="/logo.png" alt="AttendX" className="brand-logo" />
           <Link to="/teams" className="brand-team" title="Switch teams">
             {team?.name || team?.id}
             {memberships.length > 1 ? ` (+${memberships.length - 1})` : ''}
@@ -49,7 +57,7 @@ export default function Layout() {
       >
         <nav className="nav-drawer" onClick={(e) => e.stopPropagation()}>
           <div className="nav-drawer-header">
-            <span className="brand-mark">AttendX</span>
+            <img src="/logo.png" alt="AttendX" className="brand-logo" />
             <button className="nav-drawer-close" aria-label="Close menu" onClick={() => setDrawerOpen(false)}>
               &times;
             </button>

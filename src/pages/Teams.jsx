@@ -8,13 +8,17 @@ export default function Teams() {
   const { user, team, loading } = useAuth()
   const [mode, setMode] = useState('join')
 
+  useEffect(() => {
+    document.title = 'AttendX | Teams'
+  }, [])
+
   if (loading) return <div className="page-loading">Loading…</div>
   if (!user) return <Navigate to="/login" replace />
 
   return (
     <div className="login-page">
       <div className="login-card" style={{ maxWidth: 420 }}>
-        <h1>AttendX</h1>
+        <img src="/logo.png" alt="AttendX" className="auth-logo" />
         <p className="login-sub">Signed in as {user.email}</p>
         {team && (
           <p>

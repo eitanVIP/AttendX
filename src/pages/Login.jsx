@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -21,12 +21,16 @@ export default function Login() {
   const { user } = useAuth()
   const [mode, setMode] = useState('signin')
 
+  useEffect(() => {
+    document.title = 'AttendX | Sign in'
+  }, [])
+
   if (user) return <Navigate to="/teams" replace />
 
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>AttendX</h1>
+        <img src="/logo.png" alt="AttendX" className="auth-logo" />
         <div className="login-tabs">
           <button className={mode === 'signin' ? 'chip active' : 'chip'} onClick={() => setMode('signin')}>
             Sign in

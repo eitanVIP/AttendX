@@ -86,16 +86,32 @@ a {
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   flex-shrink: 0;
 }
 
-.brand-mark {
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--accent, #2563eb);
+.brand-logo {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+
+.auth-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+  align-self: flex-start;
+}
+
+/* The logo art is black-on-transparent - invert it in dark mode so it
+   stays visible against the app's dark surfaces instead of disappearing. */
+@media (prefers-color-scheme: dark) {
+  .brand-logo,
+  .auth-logo {
+    filter: invert(1);
+  }
 }
 
 .brand-team {
