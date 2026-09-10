@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*.local
+
+# Firebase project link (machine/user-specific - run `firebase use --add`)
+.firebaserc
+firebase-debug.log
+.firebase/
+
+# Real student data used for one-time imports - never publish this publicly
+# (the .example.json template has no real data and stays tracked)
+scripts/data/*
+!scripts/data/*.example.json
+
+# Claude Code local dev tooling (may contain machine-specific paths)
+.claude/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

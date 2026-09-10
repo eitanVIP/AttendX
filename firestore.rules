@@ -1,0 +1,100 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Every person has their own Firebase Auth account, entirely separate
+    // from team membership. Teams are plain Firestore documents
+    // (teams/{teamId}, with a `code` field). Which teams someone belongs to
+    // lives in Firestore too, as users/{uid}/memberships/{teamId} docs -
+    // each can only be created by supplying that team's code, and can be
+    // deleted freely by its owner (that's how "leave a team" works). A
+    // person can belong to several teams; users/{uid}.activeTeamId picks
+    // which one the app currently shows them.
+    function hasAccess(teamId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(teamId));
+    }
+
+    // Separate, much narrower access level for the public community-hours
+    // page: no admin account needed, just the team's *student* code (a
+    // second, different code from the admin one). Grants read on the roster
+    // and community settings, and create-only on communityLogs - nothing
+    // else. Uses its own anonymous Firebase Auth session (see
+    // src/lib/communityAuth.js) so it never touches an admin's signed-in
+    // session in another tab.
+    function hasStudentAccess(teamId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/studentAccess/$(request.auth.uid))
+        && get(/databases/$(database)/documents/studentAccess/$(request.auth.uid)).data.teamId == teamId;
+    }
+
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email']);
+      // activeTeamId is just a per-user UI preference (which of their own
+      // teams to show) - no need to check it references a real membership.
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'activeTeamId']);
+      allow delete: if false;
+
+      match /memberships/{teamId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['code'])
+          && get(/databases/$(database)/documents/teams/$(teamId)).data.code == request.resource.data.code;
+        allow delete: if request.auth != null && request.auth.uid == uid;
+        allow update: if false;
+      }
+    }
+
+    match /studentAccess/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['teamId', 'code'])
+        && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.studentCode == request.resource.data.code;
+      allow update, delete: if false;
+    }
+
+    match /teams/{teamId} {
+      allow read, update, delete: if hasAccess(teamId);
+      // Claiming a brand-new team id: any authenticated user can create it
+      // exactly once, choosing its admin code and student code. Existing
+      // teams can't be overwritten this way.
+      allow create: if request.auth != null
+        && request.resource.data.code is string && request.resource.data.code.size() >= 4
+        && request.resource.data.studentCode is string && request.resource.data.studentCode.size() >= 4;
+    }
+
+    match /teams/{teamId}/{document=**} {
+      allow read, write: if hasAccess(teamId);
+    }
+
+    // No collectionGroup rule here on purpose: the client never issues
+    // collectionGroup('attendance') queries (see the comment in
+    // src/lib/firestore-hooks.js) - every attendance read goes through the
+    // nested teams/{teamId}/{document=**} rule above instead, since that's
+    // the one we could actually prove works reliably.
+
+    // The student-hours flow additionally needs to read the roster (to pick
+    // a name) and the community-hours settings (types, target), and to
+    // create (not read/edit/delete) log entries - each layered on top of
+    // the admin-only catch-all above via hasStudentAccess.
+    match /teams/{teamId}/students/{studentId} {
+      allow read: if hasStudentAccess(teamId);
+    }
+
+    match /teams/{teamId}/settings/{settingsDoc} {
+      allow read: if hasStudentAccess(teamId);
+    }
+
+    match /teams/{teamId}/communityLogs/{logId} {
+      // Students can read logs too (not just create) so the hour-logging
+      // page can show a running total - there's no per-student identity to
+      // scope this to (student access is team-wide, not per-person), and
+      // hours logged for community service aren't sensitive.
+      allow read: if hasStudentAccess(teamId);
+      allow create: if hasStudentAccess(teamId) && request.resource.data.studentId is string;
+    }
+  }
+}

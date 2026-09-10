@@ -1,0 +1,23 @@
+{
+  "teamId": "team3211",
+  "team": {
+    "name": "The Y Team 3211",
+    "divisions": ["מכאניקה", "בקרה", "יק\"ם"],
+    "subdivisionsByDivision": {
+      "מכאניקה": ["תכן", "ייצור", "הרכבות"],
+      "בקרה": ["תוכנה", "חשמל"],
+      "יק\"ם": ["מדיה", "קהילה", "יחצ"]
+    },
+    "colorPrimary": "#facc15"
+  },
+  "students": [
+    {
+      "id": "1",
+      "fullName": "Example Student",
+      "division": "מכאניקה",
+      "subdivision": "תכן",
+      "grade": "ט",
+      "status": "active"
+    }
+  ]
+}
