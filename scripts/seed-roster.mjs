@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { doc, setDoc } from 'firebase/firestore'
 import { connect } from './lib/firebase-node.mjs'
+import { normalizeStudent } from '../src/lib/calc.js'
 
 const [, , dataFileArg, code] = process.argv
 if (!dataFileArg || !code) {
@@ -36,11 +37,14 @@ console.log(`Wrote team config for ${teamId}`)
 await setDoc(doc(db, 'users', auth.currentUser.uid), { email: auth.currentUser.email })
 await setDoc(doc(db, 'users', auth.currentUser.uid, 'memberships', teamId), { code })
 
+// normalizeStudent accepts both the current shape (divisions[] +
+// subdivisions{}) and the original single division/subdivision pair, so
+// roster files written for either still import correctly.
 for (const { id, ...student } of students) {
   await setDoc(doc(db, 'teams', teamId, 'students', id), {
     joinDate: null,
     notes: '',
-    ...student,
+    ...normalizeStudent(student),
   })
 }
 console.log(`Wrote ${students.length} students`)

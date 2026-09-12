@@ -14,8 +14,11 @@
     {
       "id": "1",
       "fullName": "Example Student",
-      "division": "מכאניקה",
-      "subdivision": "תכן",
+      "divisions": ["מכאניקה", "יק\"ם"],
+      "subdivisions": {
+        "מכאניקה": ["תכן", "ייצור"],
+        "יק\"ם": ["מדיה"]
+      },
       "grade": "ט",
       "status": "active"
     }

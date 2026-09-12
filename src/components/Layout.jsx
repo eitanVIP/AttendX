@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import Logo from './Logo'
 
 const links = [
   { to: '/', label: 'Dashboard', end: true },
@@ -25,14 +26,16 @@ export default function Layout() {
 
   return (
     <div className="app-shell">
-      <header className="app-header" style={{ '--accent': team?.colorPrimary || '#2563eb' }}>
+      <header className="app-header">
         <button className="nav-toggle" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
           <span />
           <span />
           <span />
         </button>
         <div className="brand">
-          <img src="/logo.png" alt="AttendX" className="brand-logo" />
+          <Link to="/" className="brand-logo-link" title="Dashboard">
+            <Logo />
+          </Link>
           <Link to="/teams" className="brand-team" title="Switch teams">
             {team?.name || team?.id}
             {memberships.length > 1 ? ` (+${memberships.length - 1})` : ''}
@@ -57,7 +60,9 @@ export default function Layout() {
       >
         <nav className="nav-drawer" onClick={(e) => e.stopPropagation()}>
           <div className="nav-drawer-header">
-            <img src="/logo.png" alt="AttendX" className="brand-logo" />
+            <Link to="/" className="brand-logo-link" onClick={() => setDrawerOpen(false)}>
+              <Logo />
+            </Link>
             <button className="nav-drawer-close" aria-label="Close menu" onClick={() => setDrawerOpen(false)}>
               &times;
             </button>

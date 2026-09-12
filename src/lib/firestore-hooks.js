@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { db } from '../firebase'
+import { normalizeStudent } from './calc'
 
 function useCollection(path, orderByField) {
   const [data, setData] = useState([])
@@ -31,7 +32,9 @@ function useCollection(path, orderByField) {
 }
 
 export function useStudents(teamId) {
-  return useCollection(teamId ? ['teams', teamId, 'students'] : null, 'fullName')
+  const result = useCollection(teamId ? ['teams', teamId, 'students'] : null, 'fullName')
+  const data = useMemo(() => result.data.map(normalizeStudent), [result.data])
+  return { ...result, data }
 }
 
 export function useTrainings(teamId) {

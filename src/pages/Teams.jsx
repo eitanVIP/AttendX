@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
+import Logo from '../components/Logo'
 
 export default function Teams() {
   const { user, team, loading } = useAuth()
@@ -18,7 +19,7 @@ export default function Teams() {
   return (
     <div className="login-page">
       <div className="login-card" style={{ maxWidth: 420 }}>
-        <img src="/logo.png" alt="AttendX" className="auth-logo" />
+        <Logo className="auth-logo" />
         <p className="login-sub">Signed in as {user.email}</p>
         {team && (
           <p>
@@ -151,7 +152,6 @@ function CreateForm() {
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [studentCode, setStudentCode] = useState('')
-  const [divisions, setDivisions] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -168,15 +168,7 @@ function CreateForm() {
     }
     setSubmitting(true)
     try {
-      const divisionList = divisions
-        .split(',')
-        .map((d) => d.trim())
-        .filter(Boolean)
-      await createTeam(teamId.trim().toLowerCase(), code, studentCode, {
-        name: name.trim() || teamId,
-        divisions: divisionList,
-        subdivisionsByDivision: Object.fromEntries(divisionList.map((d) => [d, []])),
-      })
+      await createTeam(teamId.trim().toLowerCase(), code, studentCode, { name: name.trim() || teamId })
     } catch {
       setError('That team ID is already taken - pick another one.')
     } finally {
@@ -213,10 +205,9 @@ function CreateForm() {
         The admin code opens the full dashboard. The student code only unlocks the community-hours
         logging page - give that one out to students.
       </p>
-      <label>
-        Divisions (comma separated, optional)
-        <input value={divisions} onChange={(e) => setDivisions(e.target.value)} placeholder="e.g. Mechanical, Controls" />
-      </label>
+      <p className="muted" style={{ margin: '-6px 0 0' }}>
+        You'll set up the team's divisions in Settings right after.
+      </p>
       {error && <p className="form-error">{error}</p>}
       <button type="submit" disabled={submitting}>
         {submitting ? 'Creating…' : 'Create team'}

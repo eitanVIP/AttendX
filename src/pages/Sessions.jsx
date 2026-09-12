@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
+import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import { useAllAttendance, useSessions, useStudents } from '../lib/firestore-hooks'
 import { ATTENDANCE_STATUSES, isSessionRelevantToStudent } from '../lib/calc'
 import { addSession, clearAttendance, deleteSession, setAttendance, updateSession } from '../lib/actions'
@@ -57,19 +59,17 @@ export default function Sessions() {
       .map((key) => ({
         title: key || 'General (all students)',
         sessions: byDivision.get(key),
-        columnStudents: key ? activeStudents.filter((s) => s.division === key) : activeStudents,
+        columnStudents: key ? activeStudents.filter((s) => s.divisions.includes(key)) : activeStudents,
       }))
   }, [sorted, divisions, divisionFilter, activeStudents])
 
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault()
     if (editingId) {
-      await updateSession(team.id, editingId, form)
+      updateSession(team.id, editingId, form)
     } else {
-      await addSession(team.id, form)
+      addSession(team.id, form)
     }
-    setForm({ ...emptyForm, date: form.date })
-    setEditingId(null)
     setShowForm(false)
   }
 
@@ -81,12 +81,6 @@ export default function Sessions() {
     })
     setEditingId(session.id)
     setShowForm(true)
-  }
-
-  function cancelForm() {
-    setShowForm(false)
-    setEditingId(null)
-    setForm(emptyForm)
   }
 
   async function handleDelete(id) {
@@ -121,6 +115,8 @@ export default function Sessions() {
         </button>
       </div>
 
+      <NoDivisionsNotice team={team} />
+
       <div className="filter-row">
         <button className={!divisionFilter ? 'chip active' : 'chip'} onClick={() => setDivisionFilter('')}>
           All ({sessions.length})
@@ -136,51 +132,49 @@ export default function Sessions() {
         ))}
       </div>
 
-      {showForm && (
-        <form className="card form-card" onSubmit={handleSubmit}>
-          <h2>{editingId ? 'Edit session' : 'New session'}</h2>
-          <div className="form-grid">
-            <label>
-              Date
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Session name
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. Weekly meeting"
-                required
-              />
-            </label>
-            <label>
-              Applies to
-              <select
-                value={form.targetDivision}
-                onChange={(e) => setForm({ ...form, targetDivision: e.target.value })}
-              >
-                <option value="all">Everyone</option>
-                {divisions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="secondary" onClick={cancelForm}>
-              Cancel
-            </button>
-            <button type="submit">{editingId ? 'Save' : 'Create'}</button>
-          </div>
-        </form>
-      )}
+      <FormPanel open={showForm} onSubmit={handleSubmit}>
+        <h2>{editingId ? 'Edit session' : 'New session'}</h2>
+        <div className="form-grid">
+          <label>
+            Date
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              required
+            />
+          </label>
+          <label>
+            Session name
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Weekly meeting"
+              required
+            />
+          </label>
+          <label>
+            Applies to
+            <select
+              value={form.targetDivision}
+              onChange={(e) => setForm({ ...form, targetDivision: e.target.value })}
+            >
+              <option value="all">Everyone</option>
+              {divisions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">{editingId ? 'Save' : 'Create'}</button>
+        </div>
+      </FormPanel>
 
       {groups.map((group) => (
         <SessionGroupTable
@@ -201,15 +195,15 @@ export default function Sessions() {
 
 function SessionGroupTable({ title, sessions, students, statusBySessionAndStudent, onEdit, onDelete, onStatusChange }) {
   return (
-    <div className="sheet-block">
+    <>
       <h2>{title}</h2>
-      <div className="sheet-scroll">
-        <table className="sheet-table">
+      <div className="table-scroll">
+        <table className="data-table matrix">
           <thead>
             <tr>
-              <th className="sheet-sticky-col">Session</th>
+              <th className="matrix-name-col">Session</th>
               {students.map((s) => (
-                <th key={s.id} className="sheet-student-col">
+                <th key={s.id} className="matrix-student-col">
                   {s.fullName}
                 </th>
               ))}
@@ -219,21 +213,21 @@ function SessionGroupTable({ title, sessions, students, statusBySessionAndStuden
           <tbody>
             {sessions.map((session) => (
               <tr key={session.id}>
-                <td className="sheet-sticky-col">
+                <td className="matrix-name-col">
                   <strong>{session.name}</strong>
                   <div className="muted">{session.date}</div>
                 </td>
                 {students.map((s) => {
                   if (!isSessionRelevantToStudent(session, s)) {
                     return (
-                      <td key={s.id} className="sheet-student-col muted">
+                      <td key={s.id} className="matrix-student-col muted">
                         –
                       </td>
                     )
                   }
                   const status = statusBySessionAndStudent[`${session.id}_${s.id}`]
                   return (
-                    <td key={s.id} className="sheet-student-col">
+                    <td key={s.id} className="matrix-student-col">
                       <select
                         className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
                         value={status || ''}
@@ -264,6 +258,6 @@ function SessionGroupTable({ title, sessions, students, statusBySessionAndStuden
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   )
 }

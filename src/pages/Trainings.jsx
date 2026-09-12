@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
+import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import { trainingAppliesToStudent, trainingProgress } from '../lib/calc'
 import { addTraining, deleteTraining, setTrainingCompletion, updateTraining } from '../lib/actions'
@@ -58,11 +60,11 @@ export default function Trainings() {
       .map((key) => ({
         title: key || 'General (all students)',
         trainings: byDivision.get(key),
-        columnStudents: key ? activeStudents.filter((s) => s.division === key) : activeStudents,
+        columnStudents: key ? activeStudents.filter((s) => s.divisions.includes(key)) : activeStudents,
       }))
   }, [visible, divisions, divisionFilter, activeStudents])
 
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault()
     const payload = {
       name: form.name,
@@ -72,12 +74,10 @@ export default function Trainings() {
       targetDate: form.targetDate || null,
     }
     if (editingId) {
-      await updateTraining(team.id, editingId, payload)
+      updateTraining(team.id, editingId, payload)
     } else {
-      await addTraining(team.id, { ...payload, targetCount: null, order: Number(form.order) || 0 })
+      addTraining(team.id, { ...payload, targetCount: null, order: Number(form.order) || 0 })
     }
-    setForm({ ...emptyForm, category: form.category })
-    setEditingId(null)
     setShowForm(false)
   }
 
@@ -92,12 +92,6 @@ export default function Trainings() {
     })
     setEditingId(training.id)
     setShowForm(true)
-  }
-
-  function cancelForm() {
-    setShowForm(false)
-    setEditingId(null)
-    setForm(emptyForm)
   }
 
   async function handleDelete(id) {
@@ -122,6 +116,8 @@ export default function Trainings() {
         </button>
       </div>
 
+      <NoDivisionsNotice team={team} />
+
       <div className="filter-row">
         <button className={!divisionFilter ? 'chip active' : 'chip'} onClick={() => setDivisionFilter('')}>
           All ({trainings.length})
@@ -137,70 +133,68 @@ export default function Trainings() {
         ))}
       </div>
 
-      {showForm && (
-        <form className="card form-card" onSubmit={handleSubmit}>
-          <h2>{editingId ? 'Edit training' : 'New training'}</h2>
-          <div className="form-grid">
-            <label className="span-2">
-              Name
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            </label>
-            <label>
-              Category
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                {CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Target date
-              <input
-                type="date"
-                value={form.targetDate}
-                onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-              />
-            </label>
-            <label>
-              Division (leave blank for "applies to everyone")
-              <select
-                value={form.scopeDivision}
-                onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, scopeSubdivision: '' })}
-              >
-                <option value="">All students</option>
-                {divisions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Subdivision (optional)
-              <select
-                value={form.scopeSubdivision}
-                onChange={(e) => setForm({ ...form, scopeSubdivision: e.target.value })}
-                disabled={!form.scopeDivision}
-              >
-                <option value="">Any</option>
-                {subdivisions.map((sd) => (
-                  <option key={sd} value={sd}>
-                    {sd}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="secondary" onClick={cancelForm}>
-              Cancel
-            </button>
-            <button type="submit">{editingId ? 'Save' : 'Add'}</button>
-          </div>
-        </form>
-      )}
+      <FormPanel open={showForm} onSubmit={handleSubmit}>
+        <h2>{editingId ? 'Edit training' : 'New training'}</h2>
+        <div className="form-grid">
+          <label className="span-2">
+            Name
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          </label>
+          <label>
+            Category
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Target date
+            <input
+              type="date"
+              value={form.targetDate}
+              onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
+            />
+          </label>
+          <label>
+            Division (leave blank for "applies to everyone")
+            <select
+              value={form.scopeDivision}
+              onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, scopeSubdivision: '' })}
+            >
+              <option value="">All students</option>
+              {divisions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Subdivision (optional)
+            <select
+              value={form.scopeSubdivision}
+              onChange={(e) => setForm({ ...form, scopeSubdivision: e.target.value })}
+              disabled={!form.scopeDivision}
+            >
+              <option value="">Any</option>
+              {subdivisions.map((sd) => (
+                <option key={sd} value={sd}>
+                  {sd}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">{editingId ? 'Save' : 'Add'}</button>
+        </div>
+      </FormPanel>
 
       {groups.map((group) => (
         <TrainingGroupTable
@@ -221,16 +215,16 @@ export default function Trainings() {
 
 function TrainingGroupTable({ title, trainings, students, teamId, allStudents, onEdit, onDelete }) {
   return (
-    <div className="sheet-block">
+    <>
       <h2>{title}</h2>
-      <div className="sheet-scroll">
-        <table className="sheet-table">
+      <div className="table-scroll">
+        <table className="data-table matrix">
           <thead>
             <tr>
-              <th className="sheet-sticky-col">Training</th>
+              <th className="matrix-name-col">Training</th>
               <th>Due</th>
               {students.map((s) => (
-                <th key={s.id} className="sheet-student-col">
+                <th key={s.id} className="matrix-student-col">
                   {s.fullName}
                 </th>
               ))}
@@ -243,7 +237,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
               const progress = trainingProgress(t, allStudents)
               return (
                 <tr key={t.id}>
-                  <td className="sheet-sticky-col">
+                  <td className="matrix-name-col">
                     <strong>{t.name}</strong>
                     {t.scopeSubdivision && <div className="muted">{t.scopeSubdivision}</div>}
                   </td>
@@ -252,7 +246,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
                     const applies = trainingAppliesToStudent(t, s)
                     const checked = t.completedStudentIds?.includes(s.id)
                     return (
-                      <td key={s.id} className="sheet-student-col">
+                      <td key={s.id} className="matrix-student-col">
                         {applies ? (
                           <input
                             type="checkbox"
@@ -286,6 +280,6 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   )
 }

@@ -5,7 +5,16 @@
   --card-bg: #ffffff;
   --border: #e4e4e7;
   --muted: #71717a;
+  /* Set on the document root from the active team's colorPrimary (see
+     AuthContext) - everything accent-coloured in the app derives from it,
+     including the two tints below. */
   --accent: #2563eb;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  /* Mixed against the card colour rather than transparent so it's opaque:
+     the matrix tables' frozen column needs a solid hover fill (anything
+     see-through would let the cells scrolling underneath show) and every
+     other row hover sits on a card anyway, so the result is identical. */
+  --accent-faint: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
   --ok-bg: #dcfce7;
   --ok-text: #166534;
   --warn-bg: #fef3c7;
@@ -92,26 +101,31 @@ a {
   flex-shrink: 0;
 }
 
+/* The wordmark is black-on-transparent art, so it's painted as a mask
+   filled with --accent instead of being drawn directly - that's what lets
+   it take the team's colour, and it stays visible in dark mode without the
+   invert filter it used to need. */
+.brand-logo,
+.auth-logo {
+  display: block;
+  aspect-ratio: 677 / 369;
+  background-color: var(--accent);
+  -webkit-mask: url('/logo.png') no-repeat center / contain;
+  mask: url('/logo.png') no-repeat center / contain;
+}
+
 .brand-logo {
   height: 36px;
-  width: auto;
-  display: block;
 }
 
 .auth-logo {
   height: 40px;
-  width: auto;
-  display: block;
   align-self: flex-start;
 }
 
-/* The logo art is black-on-transparent - invert it in dark mode so it
-   stays visible against the app's dark surfaces instead of disappearing. */
-@media (prefers-color-scheme: dark) {
-  .brand-logo,
-  .auth-logo {
-    filter: invert(1);
-  }
+.brand-logo-link {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .brand-team {
@@ -145,7 +159,7 @@ a {
 
 .main-nav a.active,
 .main-nav a:hover {
-  background: var(--accent-bg, rgba(37, 99, 235, 0.1));
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -237,8 +251,16 @@ a {
 
 .nav-drawer a.active,
 .nav-drawer a:hover {
-  background: var(--accent-bg, rgba(37, 99, 235, 0.1));
+  background: var(--accent-soft);
   color: var(--accent);
+}
+
+.nav-drawer-header a {
+  padding: 0;
+}
+
+.nav-drawer-header a:hover {
+  background: none;
 }
 
 .app-main {
@@ -311,6 +333,16 @@ textarea {
   color: var(--text);
 }
 
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 textarea {
   resize: vertical;
   font-family: ui-monospace, Consolas, monospace;
@@ -351,6 +383,62 @@ code {
 .form-error {
   color: var(--danger);
   font-size: 13px;
+}
+
+/* A plain-text caption above a group of controls that isn't itself a
+   <label> (e.g. the division picker's checkbox list). */
+.field-label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.division-picker,
+.division-picker-subs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.division-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.division-picker label,
+.division-picker-subs label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.division-picker-subs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 4px 0 6px 26px;
+}
+
+.division-picker-subs label {
+  font-size: 13px;
+}
+
+.notice {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.notice a {
+  color: inherit;
+  font-weight: 600;
 }
 
 /* Layout helpers */
@@ -397,6 +485,39 @@ code {
   margin: 16px 0;
 }
 
+/* Add/edit panels (see FormPanel.jsx) - the exit duration here is mirrored
+   by EXIT_MS there, which is what keeps the panel mounted long enough for
+   it to play. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.panel-open {
+  animation: panel-in 0.16s ease-out;
+}
+
+.panel-closing {
+  animation: panel-out 0.16s ease-in forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-open,
+  .panel-closing {
+    animation-duration: 0.01ms;
+  }
+}
+
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -441,7 +562,7 @@ code {
 }
 
 .bar-row:hover {
-  background: var(--accent-bg, rgba(37, 99, 235, 0.08));
+  background: var(--accent-faint);
 }
 
 .bar-row-name {
@@ -542,7 +663,68 @@ code {
 }
 
 .data-table tbody tr:hover td {
-  background: var(--accent-bg, rgba(37, 99, 235, 0.06));
+  background: var(--accent-faint);
+}
+
+/* Matrix variant (Attendance, Trainings): the same table as everywhere
+   else, plus a frozen first column so the per-student columns can scroll
+   under it.
+   border-collapse: collapse has a long-standing Chromium bug when combined
+   with position: sticky cells - row backgrounds/borders can paint offset
+   from the sticky column, producing misaligned-line artifacts. separate
+   with 0 spacing avoids it and looks identical here, since every cell
+   already draws its own border-bottom. */
+.data-table.matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.data-table.matrix th,
+.data-table.matrix td {
+  white-space: nowrap;
+}
+
+/* Fixed rather than min-width so Attendance and Trainings end up with the
+   same first column regardless of how long their names run - which also
+   needs the nowrap above overridden here (at higher specificity) so a long
+   name wraps inside the 220px instead of forcing the column wider. */
+.data-table.matrix .matrix-name-col {
+  width: 220px;
+  min-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.matrix-name-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+  /* Forces its own compositing layer so mobile browsers don't let scrolled
+     content bleed through the frozen column. will-change (not
+     transform: translateZ(0)) avoids the subpixel rounding that misaligned
+     this column against the rest of the row. */
+  will-change: transform;
+  /* At fractional row heights the next frozen cell's opaque background
+     laps over the previous row's 1px border-bottom, so the separator
+     visibly stops where this column ends. Drawing it as an inset shadow
+     keeps it inside the cell, where nothing can paint over it. */
+  border-bottom-color: transparent;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.data-table.matrix tbody tr:last-child .matrix-name-col {
+  box-shadow: none;
+}
+
+thead .matrix-name-col {
+  z-index: 2;
+}
+
+.matrix-student-col {
+  text-align: center;
+  min-width: 44px;
 }
 
 .row-inactive {
@@ -626,86 +808,6 @@ code {
   .status-cell-select:hover {
     filter: brightness(1.3);
   }
-}
-
-/* Sheet-style matrix tables (Trainings) */
-.sheet-block {
-  margin-bottom: 28px;
-}
-
-.sheet-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.sheet-table {
-  /* border-collapse: collapse has a long-standing Chromium bug when combined
-     with position: sticky cells - row backgrounds/borders can paint offset
-     from the sticky column, producing exactly the misaligned-line artifacts
-     this table was showing. border-collapse: separate with 0 spacing avoids
-     it and looks identical here since every cell defines its own borders. */
-  border-collapse: separate;
-  border-spacing: 0;
-  width: 100%;
-  font-size: 14px;
-  background: var(--card-bg);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.sheet-table th,
-.sheet-table td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.sheet-table th {
-  background: var(--bg);
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  text-align: left;
-}
-
-.sheet-table tr:last-child td {
-  border-bottom: none;
-}
-
-.sheet-sticky-col {
-  position: sticky;
-  left: 0;
-  background: var(--card-bg);
-  text-align: left;
-  min-width: 200px;
-  white-space: normal;
-  z-index: 1;
-  border-right: 1px solid var(--border);
-  /* Forces its own compositing layer so mobile browsers don't let scrolled
-     content underneath bleed through the sticky column while scrolling.
-     will-change (not transform: translateZ(0)) avoids subpixel rounding
-     that misaligned this column's border against the rest of the row. */
-  will-change: transform;
-  -webkit-tap-highlight-color: transparent;
-}
-
-thead .sheet-sticky-col {
-  background: var(--bg);
-  z-index: 2;
-}
-
-.sheet-student-col {
-  text-align: center;
-  min-width: 44px;
-}
-
-.sheet-table tbody tr:hover td {
-  background: var(--accent-bg, rgba(37, 99, 235, 0.06));
-}
-
-.sheet-table tbody tr:hover td.sheet-sticky-col {
-  background: var(--card-bg);
 }
 
 /* Certifications - deliberately more prominent than the plain training table */
@@ -983,12 +1085,13 @@ thead .sheet-sticky-col {
     padding: 14px;
   }
 
-  .sheet-sticky-col {
-    min-width: 120px;
-    font-size: 12px;
+  .data-table.matrix .matrix-name-col {
+    width: 140px;
+    min-width: 140px;
   }
 
-  .sheet-sticky-col strong {
+  .matrix-name-col,
+  .matrix-name-col strong {
     font-size: 12px;
   }
 

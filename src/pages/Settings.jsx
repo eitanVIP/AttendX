@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { DEFAULT_ACCENT } from '../lib/theme'
 import { useCommunitySettings } from '../lib/firestore-hooks'
 import { setCommunitySettings, updateTeam } from '../lib/actions'
 
@@ -12,7 +13,7 @@ function teamToDivisionRows(team) {
 export default function Settings() {
   const { team } = useAuth()
   const [name, setName] = useState(team?.name || '')
-  const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || '#2563eb')
+  const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
   const [rows, setRows] = useState(teamToDivisionRows(team))
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -21,7 +22,7 @@ export default function Settings() {
   // render) - keep the editable copy in sync until the admin starts typing.
   useEffect(() => {
     setName(team?.name || '')
-    setColorPrimary(team?.colorPrimary || '#2563eb')
+    setColorPrimary(team?.colorPrimary || DEFAULT_ACCENT)
     setRows(teamToDivisionRows(team))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id])
@@ -92,10 +93,10 @@ export default function Settings() {
 
         <h2 style={{ marginTop: 20 }}>Divisions</h2>
         <p className="muted" style={{ marginBottom: 12 }}>
-          Divisions split your team into its major groups (e.g. Mechanical, Controls) - every student
-          belongs to one. Subdivisions are optional, smaller groups within a division (e.g. Design vs.
-          Manufacturing) for more precise training and attendance targeting - most teams can skip them.
-          Edit any name in place; changes save when you click Save below.
+          Divisions split your team into its major groups (e.g. Mechanical, Controls) - a student can
+          belong to one or several. Subdivisions are optional, smaller groups within a division (e.g.
+          Design vs. Manufacturing) for more precise training and attendance targeting - most teams can
+          skip them. Edit any name in place; changes save when you click Save below.
         </p>
 
         <div className="division-editor">
@@ -131,7 +132,41 @@ export default function Settings() {
       <p className="muted">
         <code>{team?.id}</code> - share this with anyone who needs access, along with your team code.
       </p>
+
+      <AccountSection />
     </div>
+  )
+}
+
+function AccountSection() {
+  const { user, resetPassword } = useAuth()
+  const [status, setStatus] = useState('') // '' | 'sending' | 'sent' | 'error'
+
+  async function handleReset() {
+    setStatus('sending')
+    try {
+      await resetPassword(user.email)
+      setStatus('sent')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  return (
+    <>
+      <h2>Your account</h2>
+      <p className="muted">
+        Signed in as <code>{user?.email}</code>. Changing your password happens over email - we'll send a
+        reset link to that address.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <button type="button" className="secondary" onClick={handleReset} disabled={status === 'sending'}>
+          {status === 'sending' ? 'Sending…' : 'Send password reset email'}
+        </button>
+        {status === 'sent' && <span className="muted">Sent - check your inbox.</span>}
+        {status === 'error' && <span className="form-error">Couldn't send the email - try again.</span>}
+      </div>
+    </>
   )
 }
 
@@ -246,6 +281,7 @@ function CommunityHoursSection({ teamId }) {
   const [typeInput, setTypeInput] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
   // Community settings load asynchronously (independently of the team doc
   // that's already ready by the time this page mounts), so syncing local
   // state on every settings change would either show a flash of empty
@@ -261,6 +297,14 @@ function CommunityHoursSection({ teamId }) {
       setSyncedFor(teamId)
     }
   }, [loading, settings, teamId, syncedFor])
+
+  const logHoursUrl = `${window.location.origin}/log-hours`
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(logHoursUrl)
+    setCopiedLink(true)
+    setTimeout(() => setCopiedLink(false), 1500)
+  }
 
   function addType() {
     const trimmed = typeInput.trim()
@@ -293,6 +337,17 @@ function CommunityHoursSection({ teamId }) {
       <p className="muted" style={{ marginBottom: 12 }}>
         Set how many hours each student needs, and the types of community work students can log from
         the public hour-logging page. Edit a type's name in place, or remove it with ×.
+      </p>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        Students log their hours at{' '}
+        <a href="/log-hours" target="_blank" rel="noreferrer">
+          {logHoursUrl}
+        </a>{' '}
+        <button type="button" className="link-btn" onClick={copyLink}>
+          {copiedLink ? 'Copied!' : 'Copy link'}
+        </button>
+        <br />
+        They'll need the team ID and the student code from above.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
         <label>

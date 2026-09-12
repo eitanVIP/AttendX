@@ -49,9 +49,31 @@ export function trainingProgress(training, students) {
   }
 }
 
+// Students used to hold a single `division`/`subdivision` pair; they now
+// hold `divisions: string[]` plus `subdivisions: { [division]: string[] }`.
+// Docs written before that change are reshaped here on read (see
+// useStudents), so nothing downstream ever sees the old fields, and they're
+// cleared off the doc the next time it's edited (see updateStudent).
+export function normalizeStudent(raw) {
+  if (Array.isArray(raw.divisions)) {
+    return { ...raw, subdivisions: raw.subdivisions || {} }
+  }
+  const { division, subdivision, ...rest } = raw
+  return {
+    ...rest,
+    divisions: division ? [division] : [],
+    subdivisions: division && subdivision ? { [division]: [subdivision] } : {},
+  }
+}
+
 export function trainingAppliesToStudent(training, student) {
-  if (training.scopeDivision && student.division !== training.scopeDivision) return false
-  if (training.scopeSubdivision && student.subdivision !== training.scopeSubdivision) return false
+  if (training.scopeDivision && !student.divisions.includes(training.scopeDivision)) return false
+  if (
+    training.scopeSubdivision &&
+    !(student.subdivisions[training.scopeDivision] || []).includes(training.scopeSubdivision)
+  ) {
+    return false
+  }
   return true
 }
 
@@ -65,7 +87,18 @@ export function studentTrainingStats(student, trainings) {
 
 export function isSessionRelevantToStudent(session, student) {
   if (!session.targetDivision || session.targetDivision === 'all') return true
-  return session.targetDivision === student.division
+  return student.divisions.includes(session.targetDivision)
+}
+
+// "Mechanical (Design, CAD) · Controls" - the one-line summary of where a
+// student sits, used wherever there's room for a single cell of text.
+export function describeStudentDivisions(student) {
+  return student.divisions
+    .map((d) => {
+      const subs = student.subdivisions[d] || []
+      return subs.length ? `${d} (${subs.join(', ')})` : d
+    })
+    .join(' · ')
 }
 
 export function studentCommunityHours(logs, studentId) {

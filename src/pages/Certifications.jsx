@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import { certHolders, certProgress } from '../lib/calc'
 import { addTraining, deleteTraining, updateTraining } from '../lib/actions'
@@ -43,9 +44,9 @@ export default function Certifications() {
       }))
   }, [certifications, divisions])
 
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault()
-    await addTraining(team.id, {
+    addTraining(team.id, {
       name: form.name,
       category: 'professional',
       scopeDivision: form.scopeDivision || null,
@@ -55,7 +56,6 @@ export default function Certifications() {
       requiredTrainingIds: form.requiredTrainingIds,
       order: 0,
     })
-    setForm(emptyForm)
     setShowForm(false)
   }
 
@@ -81,65 +81,63 @@ export default function Certifications() {
         </button>
       </div>
 
-      {showForm && (
-        <form className="card form-card" onSubmit={handleSubmit}>
-          <h2>New certification</h2>
-          <div className="form-grid">
-            <label className="span-2">
-              Name
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. CNC Router"
-                required
-              />
-            </label>
-            <label>
-              Target headcount
-              <input
-                type="number"
-                min="1"
-                value={form.targetCount}
-                onChange={(e) => setForm({ ...form, targetCount: e.target.value })}
-                placeholder={String(activeStudents.length)}
-              />
-            </label>
-            <label>
-              Target date (optional)
-              <input
-                type="date"
-                value={form.targetDate}
-                onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-              />
-            </label>
-            <label>
-              Division (optional)
-              <select
-                value={form.scopeDivision}
-                onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, requiredTrainingIds: [] })}
-              >
-                <option value="">General (no division)</option>
-                {divisions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <RequiredTrainingsPicker
-            trainings={formRequirableTrainings}
-            selected={form.requiredTrainingIds}
-            onChange={(ids) => setForm({ ...form, requiredTrainingIds: ids })}
-          />
-          <div className="form-actions">
-            <button type="button" className="secondary" onClick={() => setShowForm(false)}>
-              Cancel
-            </button>
-            <button type="submit">Add</button>
-          </div>
-        </form>
-      )}
+      <FormPanel open={showForm} onSubmit={handleSubmit}>
+        <h2>New certification</h2>
+        <div className="form-grid">
+          <label className="span-2">
+            Name
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. CNC Router"
+              required
+            />
+          </label>
+          <label>
+            Target headcount
+            <input
+              type="number"
+              min="1"
+              value={form.targetCount}
+              onChange={(e) => setForm({ ...form, targetCount: e.target.value })}
+              placeholder={String(activeStudents.length)}
+            />
+          </label>
+          <label>
+            Target date (optional)
+            <input
+              type="date"
+              value={form.targetDate}
+              onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
+            />
+          </label>
+          <label>
+            Division (optional)
+            <select
+              value={form.scopeDivision}
+              onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, requiredTrainingIds: [] })}
+            >
+              <option value="">General (no division)</option>
+              {divisions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <RequiredTrainingsPicker
+          trainings={formRequirableTrainings}
+          selected={form.requiredTrainingIds}
+          onChange={(ids) => setForm({ ...form, requiredTrainingIds: ids })}
+        />
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">Add</button>
+        </div>
+      </FormPanel>
 
       {groups.map((group) => (
         <div key={group.title} className="cert-group">
@@ -217,9 +215,9 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
     setMode('edit')
   }
 
-  async function saveEdit(e) {
+  function saveEdit(e) {
     e.preventDefault()
-    await updateTraining(teamId, cert.id, {
+    updateTraining(teamId, cert.id, {
       name: editForm.name,
       targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.status !== 'inactive').length,
       targetDate: editForm.targetDate || null,

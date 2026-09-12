@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import { useAllAttendance, useCommunityLogs, useCommunitySettings, useStudents, useTrainings } from '../lib/firestore-hooks'
 import { certProgress, studentCommunityHours, summarizeAttendance } from '../lib/calc'
 
@@ -38,7 +39,7 @@ export default function Dashboard() {
 
   const divisionStats = useMemo(() => {
     return (team?.divisions || []).map((d) => {
-      const divStudents = activeStudents.filter((s) => s.division === d)
+      const divStudents = activeStudents.filter((s) => s.divisions.includes(d))
       const percents = divStudents
         .map((s) => attendanceByStudent[s.id]?.percent)
         .filter((p) => p !== null && p !== undefined)
@@ -66,6 +67,8 @@ export default function Dashboard() {
       <div className="page-header">
         <h1>Dashboard</h1>
       </div>
+
+      <NoDivisionsNotice team={team} />
 
       <div className="stat-cards">
         <div className="card stat-card">

@@ -10,6 +10,7 @@ import {
   useTrainings,
 } from '../lib/firestore-hooks'
 import {
+  describeStudentDivisions,
   studentCommunityHours,
   studentHasCert,
   studentTrainingStats,
@@ -69,8 +70,7 @@ export default function StudentProfile() {
         <h1>{student.fullName}</h1>
       </div>
       <p className="muted">
-        {student.division}
-        {student.subdivision ? ` / ${student.subdivision}` : ''} · Grade {student.grade || '—'} ·{' '}
+        {describeStudentDivisions(student) || 'No division'} · Grade {student.grade || '—'} ·{' '}
         <span className={`badge ${student.status === 'inactive' ? 'badge-muted' : 'badge-ok'}`}>{student.status}</span>
       </p>
 

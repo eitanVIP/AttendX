@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import Logo from '../components/Logo'
 
 function friendlyError(err) {
   switch (err.code) {
@@ -30,7 +31,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <img src="/logo.png" alt="AttendX" className="auth-logo" />
+        <Logo className="auth-logo" />
         <div className="login-tabs">
           <button className={mode === 'signin' ? 'chip active' : 'chip'} onClick={() => setMode('signin')}>
             Sign in
@@ -46,15 +47,17 @@ export default function Login() {
 }
 
 function SignInForm() {
-  const { login } = useAuth()
+  const { login, resetPassword } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    setInfo('')
     setSubmitting(true)
     try {
       await login(email, password)
@@ -62,6 +65,21 @@ function SignInForm() {
       setError(friendlyError(err))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleReset() {
+    setError('')
+    setInfo('')
+    if (!email) {
+      setError('Enter your email above first, then click "Forgot password?".')
+      return
+    }
+    try {
+      await resetPassword(email)
+      setInfo(`Reset link sent to ${email} - check your inbox.`)
+    } catch (err) {
+      setError(friendlyError(err))
     }
   }
 
@@ -83,8 +101,12 @@ function SignInForm() {
         />
       </label>
       {error && <p className="form-error">{error}</p>}
+      {info && <p className="muted">{info}</p>}
       <button type="submit" disabled={submitting}>
         {submitting ? 'Signing in…' : 'Sign in'}
+      </button>
+      <button type="button" className="link-btn" onClick={handleReset} style={{ alignSelf: 'center' }}>
+        Forgot password?
       </button>
     </form>
   )

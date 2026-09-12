@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
+import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import { useStudents } from '../lib/firestore-hooks'
 import { addStudent, deleteStudent, updateStudent } from '../lib/actions'
 
 const GRADES = ['ט', 'י', 'יא', 'יב']
 
-const emptyForm = { fullName: '', division: '', subdivision: '', grade: '', status: 'active', notes: '' }
+const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', notes: '' }
 
 export default function Students() {
   const { team } = useAuth()
@@ -15,44 +17,73 @@ export default function Students() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
+  const [formError, setFormError] = useState('')
 
   const divisions = team?.divisions || []
-  const subdivisions = form.division ? team?.subdivisionsByDivision?.[form.division] || [] : []
+  const subdivisionsByDivision = team?.subdivisionsByDivision || {}
 
   const filtered = useMemo(() => {
     if (filterDivision === 'all') return students
-    return students.filter((s) => s.division === filterDivision)
+    return students.filter((s) => s.divisions.includes(filterDivision))
   }, [students, filterDivision])
 
   function startEdit(student) {
     setEditingId(student.id)
     setForm({
       fullName: student.fullName || '',
-      division: student.division || '',
-      subdivision: student.subdivision || '',
+      divisions: student.divisions,
+      subdivisions: student.subdivisions,
       grade: student.grade || '',
       status: student.status || 'active',
       notes: student.notes || '',
     })
+    setFormError('')
     setShowForm(true)
   }
 
   function startNew() {
     setEditingId(null)
     setForm(emptyForm)
+    setFormError('')
     setShowForm(true)
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (editingId) {
-      await updateStudent(team.id, editingId, form)
+  function toggleDivision(d) {
+    if (form.divisions.includes(d)) {
+      const { [d]: _dropped, ...subdivisions } = form.subdivisions
+      setForm({ ...form, divisions: form.divisions.filter((x) => x !== d), subdivisions })
     } else {
-      await addStudent(team.id, form)
+      setForm({ ...form, divisions: [...form.divisions, d] })
+    }
+  }
+
+  function toggleSubdivision(d, sd) {
+    const current = form.subdivisions[d] || []
+    const next = current.includes(sd) ? current.filter((x) => x !== sd) : [...current, sd]
+    setForm({ ...form, subdivisions: { ...form.subdivisions, [d]: next } })
+  }
+
+  // The write isn't awaited: Firestore applies it to its local cache
+  // straight away, so the table already shows it on the next render -
+  // awaiting the server round-trip just left the form hanging open. The
+  // form's own state is left alone here and reset when it reopens, so it
+  // doesn't visibly blank out mid fade-out.
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (form.divisions.length === 0) {
+      setFormError(
+        divisions.length === 0
+          ? 'Set up divisions in Settings before adding students.'
+          : 'Pick at least one division.'
+      )
+      return
+    }
+    if (editingId) {
+      updateStudent(team.id, editingId, form)
+    } else {
+      addStudent(team.id, form)
     }
     setShowForm(false)
-    setForm(emptyForm)
-    setEditingId(null)
   }
 
   async function handleDelete(id) {
@@ -69,92 +100,96 @@ export default function Students() {
         <button onClick={startNew}>+ Add student</button>
       </div>
 
+      <NoDivisionsNotice team={team} />
+
       <div className="filter-row">
         <button className={filterDivision === 'all' ? 'chip active' : 'chip'} onClick={() => setFilterDivision('all')}>
           All ({students.length})
         </button>
         {divisions.map((d) => (
           <button key={d} className={filterDivision === d ? 'chip active' : 'chip'} onClick={() => setFilterDivision(d)}>
-            {d} ({students.filter((s) => s.division === d).length})
+            {d} ({students.filter((s) => s.divisions.includes(d)).length})
           </button>
         ))}
       </div>
 
-      {showForm && (
-        <form className="card form-card" onSubmit={handleSubmit}>
-          <h2>{editingId ? 'Edit student' : 'New student'}</h2>
-          <div className="form-grid">
-            <label>
-              Full name
-              <input
-                value={form.fullName}
-                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Division
-              <select
-                value={form.division}
-                onChange={(e) => setForm({ ...form, division: e.target.value, subdivision: '' })}
-                required
-              >
-                <option value="" disabled>
-                  Select…
+      <FormPanel open={showForm} onSubmit={handleSubmit}>
+        <h2>{editingId ? 'Edit student' : 'New student'}</h2>
+        <div className="form-grid">
+          <label className="span-2">
+            Full name
+            <input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required />
+          </label>
+          <div className="span-2">
+            <span className="field-label">Divisions</span>
+            {divisions.length === 0 ? (
+              <p className="muted" style={{ margin: '4px 0 0' }}>
+                None set up yet - add them in Settings first.
+              </p>
+            ) : (
+              <ul className="division-picker">
+                {divisions.map((d) => {
+                  const inDivision = form.divisions.includes(d)
+                  const subs = subdivisionsByDivision[d] || []
+                  return (
+                    <li key={d}>
+                      <label>
+                        <input type="checkbox" checked={inDivision} onChange={() => toggleDivision(d)} />
+                        {d}
+                      </label>
+                      {inDivision && subs.length > 0 && (
+                        <ul className="division-picker-subs">
+                          {subs.map((sd) => (
+                            <li key={sd}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  checked={(form.subdivisions[d] || []).includes(sd)}
+                                  onChange={() => toggleSubdivision(d, sd)}
+                                />
+                                {sd}
+                              </label>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+          <label>
+            Grade
+            <select value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}>
+              <option value="">—</option>
+              {GRADES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
                 </option>
-                {divisions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Subdivision
-              <select
-                value={form.subdivision}
-                onChange={(e) => setForm({ ...form, subdivision: e.target.value })}
-                disabled={!form.division}
-              >
-                <option value="">None</option>
-                {subdivisions.map((sd) => (
-                  <option key={sd} value={sd}>
-                    {sd}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Grade
-              <select value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}>
-                <option value="">—</option>
-                {GRADES.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Status
-              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </label>
-            <label className="span-2">
-              Notes
-              <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="secondary" onClick={() => setShowForm(false)}>
-              Cancel
-            </button>
-            <button type="submit">{editingId ? 'Save' : 'Add student'}</button>
-          </div>
-        </form>
-      )}
+              ))}
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+          <label className="span-2">
+            Notes
+            <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </label>
+        </div>
+        {formError && <p className="form-error">{formError}</p>}
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">{editingId ? 'Save' : 'Add student'}</button>
+        </div>
+      </FormPanel>
 
       <div className="table-scroll">
       <table className="data-table">
@@ -174,8 +209,8 @@ export default function Students() {
               <td>
                 <Link to={`/students/${s.id}`}>{s.fullName}</Link>
               </td>
-              <td>{s.division}</td>
-              <td>{s.subdivision}</td>
+              <td>{s.divisions.join(', ')}</td>
+              <td>{s.divisions.flatMap((d) => s.subdivisions[d] || []).join(', ')}</td>
               <td>{s.grade}</td>
               <td>
                 <span className={`badge ${s.status === 'inactive' ? 'badge-muted' : 'badge-ok'}`}>{s.status}</span>

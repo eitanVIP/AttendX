@@ -4,6 +4,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   setDoc,
   updateDoc,
@@ -27,7 +28,13 @@ export function addStudent(teamId, student) {
 }
 
 export function updateStudent(teamId, studentId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'students', studentId), changes)
+  return updateDoc(doc(db, 'teams', teamId, 'students', studentId), {
+    ...changes,
+    // Clears the pre-multi-division fields off docs that still carry them
+    // (see normalizeStudent in calc.js); a no-op on docs that don't.
+    division: deleteField(),
+    subdivision: deleteField(),
+  })
 }
 
 export function deleteStudent(teamId, studentId) {

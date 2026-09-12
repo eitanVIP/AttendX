@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth'
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
+import { DEFAULT_ACCENT } from '../lib/theme'
 
 const AuthContext = createContext(null)
 
@@ -87,6 +89,13 @@ export function AuthProvider({ children }) {
     return unsubscribe
   }, [activeTeamId])
 
+  // Everything accent-coloured in the app reads --accent off the document
+  // root - /login and /teams render outside the app shell, so scoping it to
+  // any one subtree would leave them on the default blue.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', team?.colorPrimary || DEFAULT_ACCENT)
+  }, [team?.colorPrimary])
+
   async function signup(email, password) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     await setDoc(doc(db, 'users', cred.user.uid), { email })
@@ -103,6 +112,10 @@ export function AuthProvider({ children }) {
     await firebaseSignOut(auth)
   }
 
+  function resetPassword(email) {
+    return sendPasswordResetEmail(auth, email)
+  }
+
   async function joinTeam(teamId, code) {
     const uid = auth.currentUser.uid
     await setDoc(doc(db, 'users', uid, 'memberships', teamId), { code })
@@ -115,7 +128,7 @@ export function AuthProvider({ children }) {
     const teamDoc = {
       divisions: [],
       subdivisionsByDivision: {},
-      colorPrimary: '#2563eb',
+      colorPrimary: DEFAULT_ACCENT,
       ...teamData,
       code,
       studentCode,
@@ -152,6 +165,7 @@ export function AuthProvider({ children }) {
         signup,
         login,
         logout,
+        resetPassword,
         joinTeam,
         createTeam,
         switchTeam,
