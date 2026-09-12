@@ -1,19 +1,51 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
+import MoveButtons from '../components/MoveButtons'
+import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import { DEFAULT_ACCENT } from '../lib/theme'
-import { useCommunitySettings } from '../lib/firestore-hooks'
-import { setCommunitySettings, updateTeam } from '../lib/actions'
+import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
+import { todayISO } from '../lib/calc'
+import {
+  addEvent,
+  deleteEvent,
+  setCommunitySettings,
+  updateEvent,
+  updateTeam,
+  updateTeamStructure,
+} from '../lib/actions'
 
+// Returns a copy of `list` with the item matching `isTarget` swapped with
+// its neighbour in `direction` (-1 up, +1 down); unchanged at the ends.
+function swapNeighbours(list, isTarget, direction) {
+  const i = list.findIndex(isTarget)
+  const j = i + direction
+  if (i === -1 || j < 0 || j >= list.length) return list
+  const next = [...list]
+  ;[next[i], next[j]] = [next[j], next[i]]
+  return next
+}
+
+// Each row/subdivision remembers the name it had when loaded (`original`,
+// null for ones added since) - that's how a save tells a rename apart from
+// a delete-plus-add, so students can follow the rename instead of losing
+// the membership.
 function teamToDivisionRows(team) {
   const divisions = team?.divisions || []
   const subs = team?.subdivisionsByDivision || {}
-  return divisions.map((name, i) => ({ key: `${name}-${i}`, name, subdivisions: subs[name] || [] }))
+  return divisions.map((name, i) => ({
+    key: `${name}-${i}`,
+    original: name,
+    name,
+    subdivisions: (subs[name] || []).map((s, j) => ({ key: `${s}-${j}`, original: s, name: s })),
+  }))
 }
 
 export default function Settings() {
   const { team } = useAuth()
   const [name, setName] = useState(team?.name || '')
   const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
+  const [minAttendance, setMinAttendance] = useState(String(team?.minAttendancePercent || 0))
   const [rows, setRows] = useState(teamToDivisionRows(team))
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -23,12 +55,13 @@ export default function Settings() {
   useEffect(() => {
     setName(team?.name || '')
     setColorPrimary(team?.colorPrimary || DEFAULT_ACCENT)
+    setMinAttendance(String(team?.minAttendancePercent || 0))
     setRows(teamToDivisionRows(team))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id])
 
   function addDivision() {
-    setRows([...rows, { key: `new-${Date.now()}`, name: '', subdivisions: [] }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: '', subdivisions: [] }])
   }
 
   function removeDivision(key) {
@@ -42,20 +75,33 @@ export default function Settings() {
   function addSubdivision(key, subName) {
     const trimmed = subName.trim()
     if (!trimmed) return
-    setRows(rows.map((r) => (r.key === key ? { ...r, subdivisions: [...r.subdivisions, trimmed] } : r)))
+    const sub = { key: `new-${Date.now()}`, original: null, name: trimmed }
+    setRows(rows.map((r) => (r.key === key ? { ...r, subdivisions: [...r.subdivisions, sub] } : r)))
   }
 
-  function renameSubdivision(key, index, newName) {
+  function renameSubdivision(key, subKey, newName) {
     setRows(
       rows.map((r) =>
-        r.key === key ? { ...r, subdivisions: r.subdivisions.map((s, i) => (i === index ? newName : s)) } : r
+        r.key === key
+          ? { ...r, subdivisions: r.subdivisions.map((s) => (s.key === subKey ? { ...s, name: newName } : s)) }
+          : r
       )
     )
   }
 
-  function removeSubdivision(key, index) {
+  function removeSubdivision(key, subKey) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, subdivisions: r.subdivisions.filter((s) => s.key !== subKey) } : r)))
+  }
+
+  function moveDivision(key, direction) {
+    setRows(swapNeighbours(rows, (r) => r.key === key, direction))
+  }
+
+  function moveSubdivision(key, subKey, direction) {
     setRows(
-      rows.map((r) => (r.key === key ? { ...r, subdivisions: r.subdivisions.filter((_, i) => i !== index) } : r))
+      rows.map((r) =>
+        r.key === key ? { ...r, subdivisions: swapNeighbours(r.subdivisions, (s) => s.key === subKey, direction) } : r
+      )
     )
   }
 
@@ -63,12 +109,32 @@ export default function Settings() {
     e.preventDefault()
     setSaving(true)
     setSaved(false)
-    const cleanRows = rows.filter((r) => r.name.trim())
-    const divisions = cleanRows.map((r) => r.name.trim())
-    const subdivisionsByDivision = Object.fromEntries(
-      cleanRows.map((r) => [r.name.trim(), r.subdivisions.map((s) => s.trim()).filter(Boolean)])
+    const cleanRows = rows
+      .map((r) => ({
+        ...r,
+        name: r.name.trim(),
+        subdivisions: r.subdivisions.map((s) => ({ ...s, name: s.name.trim() })).filter((s) => s.name),
+      }))
+      .filter((r) => r.name)
+    const divisions = cleanRows.map((r) => r.name)
+    const subdivisionsByDivision = Object.fromEntries(cleanRows.map((r) => [r.name, r.subdivisions.map((s) => s.name)]))
+    const renames = { divisions: {}, subdivisions: {} }
+    for (const r of cleanRows) {
+      if (r.original && r.original !== r.name) renames.divisions[r.original] = r.name
+      const subRenames = Object.fromEntries(
+        r.subdivisions.filter((s) => s.original && s.original !== s.name).map((s) => [s.original, s.name])
+      )
+      if (Object.keys(subRenames).length) renames.subdivisions[r.original ?? r.name] = subRenames
+    }
+    const minAttendancePercent = Math.min(100, Math.max(0, Math.round(Number(minAttendance) || 0)))
+    await updateTeamStructure(
+      team.id,
+      { name, colorPrimary, minAttendancePercent, divisions, subdivisionsByDivision },
+      renames
     )
-    await updateTeam(team.id, { name, colorPrimary, divisions, subdivisionsByDivision })
+    // Re-baseline so a second rename in the same visit is computed against
+    // the names just saved, not the ones the page loaded with.
+    setRows(teamToDivisionRows({ divisions, subdivisionsByDivision }))
     setSaving(false)
     setSaved(true)
   }
@@ -89,6 +155,22 @@ export default function Settings() {
             Accent color
             <input type="color" value={colorPrimary} onChange={(e) => setColorPrimary(e.target.value)} />
           </label>
+          <label>
+            Minimum attendance to stay active (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={minAttendance}
+              onChange={(e) => setMinAttendance(e.target.value)}
+            />
+          </label>
+          <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
+            Students whose attendance falls under this are treated as inactive everywhere, even if
+            marked active by hand, and come back on their own once it recovers. 0 turns this off.
+            Marking someone inactive by hand always sticks.
+          </p>
         </div>
 
         <h2 style={{ marginTop: 20 }}>Divisions</h2>
@@ -96,19 +178,24 @@ export default function Settings() {
           Divisions split your team into its major groups (e.g. Mechanical, Controls) - a student can
           belong to one or several. Subdivisions are optional, smaller groups within a division (e.g.
           Design vs. Manufacturing) for more precise training and attendance targeting - most teams can
-          skip them. Edit any name in place; changes save when you click Save below.
+          skip them. Edit any name in place; changes save when you click Save below. Renaming one
+          renames it for every student in it, and removing one removes those students from it.
         </p>
 
         <div className="division-editor">
-          {rows.map((row) => (
+          {rows.map((row, i) => (
             <DivisionRow
               key={row.key}
               row={row}
+              canUp={i > 0}
+              canDown={i < rows.length - 1}
+              onMove={(direction) => moveDivision(row.key, direction)}
               onRename={(v) => renameDivision(row.key, v)}
               onRemove={() => removeDivision(row.key)}
               onAddSub={(v) => addSubdivision(row.key, v)}
-              onRenameSub={(i, v) => renameSubdivision(row.key, i, v)}
-              onRemoveSub={(i) => removeSubdivision(row.key, i)}
+              onRenameSub={(subKey, v) => renameSubdivision(row.key, subKey, v)}
+              onRemoveSub={(subKey) => removeSubdivision(row.key, subKey)}
+              onMoveSub={(subKey, direction) => moveSubdivision(row.key, subKey, direction)}
             />
           ))}
           {rows.length === 0 && <p className="muted">No divisions yet - everyone will be ungrouped.</p>}
@@ -125,12 +212,14 @@ export default function Settings() {
         </div>
       </form>
 
+      <EventsSection teamId={team?.id} />
       <CodesSection team={team} />
       <CommunityHoursSection teamId={team?.id} />
 
-      <h2>Team ID</h2>
+      <h2>Team number</h2>
       <p className="muted">
-        <code>{team?.id}</code> - share this with anyone who needs access, along with your team code.
+        <code>{team?.id}</code> - what people enter to join the team or log hours, together with the
+        matching code. It can't be changed.
       </p>
 
       <AccountSection />
@@ -166,6 +255,114 @@ function AccountSection() {
         {status === 'sent' && <span className="muted">Sent - check your inbox.</span>}
         {status === 'error' && <span className="form-error">Couldn't send the email - try again.</span>}
       </div>
+    </>
+  )
+}
+
+const emptyEvent = { name: '', date: '' }
+
+function EventsSection({ teamId }) {
+  const { data: events } = useEvents(teamId)
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyEvent)
+  const today = todayISO()
+
+  function startNew() {
+    setEditingId(null)
+    setForm(emptyEvent)
+    setShowForm(true)
+  }
+
+  function startEdit(event) {
+    setEditingId(event.id)
+    setForm({ name: event.name, date: event.date })
+    setShowForm(true)
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (editingId) updateEvent(teamId, editingId, form)
+    else addEvent(teamId, form)
+    setShowForm(false)
+  }
+
+  async function handleDelete(event) {
+    if (!confirm(`Delete "${event.name}"?`)) return
+    await deleteEvent(teamId, event.id)
+  }
+
+  return (
+    <>
+      <h2>Events</h2>
+      <p className="muted">
+        Upcoming events count down on the dashboard, nearest first. Past ones drop off the dashboard
+        but stay here until you delete them.
+      </p>
+      <div className="table-scroll" style={{ maxWidth: 560 }}>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((event) => (
+              <tr key={event.id} className={event.date < today ? 'row-inactive' : ''}>
+                <td>{event.name}</td>
+                <td className="muted">{event.date}</td>
+                <td>
+                  <div className="row-actions">
+                    <button type="button" className="link-btn" onClick={() => startEdit(event)}>
+                      Edit
+                    </button>
+                    <button type="button" className="link-btn danger" onClick={() => handleDelete(event)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {events.length === 0 && (
+              <tr>
+                <td colSpan={3} className="empty-cell">
+                  No events yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <button type="button" className="secondary" onClick={startNew}>
+        + Add event
+      </button>
+
+      <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
+        <h2>{editingId ? 'Edit event' : 'New event'}</h2>
+        <div className="form-grid">
+          <label className="span-2">
+            Name
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Kickoff"
+              required
+            />
+          </label>
+          <label>
+            Date
+            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">{editingId ? 'Save' : 'Add'}</button>
+        </div>
+      </FormPanel>
     </>
   )
 }
@@ -224,9 +421,7 @@ function CodesSection({ team }) {
               Admin
             </span>
             <code>{reveal.admin ? team?.code : '••••••••'}</code>
-            <button type="button" className="link-btn" onClick={() => setReveal((r) => ({ ...r, admin: !r.admin }))}>
-              {reveal.admin ? 'Hide' : 'Show'}
-            </button>
+            <RevealButton revealed={reveal.admin} onClick={() => setReveal((r) => ({ ...r, admin: !r.admin }))} />
             <button type="button" className="link-btn" onClick={() => copy('admin', team?.code)}>
               {copied === 'admin' ? 'Copied!' : 'Copy'}
             </button>
@@ -236,9 +431,7 @@ function CodesSection({ team }) {
               Student
             </span>
             <code>{reveal.student ? team?.studentCode : '••••••••'}</code>
-            <button type="button" className="link-btn" onClick={() => setReveal((r) => ({ ...r, student: !r.student }))}>
-              {reveal.student ? 'Hide' : 'Show'}
-            </button>
+            <RevealButton revealed={reveal.student} onClick={() => setReveal((r) => ({ ...r, student: !r.student }))} />
             <button type="button" className="link-btn" onClick={() => copy('student', team?.studentCode)}>
               {copied === 'student' ? 'Copied!' : 'Copy'}
             </button>
@@ -253,11 +446,11 @@ function CodesSection({ team }) {
         <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
           <label>
             Admin code
-            <input type="password" value={adminCode} onChange={(e) => setAdminCode(e.target.value)} minLength={4} required />
+            <PasswordInput value={adminCode} onChange={(e) => setAdminCode(e.target.value)} minLength={4} required />
           </label>
           <label>
             Student code
-            <input type="password" value={studentCode} onChange={(e) => setStudentCode(e.target.value)} minLength={4} required />
+            <PasswordInput value={studentCode} onChange={(e) => setStudentCode(e.target.value)} minLength={4} required />
           </label>
           {error && <p className="form-error">{error}</p>}
           <div className="form-actions">
@@ -321,6 +514,10 @@ function CommunityHoursSection({ teamId }) {
     setTypes(types.filter((_, i) => i !== index))
   }
 
+  function moveType(index, direction) {
+    setTypes(swapNeighbours(types, (_, i) => i === index, direction))
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -347,7 +544,7 @@ function CommunityHoursSection({ teamId }) {
           {copiedLink ? 'Copied!' : 'Copy link'}
         </button>
         <br />
-        They'll need the team ID and the student code from above.
+        They'll need the team number and the student code from above.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
         <label>
@@ -365,7 +562,13 @@ function CommunityHoursSection({ teamId }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {types.length === 0 && <span className="muted">None yet</span>}
           {types.map((t, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6 }}>
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <MoveButtons
+                onUp={() => moveType(i, -1)}
+                onDown={() => moveType(i, 1)}
+                canUp={i > 0}
+                canDown={i < types.length - 1}
+              />
               <input
                 value={t}
                 onChange={(e) => renameType(i, e.target.value)}
@@ -411,7 +614,18 @@ function CommunityHoursSection({ teamId }) {
   )
 }
 
-function DivisionRow({ row, onRename, onRemove, onAddSub, onRenameSub, onRemoveSub }) {
+function DivisionRow({
+  row,
+  canUp,
+  canDown,
+  onMove,
+  onRename,
+  onRemove,
+  onAddSub,
+  onRenameSub,
+  onRemoveSub,
+  onMoveSub,
+}) {
   const [subInput, setSubInput] = useState('')
 
   function submitSub() {
@@ -422,6 +636,7 @@ function DivisionRow({ row, onRename, onRemove, onAddSub, onRenameSub, onRemoveS
   return (
     <div className="card" style={{ padding: 12, marginBottom: 8 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <MoveButtons onUp={() => onMove(-1)} onDown={() => onMove(1)} canUp={canUp} canDown={canDown} />
         <input
           value={row.name}
           onChange={(e) => onRename(e.target.value)}
@@ -435,13 +650,24 @@ function DivisionRow({ row, onRename, onRemove, onAddSub, onRenameSub, onRemoveS
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
         {row.subdivisions.map((sub, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6 }}>
+          <div key={sub.key} style={{ display: 'flex', gap: 6, alignItems: 'center', paddingLeft: 24 }}>
+            <MoveButtons
+              onUp={() => onMoveSub(sub.key, -1)}
+              onDown={() => onMoveSub(sub.key, 1)}
+              canUp={i > 0}
+              canDown={i < row.subdivisions.length - 1}
+            />
             <input
-              value={sub}
-              onChange={(e) => onRenameSub(i, e.target.value)}
+              value={sub.name}
+              onChange={(e) => onRenameSub(sub.key, e.target.value)}
               style={{ fontSize: 13, padding: '5px 8px', flex: 1 }}
             />
-            <button type="button" className="link-btn danger" onClick={() => onRemoveSub(i)} aria-label={`Remove ${sub}`}>
+            <button
+              type="button"
+              className="link-btn danger"
+              onClick={() => onRemoveSub(sub.key)}
+              aria-label={`Remove ${sub.name}`}
+            >
               Remove
             </button>
           </div>

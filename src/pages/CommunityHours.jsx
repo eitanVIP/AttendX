@@ -5,6 +5,8 @@ import { signInAnonymously } from 'firebase/auth'
 import { addDoc, collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { communityAuth, communityDb } from '../firebase'
 import { studentCommunityHours } from '../lib/calc'
+import PasswordInput from '../components/PasswordInput'
+import TeamNumberInput from '../components/TeamNumberInput'
 
 // Public, no-account page: a student enters their team's *student* code
 // (different from the admin code - see Teams.jsx) to unlock a simple
@@ -46,7 +48,7 @@ function friendlyError(err) {
     return 'This page is not enabled yet - ask your admin to turn on Anonymous sign-in in Firebase.'
   }
   if (err.code === 'permission-denied') {
-    return 'Team ID or student code is incorrect.'
+    return 'Team number or student code is incorrect.'
   }
   return `Something went wrong (${err.code || err.message || 'unknown error'}). Please try again.`
 }
@@ -63,7 +65,6 @@ function CodeStep({ onVerified }) {
     setError('')
     setSubmitting(true)
     try {
-      const cleanTeamId = teamId.trim().toLowerCase()
       // Read the uid off the resolved credential rather than
       // communityAuth.currentUser - more robust against any timing gap
       // between sign-in resolving and the auth instance's own state update.
@@ -74,23 +75,25 @@ function CodeStep({ onVerified }) {
       // studentAccess create rule in firestore.rules. Must use communityDb
       // (bound to the same named app as communityAuth) - the default `db`
       // doesn't know about this app's signed-in user at all.
-      await setDoc(doc(communityDb, 'studentAccess', uid), { teamId: cleanTeamId, code })
+      await setDoc(doc(communityDb, 'studentAccess', uid), { teamId, code })
 
       const [studentsSnap, settingsSnap, logsSnap] = await Promise.all([
-        getDocs(collection(communityDb, 'teams', cleanTeamId, 'students')),
-        getDoc(doc(communityDb, 'teams', cleanTeamId, 'settings', 'community')),
-        getDocs(collection(communityDb, 'teams', cleanTeamId, 'communityLogs')),
+        getDocs(collection(communityDb, 'teams', teamId, 'students')),
+        getDoc(doc(communityDb, 'teams', teamId, 'settings', 'community')),
+        getDocs(collection(communityDb, 'teams', teamId, 'communityLogs')),
       ])
+      // Inactive students are listed too: someone under the attendance
+      // minimum still needs to log their hours, and this page can't tell
+      // them apart from anyone else anyway.
       const students = studentsSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((s) => s.status !== 'inactive')
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
       const settingsData = settingsSnap.exists() ? settingsSnap.data() : {}
       const logs = logsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
 
-      saveLogHoursCode(cleanTeamId, code)
+      saveLogHoursCode(teamId, code)
       onVerified({
-        teamId: cleanTeamId,
+        teamId,
         students,
         types: settingsData.types || [],
         hoursTarget: settingsData.hoursTarget || 0,
@@ -105,14 +108,14 @@ function CodeStep({ onVerified }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <p className="login-sub">Enter your team ID and the student code your mentors gave you.</p>
+      <p className="login-sub">Enter your team number and the student code your mentors gave you.</p>
       <label>
-        Team ID
-        <input value={teamId} onChange={(e) => setTeamId(e.target.value)} placeholder="e.g. team3211" required />
+        Team number
+        <TeamNumberInput value={teamId} onChange={setTeamId} />
       </label>
       <label>
         Student code
-        <input type="password" value={code} onChange={(e) => setCode(e.target.value)} required />
+        <PasswordInput value={code} onChange={(e) => setCode(e.target.value)} required />
       </label>
       {error && <p className="form-error">{error}</p>}
       <button type="submit" disabled={submitting}>

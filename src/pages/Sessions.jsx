@@ -1,21 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
+import MoveButtons from '../components/MoveButtons'
 import { useAllAttendance, useSessions, useStudents } from '../lib/firestore-hooks'
-import { ATTENDANCE_STATUSES, isSessionRelevantToStudent } from '../lib/calc'
-import { addSession, clearAttendance, deleteSession, setAttendance, updateSession } from '../lib/actions'
+import { useMatrixLayout } from '../lib/useMatrixLayout'
+import { ATTENDANCE_STATUSES, isSessionRelevantToStudent, swappedRows, todayISO } from '../lib/calc'
+import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
+import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const today = () => new Date().toISOString().slice(0, 10)
-
-const emptyForm = { date: today(), name: '', targetDivision: 'all' }
+const emptyForm = { date: todayISO(), name: '', targetDivision: 'all' }
 
 const STATUS_LABELS = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' }
 
 export default function Sessions() {
   const { team } = useAuth()
   const { data: sessions, loading } = useSessions(team?.id)
-  const { data: students, loading: studentsLoading } = useStudents(team?.id)
+  const { data: students, loading: studentsLoading } = useStudents(team)
   const { data: attendance, loading: attLoading } = useAllAttendance(team?.id)
   const [divisionFilter, setDivisionFilter] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -23,7 +24,6 @@ export default function Sessions() {
   const [form, setForm] = useState(emptyForm)
 
   const divisions = useMemo(() => team?.divisions || [], [team])
-  const activeStudents = useMemo(() => students.filter((s) => s.status !== 'inactive'), [students])
 
   const statusBySessionAndStudent = useMemo(() => {
     const map = {}
@@ -40,13 +40,13 @@ export default function Sessions() {
     )
   }, [sessions, divisionFilter])
 
-  const sorted = useMemo(() => [...visible].sort((a, b) => (a.date < b.date ? 1 : -1)), [visible])
-
   // Group by division so there's always a clear heading over each block of
-  // rows - mirrors the Trainings page layout for consistency.
+  // rows - mirrors the Trainings page layout for consistency. Inactive
+  // students stay in as dimmed columns so their attendance can still be
+  // recorded (and, under the attendance minimum, recover).
   const groups = useMemo(() => {
     const byDivision = new Map()
-    for (const s of sorted) {
+    for (const s of visible) {
       const key = s.targetDivision && s.targetDivision !== 'all' ? s.targetDivision : null
       if (!byDivision.has(key)) byDivision.set(key, [])
       byDivision.get(key).push(s)
@@ -59,15 +59,16 @@ export default function Sessions() {
       .map((key) => ({
         title: key || 'General (all students)',
         sessions: byDivision.get(key),
-        columnStudents: key ? activeStudents.filter((s) => s.divisions.includes(key)) : activeStudents,
+        columnStudents: key ? students.filter((s) => s.divisions.includes(key)) : students,
       }))
-  }, [sorted, divisions, divisionFilter, activeStudents])
+  }, [visible, divisions, divisionFilter, students])
 
   function handleSubmit(e) {
     e.preventDefault()
     if (editingId) {
       updateSession(team.id, editingId, form)
     } else {
+      rememberForm('sessions', form, 'name')
       addSession(team.id, form)
     }
     setShowForm(false)
@@ -75,7 +76,7 @@ export default function Sessions() {
 
   function startEdit(session) {
     setForm({
-      date: session.date || today(),
+      date: session.date || todayISO(),
       name: session.name || '',
       targetDivision: session.targetDivision || 'all',
     })
@@ -93,46 +94,56 @@ export default function Sessions() {
     else await clearAttendance(team.id, sessionId, studentId)
   }
 
+  // Swaps with the neighbour within the group's rows; the full collection
+  // is what gets renumbered.
+  function move(groupSessions, index, direction) {
+    const neighbour = groupSessions[index + direction]
+    if (!neighbour) return
+    reorderDocs(team.id, 'sessions', swappedRows(sessions, groupSessions[index].id, neighbour.id))
+  }
+
   if (loading || studentsLoading || attLoading) return <div className="page-loading">Loading sessions…</div>
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div>
-          <h1>Attendance</h1>
-          <p className="muted" style={{ marginTop: -12 }}>
-            Pick a status for each student directly in the table below.
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setEditingId(null)
-            setForm(emptyForm)
-            setShowForm(true)
-          }}
-        >
-          + New session
-        </button>
-      </div>
-
-      <NoDivisionsNotice team={team} />
-
-      <div className="filter-row">
-        <button className={!divisionFilter ? 'chip active' : 'chip'} onClick={() => setDivisionFilter('')}>
-          All ({sessions.length})
-        </button>
-        {divisions.map((d) => (
+      <div className="page-toolbar">
+        <div className="page-header">
+          <div>
+            <h1>Attendance</h1>
+            <p className="muted" style={{ marginTop: -12 }}>
+              Pick a status for each student directly in the table below.
+            </p>
+          </div>
           <button
-            key={d}
-            className={divisionFilter === d ? 'chip active' : 'chip'}
-            onClick={() => setDivisionFilter(d)}
+            onClick={() => {
+              setEditingId(null)
+              setForm(withLastValues('sessions', emptyForm))
+              setShowForm(true)
+            }}
           >
-            {d} ({sessions.filter((s) => !s.targetDivision || s.targetDivision === 'all' || s.targetDivision === d).length})
+            + New session
           </button>
-        ))}
+        </div>
+
+        <NoDivisionsNotice team={team} />
+
+        <div className="filter-row">
+          <button className={!divisionFilter ? 'chip active' : 'chip'} onClick={() => setDivisionFilter('')}>
+            All ({sessions.length})
+          </button>
+          {divisions.map((d) => (
+            <button
+              key={d}
+              className={divisionFilter === d ? 'chip active' : 'chip'}
+              onClick={() => setDivisionFilter(d)}
+            >
+              {d} ({sessions.filter((s) => s.targetDivision === d).length})
+            </button>
+          ))}
+        </div>
       </div>
 
-      <FormPanel open={showForm} onSubmit={handleSubmit}>
+      <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>{editingId ? 'Edit session' : 'New session'}</h2>
         <div className="form-grid">
           <label>
@@ -185,6 +196,7 @@ export default function Sessions() {
           statusBySessionAndStudent={statusBySessionAndStudent}
           onEdit={startEdit}
           onDelete={handleDelete}
+          onMove={(index, direction) => move(group.sessions, index, direction)}
           onStatusChange={handleStatusChange}
         />
       ))}
@@ -193,41 +205,45 @@ export default function Sessions() {
   )
 }
 
-function SessionGroupTable({ title, sessions, students, statusBySessionAndStudent, onEdit, onDelete, onStatusChange }) {
+function SessionGroupTable({ title, sessions, students, statusBySessionAndStudent, onEdit, onDelete, onMove, onStatusChange }) {
+  const tableRef = useRef(null)
+  useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
+
   return (
     <>
       <h2>{title}</h2>
       <div className="table-scroll">
-        <table className="data-table matrix">
+        <table className="data-table matrix" ref={tableRef}>
           <thead>
             <tr>
               <th className="matrix-name-col">Session</th>
               {students.map((s) => (
-                <th key={s.id} className="matrix-student-col">
+                <th key={s.id} className={`matrix-student-col ${s.active ? '' : 'col-inactive'}`} title={s.active ? undefined : 'Inactive'}>
                   {s.fullName}
                 </th>
               ))}
-              <th></th>
+              <th className="matrix-actions-col"></th>
             </tr>
           </thead>
           <tbody>
-            {sessions.map((session) => (
+            {sessions.map((session, i) => (
               <tr key={session.id}>
                 <td className="matrix-name-col">
                   <strong>{session.name}</strong>
                   <div className="muted">{session.date}</div>
                 </td>
                 {students.map((s) => {
+                  const cellClass = `matrix-student-col ${s.active ? '' : 'col-inactive'}`
                   if (!isSessionRelevantToStudent(session, s)) {
                     return (
-                      <td key={s.id} className="matrix-student-col muted">
+                      <td key={s.id} className={`${cellClass} muted`}>
                         –
                       </td>
                     )
                   }
                   const status = statusBySessionAndStudent[`${session.id}_${s.id}`]
                   return (
-                    <td key={s.id} className="matrix-student-col">
+                    <td key={s.id} className={cellClass}>
                       <select
                         className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
                         value={status || ''}
@@ -243,8 +259,14 @@ function SessionGroupTable({ title, sessions, students, statusBySessionAndStuden
                     </td>
                   )
                 })}
-                <td>
+                <td className="matrix-actions-col">
                   <div className="row-actions">
+                    <MoveButtons
+                      onUp={() => onMove(i, -1)}
+                      onDown={() => onMove(i, 1)}
+                      canUp={i > 0}
+                      canDown={i < sessions.length - 1}
+                    />
                     <button className="link-btn" onClick={() => onEdit(session)}>
                       Edit
                     </button>

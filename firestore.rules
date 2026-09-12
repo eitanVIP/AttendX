@@ -58,10 +58,13 @@ service cloud.firestore {
 
     match /teams/{teamId} {
       allow read, update, delete: if hasAccess(teamId);
-      // Claiming a brand-new team id: any authenticated user can create it
+      // Claiming a brand-new team: any authenticated user can create it
       // exactly once, choosing its admin code and student code. Existing
-      // teams can't be overwritten this way.
+      // teams can't be overwritten this way. The id is the FRC team number
+      // (1-5 digits, no leading zero) - the same shape TeamNumberInput
+      // accepts in the app.
       allow create: if request.auth != null
+        && teamId.matches('^[1-9][0-9]{0,4}$')
         && request.resource.data.code is string && request.resource.data.code.size() >= 4
         && request.resource.data.studentCode is string && request.resource.data.studentCode.size() >= 4;
     }

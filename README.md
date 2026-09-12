@@ -10,7 +10,9 @@ app.
   their own Firebase Auth account (email + password) - `src/context/AuthContext.jsx`.
   Creating an account doesn't require a team at all.
 - Each FRC team is a plain Firestore document (`teams/{teamId}`, with a
-  `code` field) rather than an account of its own.
+  `code` field) rather than an account of its own. The document id is the
+  team's FRC number (e.g. `3211`) - it's chosen once at creation and can't
+  be changed afterwards.
 - Which teams a person belongs to is Firestore data too: a
   `users/{uid}/memberships/{teamId}` doc. It can only be created when the
   submitted code matches that team's `code` (enforced in `firestore.rules`),
@@ -42,9 +44,9 @@ npm run dev
 2. Firebase Console -> Firestore Database -> Create database (production mode).
 3. Firestore -> Rules tab -> paste in `firestore.rules` -> Publish (or use the
    CLI commands below).
-4. Open the app, create an account, then use "Create a team" to set up
-   team3211 / team4744 (or run the seed script below for team3211's real
-   roster and just "Join a team" with the code you passed it).
+4. Open the app, create an account, then use "Create a team" with your FRC
+   team number (or run the seed script below for team 3211's real roster and
+   just "Join a team" with the code you passed it).
 
 Key commands once the Firebase project exists:
 

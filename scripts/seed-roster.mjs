@@ -40,13 +40,14 @@ await setDoc(doc(db, 'users', auth.currentUser.uid, 'memberships', teamId), { co
 // normalizeStudent accepts both the current shape (divisions[] +
 // subdivisions{}) and the original single division/subdivision pair, so
 // roster files written for either still import correctly.
-for (const { id, ...student } of students) {
+for (const [index, { id, ...student }] of students.entries()) {
   await setDoc(doc(db, 'teams', teamId, 'students', id), {
     joinDate: null,
     notes: '',
+    order: index,
     ...normalizeStudent(student),
   })
 }
 console.log(`Wrote ${students.length} students`)
-console.log(`Sign up/sign in at the app, then use "Join a team" with team ID "${teamId}" and the code you chose.`)
+console.log(`Sign up/sign in at the app, then use "Join a team" with team number ${teamId} and the code you chose.`)
 process.exit(0)

@@ -2,23 +2,44 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
-import { useAllAttendance, useCommunityLogs, useCommunitySettings, useStudents, useTrainings } from '../lib/firestore-hooks'
-import { certProgress, studentCommunityHours, summarizeAttendance } from '../lib/calc'
+import {
+  useAllAttendance,
+  useCommunityLogs,
+  useCommunitySettings,
+  useEvents,
+  useNow,
+  useStudents,
+  useTrainings,
+} from '../lib/firestore-hooks'
+import {
+  certProgress,
+  eventCountdown,
+  studentCommunityHours,
+  summarizeAttendance,
+  trainingCompletionByGrade,
+} from '../lib/calc'
 
 export default function Dashboard() {
   const { team } = useAuth()
-  const { data: students, loading: studentsLoading } = useStudents(team?.id)
+  const { data: students, loading: studentsLoading } = useStudents(team)
   const { data: trainings, loading: trainingsLoading } = useTrainings(team?.id)
   const { data: attendance, loading: attLoading } = useAllAttendance(team?.id)
   const { data: communityLogs, loading: logsLoading } = useCommunityLogs(team?.id)
   const { settings: communitySettings, loading: settingsLoading } = useCommunitySettings(team?.id)
+  const { data: events } = useEvents(team?.id)
 
-  const activeStudents = useMemo(() => students.filter((s) => s.status !== 'inactive'), [students])
+  const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
   const certifications = useMemo(() => trainings.filter((t) => t.category === 'professional'), [trainings])
+  const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
+
+  const completionByGrade = useMemo(
+    () => trainingCompletionByGrade(students, regularTrainings, team?.divisions || []),
+    [students, regularTrainings, team?.divisions]
+  )
 
   const attendanceByStudent = useMemo(() => {
     const grouped = {}
-    for (const s of activeStudents) grouped[s.id] = []
+    for (const s of students) grouped[s.id] = []
     for (const r of attendance) {
       if (grouped[r.studentId]) grouped[r.studentId].push(r)
     }
@@ -27,14 +48,16 @@ export default function Dashboard() {
       summaries[id] = summarizeAttendance(records)
     }
     return summaries
-  }, [attendance, activeStudents])
+  }, [attendance, students])
 
+  // Everyone, inactive included (dimmed) - the students with the lowest
+  // attendance are exactly the ones this chart is for.
   const attendanceBars = useMemo(
     () =>
-      activeStudents
+      students
         .map((s) => ({ student: s, percent: attendanceByStudent[s.id]?.percent ?? null }))
         .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)),
-    [activeStudents, attendanceByStudent]
+    [students, attendanceByStudent]
   )
 
   const divisionStats = useMemo(() => {
@@ -70,11 +93,21 @@ export default function Dashboard() {
 
       <NoDivisionsNotice team={team} />
 
+      <EventCountdowns events={events} />
+
       <div className="stat-cards">
         <div className="card stat-card">
           <span className="stat-label">Active students</span>
-          <span className="stat-value">{activeStudents.length}</span>
-          <span className="muted">{students.length - activeStudents.length} inactive</span>
+          <span className="stat-value">
+            {activeStudents.length}
+            <span className="stat-value-sub">
+              {' '}
+              · {students.length ? Math.round((activeStudents.length / students.length) * 100) : 0}%
+            </span>
+          </span>
+          <span className="muted">
+            of {students.length} total · {students.length - activeStudents.length} inactive
+          </span>
         </div>
         {communitySettings.hoursTarget > 0 && (
           <div className="card stat-card">
@@ -153,13 +186,41 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+
+          <h2>Training completion by grade</h2>
+          <div className="card bar-chart grade-chart">
+            {completionByGrade.map(({ division, rows }) => (
+              <div key={division} className="grade-chart-block">
+                <div className="grade-chart-division">{division}</div>
+                {rows.map((row) => (
+                  <div
+                    key={row.grade}
+                    className="bar-row"
+                    title={`${row.completed} of ${row.total} trainings completed across ${row.students} student${row.students === 1 ? '' : 's'}`}
+                  >
+                    <span className="bar-row-name">{row.grade}</span>
+                    <span className="bar-row-track">
+                      <span className="bar-row-fill" style={{ width: `${row.percent ?? 0}%` }} />
+                    </span>
+                    <span className="bar-row-value">{row.percent === null ? '—' : `${row.percent}%`}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {completionByGrade.length === 0 && <p className="muted">No trainings apply to any active student yet.</p>}
+          </div>
         </div>
 
         <div className="dashboard-col">
           <h2>Attendance by student</h2>
           <div className="card bar-chart">
             {attendanceBars.map(({ student, percent }) => (
-              <Link to={`/students/${student.id}`} key={student.id} className="bar-row">
+              <Link
+                to={`/students/${student.id}`}
+                key={student.id}
+                className={`bar-row ${student.active ? '' : 'row-inactive'}`}
+                title={student.active ? undefined : 'Inactive'}
+              >
                 <span className="bar-row-name">{student.fullName}</span>
                 <span className="bar-row-track">
                   <span className="bar-row-fill" style={{ width: `${percent ?? 0}%` }} />
@@ -167,10 +228,55 @@ export default function Dashboard() {
                 <span className="bar-row-value">{percent === null ? '—' : `${percent}%`}</span>
               </Link>
             ))}
-            {attendanceBars.length === 0 && <p className="muted">No active students yet.</p>}
+            {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+const pad = (n) => String(n).padStart(2, '0')
+
+function EventCountdowns({ events }) {
+  const now = useNow(1000)
+  const upcoming = events
+    .map((event) => ({ ...event, countdown: eventCountdown(event.date, now) }))
+    .filter((event) => !event.countdown.past)
+  if (upcoming.length === 0) return null
+  const [next, ...rest] = upcoming
+  return (
+    <div className="events">
+      <EventCard event={next} hero />
+      {rest.length > 0 && (
+        <div className="events-rest">
+          {rest.map((event) => (
+            <EventCard key={event.id} event={event} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EventCard({ event, hero }) {
+  const { countdown } = event
+  const time = `${pad(countdown.hours)}:${pad(countdown.minutes)}:${pad(countdown.seconds)}`
+  return (
+    <div className={`card event-card ${hero ? 'event-hero' : ''}`}>
+      <span className="stat-label">{hero ? 'Next event' : 'Upcoming'}</span>
+      <span className="event-name">{event.name}</span>
+      <span className="event-countdown">
+        {countdown.today ? (
+          'Today'
+        ) : (
+          <>
+            {countdown.days}
+            <span className="event-unit">d</span> {time}
+          </>
+        )}
+      </span>
+      <span className="muted">{event.date}</span>
     </div>
   )
 }

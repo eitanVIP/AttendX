@@ -3,16 +3,17 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
+import MoveButtons from '../components/MoveButtons'
 import { useStudents } from '../lib/firestore-hooks'
-import { addStudent, deleteStudent, updateStudent } from '../lib/actions'
-
-const GRADES = ['ט', 'י', 'יא', 'יב']
+import { GRADES, activityLabel, swappedRows } from '../lib/calc'
+import { addStudent, deleteStudent, reorderDocs, updateStudent } from '../lib/actions'
+import { rememberForm, withLastValues } from '../lib/formMemory'
 
 const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', notes: '' }
 
 export default function Students() {
   const { team } = useAuth()
-  const { data: students, loading } = useStudents(team?.id)
+  const { data: students, loading } = useStudents(team)
   const [filterDivision, setFilterDivision] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
@@ -43,7 +44,7 @@ export default function Students() {
 
   function startNew() {
     setEditingId(null)
-    setForm(emptyForm)
+    setForm(withLastValues('students', emptyForm))
     setFormError('')
     setShowForm(true)
   }
@@ -81,6 +82,7 @@ export default function Students() {
     if (editingId) {
       updateStudent(team.id, editingId, form)
     } else {
+      rememberForm('students', form, 'fullName')
       addStudent(team.id, form)
     }
     setShowForm(false)
@@ -91,29 +93,39 @@ export default function Students() {
     await deleteStudent(team.id, id)
   }
 
+  // Swaps with the neighbour in the *visible* list, so moving works the
+  // same whether or not a division filter is on.
+  function move(index, direction) {
+    const neighbour = filtered[index + direction]
+    if (!neighbour) return
+    reorderDocs(team.id, 'students', swappedRows(students, filtered[index].id, neighbour.id))
+  }
+
   if (loading) return <div className="page-loading">Loading students…</div>
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>Students</h1>
-        <button onClick={startNew}>+ Add student</button>
-      </div>
+      <div className="page-toolbar">
+        <div className="page-header">
+          <h1>Students</h1>
+          <button onClick={startNew}>+ Add student</button>
+        </div>
 
-      <NoDivisionsNotice team={team} />
+        <NoDivisionsNotice team={team} />
 
-      <div className="filter-row">
-        <button className={filterDivision === 'all' ? 'chip active' : 'chip'} onClick={() => setFilterDivision('all')}>
-          All ({students.length})
-        </button>
-        {divisions.map((d) => (
-          <button key={d} className={filterDivision === d ? 'chip active' : 'chip'} onClick={() => setFilterDivision(d)}>
-            {d} ({students.filter((s) => s.divisions.includes(d)).length})
+        <div className="filter-row">
+          <button className={filterDivision === 'all' ? 'chip active' : 'chip'} onClick={() => setFilterDivision('all')}>
+            All ({students.length})
           </button>
-        ))}
+          {divisions.map((d) => (
+            <button key={d} className={filterDivision === d ? 'chip active' : 'chip'} onClick={() => setFilterDivision(d)}>
+              {d} ({students.filter((s) => s.divisions.includes(d)).length})
+            </button>
+          ))}
+        </div>
       </div>
 
-      <FormPanel open={showForm} onSubmit={handleSubmit}>
+      <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>{editingId ? 'Edit student' : 'New student'}</h2>
         <div className="form-grid">
           <label className="span-2">
@@ -204,8 +216,8 @@ export default function Students() {
           </tr>
         </thead>
         <tbody>
-          {filtered.map((s) => (
-            <tr key={s.id} className={s.status === 'inactive' ? 'row-inactive' : ''}>
+          {filtered.map((s, i) => (
+            <tr key={s.id} className={s.active ? '' : 'row-inactive'}>
               <td>
                 <Link to={`/students/${s.id}`}>{s.fullName}</Link>
               </td>
@@ -213,10 +225,25 @@ export default function Students() {
               <td>{s.divisions.flatMap((d) => s.subdivisions[d] || []).join(', ')}</td>
               <td>{s.grade}</td>
               <td>
-                <span className={`badge ${s.status === 'inactive' ? 'badge-muted' : 'badge-ok'}`}>{s.status}</span>
+                <span
+                  className={`badge ${s.active ? 'badge-ok' : 'badge-muted'}`}
+                  title={
+                    s.autoInactive
+                      ? `Attendance ${s.attendancePercent}% is under the team's ${team.minAttendancePercent}% minimum`
+                      : undefined
+                  }
+                >
+                  {activityLabel(s)}
+                </span>
               </td>
               <td>
                 <div className="row-actions">
+                  <MoveButtons
+                    onUp={() => move(i, -1)}
+                    onDown={() => move(i, 1)}
+                    canUp={i > 0}
+                    canDown={i < filtered.length - 1}
+                  />
                   <button className="link-btn" onClick={() => startEdit(s)}>
                     Edit
                   </button>

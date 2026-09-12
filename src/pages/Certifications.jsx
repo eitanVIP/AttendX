@@ -4,18 +4,19 @@ import FormPanel from '../components/FormPanel'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import { certHolders, certProgress } from '../lib/calc'
 import { addTraining, deleteTraining, updateTraining } from '../lib/actions'
+import { rememberForm, withLastValues } from '../lib/formMemory'
 
 const emptyForm = { name: '', targetCount: '', targetDate: '', scopeDivision: '', requiredTrainingIds: [] }
 
 export default function Certifications() {
   const { team } = useAuth()
-  const { data: students } = useStudents(team?.id)
+  const { data: students } = useStudents(team)
   const { data: allTrainings, loading } = useTrainings(team?.id)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
 
   const divisions = useMemo(() => team?.divisions || [], [team])
-  const activeStudents = useMemo(() => students.filter((s) => s.status !== 'inactive'), [students])
+  const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
   const certifications = useMemo(() => allTrainings.filter((t) => t.category === 'professional'), [allTrainings])
   // A cert's required trainings can only come from its own division (or, for
   // a division-less "General" cert, only from other division-less
@@ -40,12 +41,13 @@ export default function Certifications() {
       .filter((key, i) => order.indexOf(key) === i && byDivision.has(key))
       .map((key) => ({
         title: key || 'General',
-        certs: [...byDivision.get(key)].sort((a, b) => a.name.localeCompare(b.name)),
+        certs: byDivision.get(key),
       }))
   }, [certifications, divisions])
 
   function handleSubmit(e) {
     e.preventDefault()
+    rememberForm('certifications', form, 'name')
     addTraining(team.id, {
       name: form.name,
       category: 'professional',
@@ -54,7 +56,6 @@ export default function Certifications() {
       targetDate: form.targetDate || null,
       targetCount: form.targetCount ? Number(form.targetCount) : activeStudents.length,
       requiredTrainingIds: form.requiredTrainingIds,
-      order: 0,
     })
     setShowForm(false)
   }
@@ -63,25 +64,27 @@ export default function Certifications() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div>
-          <h1>Certifications</h1>
-          <p className="muted" style={{ marginTop: -12 }}>
-            Professional / machine certifications - earned automatically once a student completes every
-            training you mark as required. Every one counts, so make them count for something real.
-          </p>
+      <div className="page-toolbar">
+        <div className="page-header">
+          <div>
+            <h1>Certifications</h1>
+            <p className="muted" style={{ marginTop: -12 }}>
+              Professional / machine certifications - earned automatically once a student completes every
+              training you mark as required. Every one counts, so make them count for something real.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setForm(withLastValues('certifications', emptyForm))
+              setShowForm(true)
+            }}
+          >
+            + Add certification
+          </button>
         </div>
-        <button
-          onClick={() => {
-            setForm(emptyForm)
-            setShowForm(true)
-          }}
-        >
-          + Add certification
-        </button>
       </div>
 
-      <FormPanel open={showForm} onSubmit={handleSubmit}>
+      <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>New certification</h2>
         <div className="form-grid">
           <label className="span-2">
@@ -219,7 +222,7 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
     e.preventDefault()
     updateTraining(teamId, cert.id, {
       name: editForm.name,
-      targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.status !== 'inactive').length,
+      targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.active).length,
       targetDate: editForm.targetDate || null,
       scopeDivision: editForm.scopeDivision || null,
       requiredTrainingIds: editForm.requiredTrainingIds,
@@ -327,7 +330,11 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
       <div className="cert-holders">
         {holders.length === 0 && <span className="muted">Nobody certified yet</span>}
         {holders.map((s) => (
-          <span key={s.id} className="badge cert-holder-chip">
+          <span
+            key={s.id}
+            className={`badge ${s.active ? 'cert-holder-chip' : 'badge-muted'}`}
+            title={s.active ? undefined : 'Inactive - not counted toward the target'}
+          >
             {s.fullName}
           </span>
         ))}

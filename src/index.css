@@ -20,6 +20,8 @@
   --warn-bg: #fef3c7;
   --warn-text: #92400e;
   --danger: #dc2626;
+  --danger-faint: color-mix(in srgb, var(--danger) 9%, var(--card-bg));
+  --danger-soft: color-mix(in srgb, var(--danger) 15%, var(--card-bg));
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
   font: 15px/1.5 var(--sans);
@@ -91,6 +93,21 @@ a {
   background: var(--card-bg);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* Wraps a page's title/description/add-button/filters so they stay visible
+   while its table scrolls underneath. --header-h (set in Layout.jsx) is
+   how it knows the sticky header's real height to sit just below it;
+   background matches the page so content scrolling behind is fully hidden. */
+.page-toolbar {
+  position: sticky;
+  top: var(--header-h, 0px);
+  z-index: 10;
+  background: var(--bg);
+  padding-bottom: 4px;
 }
 
 .brand {
@@ -355,6 +372,43 @@ input[type='color'] {
   width: 60px;
 }
 
+.password-field {
+  position: relative;
+  display: flex;
+}
+
+.password-field input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 38px;
+}
+
+.reveal-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  line-height: 0;
+}
+
+.reveal-btn:hover {
+  color: var(--text);
+}
+
+.reveal-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.password-field .reveal-btn {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 code {
   font-family: ui-monospace, Consolas, monospace;
   background: var(--border);
@@ -485,35 +539,99 @@ code {
   margin: 16px 0;
 }
 
-/* Add/edit panels (see FormPanel.jsx) - the exit duration here is mirrored
-   by EXIT_MS there, which is what keeps the panel mounted long enough for
-   it to play. */
-@keyframes panel-in {
+/* Add/edit modals (see FormPanel.jsx). The dialog element itself is the
+   full-screen overlay - painting the dim on it rather than ::backdrop lets
+   one opacity animation cover both the dim and the card. The exit duration
+   is mirrored by EXIT_MS in FormPanel.jsx, which keeps the dialog mounted
+   long enough for it to play. */
+dialog.modal[open] {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+dialog.modal::backdrop {
+  background: transparent;
+}
+
+body:has(dialog.modal[open]) {
+  overflow: hidden;
+}
+
+.modal-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 620px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-card h2 {
+  margin-top: 0;
+}
+
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateY(-8px);
   }
 }
 
 @keyframes panel-out {
   to {
-    opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-8px);
   }
 }
 
 .panel-open {
+  animation: fade-in 0.16s ease-out;
+}
+
+.panel-open .modal-card {
   animation: panel-in 0.16s ease-out;
 }
 
 .panel-closing {
-  animation: panel-out 0.16s ease-in forwards;
+  animation: fade-out 0.16s ease-in forwards;
   pointer-events: none;
+}
+
+.panel-closing .modal-card {
+  animation: panel-out 0.16s ease-in forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .panel-open,
-  .panel-closing {
+  .panel-closing,
+  .panel-open .modal-card,
+  .panel-closing .modal-card {
     animation-duration: 0.01ms;
   }
 }
@@ -542,6 +660,93 @@ code {
   font-size: 26px;
   font-weight: 700;
   color: var(--text-h);
+}
+
+.stat-value-sub {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* Event countdowns: the nearest event as a hero card, the rest as a row of
+   smaller ones beneath it. */
+.events {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+
+.event-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.event-countdown {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.event-unit {
+  font-size: 0.6em;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+.event-hero {
+  align-items: center;
+  text-align: center;
+  padding: 24px;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.event-hero .event-name {
+  font-size: 20px;
+}
+
+.event-hero .event-countdown {
+  font-size: 44px;
+  color: var(--accent);
+}
+
+.events-rest {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+/* Training completion by grade: one block per division, one bar per grade
+   - the grade label carries identity, so a single hue does. */
+.grade-chart {
+  gap: 14px;
+}
+
+.grade-chart-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.grade-chart-division {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.grade-chart .bar-row {
+  grid-template-columns: 36px 1fr 40px;
 }
 
 .bar-chart {
@@ -667,14 +872,21 @@ code {
 }
 
 /* Matrix variant (Attendance, Trainings): the same table as everywhere
-   else, plus a frozen first column so the per-student columns can scroll
-   under it.
+   else, plus frozen columns at both edges - the name column on the left,
+   progress/actions on the right - so the per-student columns scroll
+   between them. Column widths come from useMatrixLayout (see the
+   --student-col / --actions-col variables below), which is also why the
+   table is its natural width rather than the 100% other tables use: the
+   hook fills the container itself, without letting the browser stretch
+   the fixed columns.
    border-collapse: collapse has a long-standing Chromium bug when combined
    with position: sticky cells - row backgrounds/borders can paint offset
    from the sticky column, producing misaligned-line artifacts. separate
    with 0 spacing avoids it and looks identical here, since every cell
    already draws its own border-bottom. */
 .data-table.matrix {
+  width: auto;
+  min-width: 0;
   border-collapse: separate;
   border-spacing: 0;
   -webkit-tap-highlight-color: transparent;
@@ -683,6 +895,7 @@ code {
 .data-table.matrix th,
 .data-table.matrix td {
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 /* Fixed rather than min-width so Attendance and Trainings end up with the
@@ -696,38 +909,94 @@ code {
   overflow-wrap: anywhere;
 }
 
-.matrix-name-col {
+.matrix-name-col,
+.matrix-progress-col,
+.matrix-actions-col {
   position: sticky;
-  left: 0;
   z-index: 1;
   background: var(--card-bg);
   /* Forces its own compositing layer so mobile browsers don't let scrolled
-     content bleed through the frozen column. will-change (not
+     content bleed through the frozen columns. will-change (not
      transform: translateZ(0)) avoids the subpixel rounding that misaligned
-     this column against the rest of the row. */
+     these columns against the rest of the row. */
   will-change: transform;
   /* At fractional row heights the next frozen cell's opaque background
      laps over the previous row's 1px border-bottom, so the separator
-     visibly stops where this column ends. Drawing it as an inset shadow
+     visibly stops where the column ends. Drawing it as an inset shadow
      keeps it inside the cell, where nothing can paint over it. */
   border-bottom-color: transparent;
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
-.data-table.matrix tbody tr:last-child .matrix-name-col {
+.matrix-name-col {
+  left: 0;
+}
+
+/* Both right-hand frozen columns are nudged rightwards so each overlaps
+   its neighbour by exactly 1px: sticky cells land on fractional positions,
+   which otherwise leaves a hairline seam between them - and at the
+   scrollport's edge - where the cells scrolling underneath show through.
+   The actions cell goes 1px past the edge (clipped by the scroll
+   container, costing only padding); the progress cell follows that 1px
+   and adds 1px of its own, hidden under the actions cell since later DOM
+   order paints on top. */
+.matrix-actions-col {
+  right: -1px;
+}
+
+.data-table.matrix .matrix-progress-col {
+  right: calc(var(--actions-col, 0px) - 2px);
+  text-align: center;
+}
+
+.data-table.matrix tbody tr:last-child .matrix-name-col,
+.data-table.matrix tbody tr:last-child .matrix-progress-col,
+.data-table.matrix tbody tr:last-child .matrix-actions-col {
   box-shadow: none;
 }
 
-thead .matrix-name-col {
+thead .matrix-name-col,
+thead .matrix-progress-col,
+thead .matrix-actions-col {
   z-index: 2;
 }
 
-.matrix-student-col {
+/* Higher specificity than `.data-table th/td { text-align: left }`, which
+   was otherwise winning and leaving names and checkboxes left-aligned. */
+.data-table.matrix .matrix-student-col {
   text-align: center;
-  min-width: 44px;
+  width: var(--student-col, auto);
+  min-width: var(--student-col, 44px);
+}
+
+/* Trainings whose due date has passed with students still missing. Opaque
+   (mixed against the card colour) for the same reason as --accent-faint:
+   the frozen columns can't be see-through. */
+.row-overdue td {
+  background: var(--danger-faint);
+}
+
+.data-table tbody tr.row-overdue:hover td {
+  background: var(--danger-soft);
+}
+
+.row-overdue .due-cell {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .row-inactive {
+  opacity: 0.55;
+}
+
+/* An inactive student's column in the matrix tables - still there (and
+   still markable), just visibly not counted. Opacity on the cell contents
+   rather than the cell so the row's hover/overdue background stays solid. */
+.col-inactive > * {
+  opacity: 0.45;
+}
+
+th.col-inactive {
   opacity: 0.55;
 }
 
@@ -735,6 +1004,18 @@ thead .matrix-name-col {
   display: flex;
   gap: 6px;
   justify-content: center;
+  align-items: center;
+}
+
+.move-btn {
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.move-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .empty-cell {
@@ -970,6 +1251,55 @@ thead .matrix-name-col {
   gap: 8px;
   color: var(--text);
   font-size: 14px;
+}
+
+/* Student profile: a certification as a collapsible heading over its
+   trainings table */
+.training-group {
+  margin-bottom: 20px;
+}
+
+.training-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.training-group-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.training-group .table-scroll {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.disclosure {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.disclosure svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+
+.disclosure[aria-expanded='true'] svg {
+  transform: rotate(90deg);
 }
 
 /* Attendance status buttons */

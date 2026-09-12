@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from './Logo'
@@ -16,6 +16,20 @@ export default function Layout() {
   const { team, memberships, logout } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const location = useLocation()
+  const headerRef = useRef(null)
+
+  // Sticky page toolbars (see .page-toolbar) need to sit right below the
+  // sticky header, whose height varies (wraps on narrow widths, different
+  // font metrics per OS) - so it's measured rather than hardcoded, same
+  // pattern as the accent colour var in AuthContext.
+  useEffect(() => {
+    const header = headerRef.current
+    const set = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`)
+    set()
+    const observer = new ResizeObserver(set)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const current = links.find((l) =>
@@ -26,7 +40,7 @@ export default function Layout() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
+      <header className="app-header" ref={headerRef}>
         <button className="nav-toggle" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
           <span />
           <span />

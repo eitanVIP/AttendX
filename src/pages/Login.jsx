@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/Logo'
+import PasswordInput from '../components/PasswordInput'
 
 function friendlyError(err) {
   switch (err.code) {
@@ -92,8 +93,7 @@ function SignInForm() {
       </label>
       <label>
         Password
-        <input
-          type="password"
+        <PasswordInput
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
@@ -141,8 +141,7 @@ function SignUpForm() {
       </label>
       <label>
         Password
-        <input
-          type="password"
+        <PasswordInput
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"

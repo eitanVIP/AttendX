@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore'
+import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
-import { normalizeStudent } from './calc'
+import { normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
 
-function useCollection(path, orderByField) {
+const byName = (a, b) => (a.fullName || a.name || '').localeCompare(b.fullName || b.name || '')
+const byDate = (a, b) => (a.date || '').localeCompare(b.date || '')
+
+function useCollection(path) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -11,10 +14,8 @@ function useCollection(path, orderByField) {
   useEffect(() => {
     if (!path) return
     setLoading(true)
-    const ref = collection(db, ...path)
-    const q = orderByField ? query(ref, orderBy(orderByField)) : ref
     const unsubscribe = onSnapshot(
-      q,
+      collection(db, ...path),
       (snap) => {
         setData(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
         setLoading(false)
@@ -26,23 +27,53 @@ function useCollection(path, orderByField) {
     )
     return unsubscribe
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(path), orderByField])
+  }, [JSON.stringify(path)])
 
   return { data, loading, error }
 }
 
-export function useStudents(teamId) {
-  const result = useCollection(teamId ? ['teams', teamId, 'students'] : null, 'fullName')
-  const data = useMemo(() => result.data.map(normalizeStudent), [result.data])
-  return { ...result, data }
+// Takes the whole team doc (not just its id) for two derived fields:
+//
+// - Any division/subdivision a student still references that the team no
+//   longer defines is hidden on read. Settings rewrites students when the
+//   structure changes, but this keeps a stale reference from surfacing
+//   regardless of how it got there; the doc is corrected the next time the
+//   student is edited or the structure is saved.
+// - `active` / `autoInactive`: a student is active unless marked inactive
+//   by hand or their attendance is under team.minAttendancePercent. The
+//   auto rule always wins over a manual "active" - it's derived here, never
+//   written, so it reverses by itself once attendance recovers. `status`
+//   stays the stored (manual) value so the edit form round-trips it.
+export function useStudents(team) {
+  const result = useCollection(team ? ['teams', team.id, 'students'] : null)
+  const minPercent = team?.minAttendancePercent || 0
+  const { data: attendance, loading: attendanceLoading } = useAllAttendance(minPercent > 0 ? team.id : null)
+
+  const data = useMemo(() => {
+    const recordsByStudent = {}
+    for (const r of attendance) (recordsByStudent[r.studentId] ??= []).push(r)
+    return sortByOrder(result.data, byName).map((raw) => {
+      const base = normalizeStudent(raw)
+      const student = { ...base, ...remapStudentDivisions(base, team) }
+      const percent = minPercent > 0 ? summarizeAttendance(recordsByStudent[student.id] || []).percent : null
+      const autoInactive = percent !== null && percent < minPercent
+      return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
+    })
+  }, [result.data, team, attendance, minPercent])
+
+  return { ...result, data, loading: result.loading || (minPercent > 0 && attendanceLoading) }
 }
 
 export function useTrainings(teamId) {
-  return useCollection(teamId ? ['teams', teamId, 'trainings'] : null, 'order')
+  const result = useCollection(teamId ? ['teams', teamId, 'trainings'] : null)
+  const data = useMemo(() => sortByOrder(result.data, byName), [result.data])
+  return { ...result, data }
 }
 
 export function useSessions(teamId) {
-  return useCollection(teamId ? ['teams', teamId, 'sessions'] : null, 'date')
+  const result = useCollection(teamId ? ['teams', teamId, 'sessions'] : null)
+  const data = useMemo(() => sortByOrder(result.data, byDate), [result.data])
+  return { ...result, data }
 }
 
 export function useSessionAttendance(teamId, sessionId) {
@@ -53,6 +84,22 @@ export function useSessionAttendance(teamId, sessionId) {
 
 export function useCommunityLogs(teamId) {
   return useCollection(teamId ? ['teams', teamId, 'communityLogs'] : null)
+}
+
+export function useEvents(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'events'] : null)
+  const data = useMemo(() => [...result.data].sort(byDate), [result.data])
+  return { ...result, data }
+}
+
+// Re-renders on a fixed cadence - for countdowns that should tick.
+export function useNow(intervalMs) {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), intervalMs)
+    return () => clearInterval(timer)
+  }, [intervalMs])
+  return now
 }
 
 const DEFAULT_COMMUNITY_SETTINGS = { types: [], hoursTarget: 0 }

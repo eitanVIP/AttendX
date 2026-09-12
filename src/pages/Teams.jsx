@@ -4,9 +4,11 @@ import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/Logo'
+import PasswordInput from '../components/PasswordInput'
+import TeamNumberInput from '../components/TeamNumberInput'
 
 export default function Teams() {
-  const { user, team, loading } = useAuth()
+  const { user, team, loading, logout } = useAuth()
   const [mode, setMode] = useState('join')
 
   useEffect(() => {
@@ -14,13 +16,20 @@ export default function Teams() {
   }, [])
 
   if (loading) return <div className="page-loading">Loading…</div>
+  // Also where "Sign in as another account" lands: logout clears `user`,
+  // and this redirect takes over.
   if (!user) return <Navigate to="/login" replace />
 
   return (
     <div className="login-page">
       <div className="login-card" style={{ maxWidth: 420 }}>
         <Logo className="auth-logo" />
-        <p className="login-sub">Signed in as {user.email}</p>
+        <p className="login-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Signed in as {user.email}</span>
+          <button type="button" className="link-btn" onClick={logout}>
+            Sign in as another account
+          </button>
+        </p>
         {team && (
           <p>
             <Link to="/">← Back to {team.name || team.id}</Link>
@@ -105,7 +114,7 @@ function MembershipsList() {
 
 function JoinForm() {
   const { joinTeam } = useAuth()
-  const [teamId, setTeamId] = useState('')
+  const [teamNumber, setTeamNumber] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -115,11 +124,11 @@ function JoinForm() {
     setError('')
     setSubmitting(true)
     try {
-      await joinTeam(teamId.trim().toLowerCase(), code)
-      setTeamId('')
+      await joinTeam(teamNumber, code)
+      setTeamNumber('')
       setCode('')
     } catch {
-      setError('Team ID or code is incorrect.')
+      setError('Team number or code is incorrect.')
     } finally {
       setSubmitting(false)
     }
@@ -128,12 +137,12 @@ function JoinForm() {
   return (
     <form onSubmit={handleSubmit}>
       <label>
-        Team ID
-        <input value={teamId} onChange={(e) => setTeamId(e.target.value)} placeholder="e.g. team3211" required />
+        Team number
+        <TeamNumberInput value={teamNumber} onChange={setTeamNumber} />
       </label>
       <label>
         Admin code
-        <input type="password" value={code} onChange={(e) => setCode(e.target.value)} required />
+        <PasswordInput value={code} onChange={(e) => setCode(e.target.value)} required />
       </label>
       <p className="muted" style={{ margin: '-6px 0 0' }}>
         This is the admin code, not the student code from the hour-logging page.
@@ -148,7 +157,7 @@ function JoinForm() {
 
 function CreateForm() {
   const { createTeam } = useAuth()
-  const [teamId, setTeamId] = useState('')
+  const [teamNumber, setTeamNumber] = useState('')
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [studentCode, setStudentCode] = useState('')
@@ -168,9 +177,9 @@ function CreateForm() {
     }
     setSubmitting(true)
     try {
-      await createTeam(teamId.trim().toLowerCase(), code, studentCode, { name: name.trim() || teamId })
+      await createTeam(teamNumber, code, studentCode, { name: name.trim() || `Team ${teamNumber}` })
     } catch {
-      setError('That team ID is already taken - pick another one.')
+      setError(`Team ${teamNumber} already exists on AttendX - ask its admin for the code and join it instead.`)
     } finally {
       setSubmitting(false)
     }
@@ -179,15 +188,8 @@ function CreateForm() {
   return (
     <form onSubmit={handleSubmit}>
       <label>
-        Team ID
-        <input
-          value={teamId}
-          onChange={(e) => setTeamId(e.target.value)}
-          placeholder="e.g. team4744"
-          pattern="[a-z0-9\-]+"
-          title="Lowercase letters, numbers and dashes only"
-          required
-        />
+        FRC team number
+        <TeamNumberInput value={teamNumber} onChange={setTeamNumber} placeholder="e.g. 4744" />
       </label>
       <label>
         Team name
@@ -195,11 +197,11 @@ function CreateForm() {
       </label>
       <label>
         Choose an admin code
-        <input type="password" value={code} onChange={(e) => setCode(e.target.value)} minLength={4} required />
+        <PasswordInput value={code} onChange={(e) => setCode(e.target.value)} minLength={4} required />
       </label>
       <label>
         Choose a student code
-        <input type="password" value={studentCode} onChange={(e) => setStudentCode(e.target.value)} minLength={4} required />
+        <PasswordInput value={studentCode} onChange={(e) => setStudentCode(e.target.value)} minLength={4} required />
       </label>
       <p className="muted" style={{ margin: '-6px 0 0' }}>
         The admin code opens the full dashboard. The student code only unlocks the community-hours

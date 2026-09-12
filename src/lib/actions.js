@@ -6,13 +6,52 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  getDocs,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { normalizeStudent, remapStudentDivisions } from './calc'
 
 export function updateTeam(teamId, changes) {
   return updateDoc(doc(db, 'teams', teamId), changes)
+}
+
+// Firestore evaluates security rules per write and caps the exists()/get()
+// calls one batched write may make at 20; hasAccess() spends one per
+// document, so a single batch touching more than ~20 docs is rejected
+// outright - which is how a team with 128 trainings couldn't reorder
+// while a 5-training test team could. Each `write` is a (batch) => void;
+// they're split across batches small enough to stay under the cap and
+// committed together, so the local cache still applies them in one step.
+const BATCH_LIMIT = 15
+
+function commitAll(writes) {
+  const commits = []
+  for (let i = 0; i < writes.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db)
+    for (const write of writes.slice(i, i + BATCH_LIMIT)) write(batch)
+    commits.push(batch.commit())
+  }
+  return Promise.all(commits)
+}
+
+// Saving the division structure has to reach every student that references
+// a renamed or removed division/subdivision alongside the team doc, so no
+// reader is left with a roster pointing at names the team no longer has.
+// Students are re-read here rather than taken from the caller because
+// useStudents already hides stale references (see firestore-hooks), and
+// the fix has to be computed against what's actually stored.
+export async function updateTeamStructure(teamId, changes, renames) {
+  const structure = { divisions: changes.divisions, subdivisionsByDivision: changes.subdivisionsByDivision }
+  const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
+  const writes = [(batch) => batch.update(doc(db, 'teams', teamId), changes)]
+  for (const d of snap.docs) {
+    const fixed = remapStudentDivisions(normalizeStudent(d.data()), structure, renames)
+    if (fixed) writes.push((batch) => batch.update(d.ref, { ...fixed, division: deleteField(), subdivision: deleteField() }))
+  }
+  await commitAll(writes)
 }
 
 // Community-hours settings (target hours + the list of community types
@@ -23,8 +62,41 @@ export function setCommunitySettings(teamId, changes) {
   return setDoc(doc(db, 'teams', teamId, 'settings', 'community'), changes, { merge: true })
 }
 
+export function deleteCommunityLog(teamId, logId) {
+  return deleteDoc(doc(db, 'teams', teamId, 'communityLogs', logId))
+}
+
+export function addEvent(teamId, event) {
+  return addDoc(collection(db, 'teams', teamId, 'events'), event)
+}
+
+export function updateEvent(teamId, eventId, changes) {
+  return updateDoc(doc(db, 'teams', teamId, 'events', eventId), changes)
+}
+
+export function deleteEvent(teamId, eventId) {
+  return deleteDoc(doc(db, 'teams', teamId, 'events', eventId))
+}
+
 export function addStudent(teamId, student) {
-  return addDoc(collection(db, 'teams', teamId, 'students'), student)
+  return addDoc(collection(db, 'teams', teamId, 'students'), { ...student, order: Date.now() })
+}
+
+// Makes `order` equal each row's index in `orderedRows` (see sortByOrder in
+// calc.js), writing only the rows whose stored value differs - after the
+// first reorder that's just the two rows that swapped. Callers don't await
+// this (the local cache re-sorts the table at once), so a rejected write is
+// reported here rather than vanishing.
+export function reorderDocs(teamId, collectionName, orderedRows) {
+  const writes = []
+  orderedRows.forEach((row, i) => {
+    if (row.order === i) return
+    writes.push((batch) => batch.update(doc(db, 'teams', teamId, collectionName, row.id), { order: i }))
+  })
+  return commitAll(writes).catch((err) => {
+    alert(`Couldn't save the new order: ${err.message}`)
+    throw err
+  })
 }
 
 export function updateStudent(teamId, studentId, changes) {
@@ -45,6 +117,7 @@ export function addTraining(teamId, training) {
   return addDoc(collection(db, 'teams', teamId, 'trainings'), {
     completedStudentIds: [],
     ...training,
+    order: Date.now(),
   })
 }
 
@@ -63,7 +136,7 @@ export function setTrainingCompletion(teamId, trainingId, studentId, completed) 
 }
 
 export function addSession(teamId, session) {
-  return addDoc(collection(db, 'teams', teamId, 'sessions'), session)
+  return addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now() })
 }
 
 export function updateSession(teamId, sessionId, changes) {
