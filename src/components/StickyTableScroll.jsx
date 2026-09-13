@@ -48,6 +48,11 @@ export default function StickyTableScroll({ children, className = '', style }) {
       }
       const headOnly = table.cloneNode(true)
       headOnly.querySelector('tbody')?.remove()
+      // A table with a <tfoot> (e.g. Orders' Total row) would otherwise
+      // clone that too - the sticky clone stands in for the header only,
+      // so the real footer would end up duplicated: once floating up top,
+      // once still at the table's actual bottom.
+      headOnly.querySelector('tfoot')?.remove()
       // Column widths come from the body's content, which the clone
       // doesn't have - left alone, its columns would shrink to fit the
       // header text (the empty actions column to nothing), sliding out of

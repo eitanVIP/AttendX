@@ -1,12 +1,42 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
+import MoveButtons from '../components/MoveButtons'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
-import { certHolders, certProgress } from '../lib/calc'
-import { addTraining, deleteTraining, updateTraining } from '../lib/actions'
+import {
+  certHolders,
+  certProgress,
+  groupByScope,
+  movedWithinGroup,
+  swappedRows,
+  trainingAppliesToScope,
+} from '../lib/calc'
+import { addTraining, deleteTraining, reorderDocs, updateTraining } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const emptyForm = { name: '', targetCount: '', targetDate: '', scopeDivision: '', requiredTrainingIds: [] }
+// The trainings offered in the required-trainings picker: every training
+// that actually matches the given scope, PLUS whichever of `selectedIds`
+// don't (tagged `outOfScope`) - never just silently dropped. A cert made
+// before subdivisions existed (or edited into a narrower scope) can already
+// have requiredTrainingIds that don't match its current scope; hiding those
+// checkboxes made it look like the cert had lost them, when they were still
+// saved all along - this keeps them visible (and their checkbox checked)
+// until an admin actually unchecks them.
+function requirableTrainingsFor(all, scopeDivision, scopeSubdivision, selectedIds) {
+  const eligible = all.filter((t) => trainingAppliesToScope(t, scopeDivision || null, scopeSubdivision || null))
+  const eligibleIds = new Set(eligible.map((t) => t.id))
+  const stillSelected = all.filter((t) => selectedIds.includes(t.id) && !eligibleIds.has(t.id))
+  return [...eligible.map((t) => ({ ...t, outOfScope: false })), ...stillSelected.map((t) => ({ ...t, outOfScope: true }))]
+}
+
+const emptyForm = {
+  name: '',
+  targetCount: '',
+  targetDate: '',
+  scopeDivision: '',
+  scopeSubdivision: '',
+  requiredTrainingIds: [],
+}
 
 export default function Certifications() {
   const { team } = useAuth()
@@ -16,39 +46,48 @@ export default function Certifications() {
   const [form, setForm] = useState(emptyForm)
 
   const divisions = useMemo(() => team?.divisions || [], [team])
+  const subdivisionsByDivision = useMemo(() => team?.subdivisionsByDivision || {}, [team])
+  const formSubdivisions = form.scopeDivision ? subdivisionsByDivision[form.scopeDivision] || [] : []
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
-  // Sorted by name, not the global training order the ↑/↓ arrows control -
-  // certs here are cards in a grid, not a reorderable table.
-  const certifications = useMemo(
-    () => allTrainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
-    [allTrainings]
-  )
-  // A cert's required trainings can only come from its own division (or, for
-  // a division-less "General" cert, only from other division-less
-  // trainings) - a Mechanical cert has no business requiring a Controls
-  // training a Mechanical student would never even see.
+  // Same order the ↑/↓ (here ←/→) arrows control - see the useTrainings hook,
+  // which already sorts the whole collection (trainings and certifications
+  // alike) by `order`.
+  const certifications = useMemo(() => allTrainings.filter((t) => t.category === 'professional'), [allTrainings])
+  // A cert's required trainings can only come from trainings every student
+  // who'd hold it would actually see - a Mechanical cert has no business
+  // requiring a Controls training a Mechanical student would never even
+  // see, and a Mechanical/Design cert can't require a Mechanical/
+  // Manufacturing-only training either.
   const requirableTrainings = useMemo(() => allTrainings.filter((t) => t.category !== 'professional'), [allTrainings])
   const formRequirableTrainings = useMemo(
-    () => requirableTrainings.filter((t) => (t.scopeDivision || null) === (form.scopeDivision || null)),
-    [requirableTrainings, form.scopeDivision]
+    () => requirableTrainingsFor(requirableTrainings, form.scopeDivision, form.scopeSubdivision, form.requiredTrainingIds),
+    [requirableTrainings, form.scopeDivision, form.scopeSubdivision, form.requiredTrainingIds]
   )
 
-  const groups = useMemo(() => {
-    const byDivision = new Map()
-    for (const cert of certifications) {
-      const key = cert.scopeDivision || null
-      if (!byDivision.has(key)) byDivision.set(key, [])
-      byDivision.get(key).push(cert)
-    }
-    const orphanKeys = [...byDivision.keys()].filter((k) => k !== null && !divisions.includes(k))
-    const order = [...[...divisions].sort(), ...orphanKeys.sort(), null]
-    return order
-      .filter((key, i) => order.indexOf(key) === i && byDivision.has(key))
-      .map((key) => ({
-        title: key || 'General',
-        certs: byDivision.get(key),
-      }))
-  }, [certifications, divisions])
+  // Sorted and titled exactly like Trainings.jsx's groups - same division/
+  // subdivision order from Settings, "General" last.
+  const groups = useMemo(
+    () =>
+      groupByScope(certifications, divisions, subdivisionsByDivision).map(({ key, division: d, subdivision: s, items }) => ({
+        key,
+        title: d ? (s ? `${d} / ${s}` : d) : 'General',
+        certs: items,
+      })),
+    [certifications, divisions, subdivisionsByDivision]
+  )
+
+  // Swaps with the neighbour within the group's own cards; the whole
+  // trainings collection (regular trainings included) is what gets
+  // renumbered, same as Trainings.jsx's arrows.
+  function move(groupCerts, index, direction) {
+    const neighbour = groupCerts[index + direction]
+    if (!neighbour) return
+    reorderDocs(team.id, 'trainings', swappedRows(allTrainings, groupCerts[index].id, neighbour.id))
+  }
+
+  function moveTo(groupCerts, index, toIndex) {
+    reorderDocs(team.id, 'trainings', movedWithinGroup(allTrainings, groupCerts, groupCerts[index].id, toIndex))
+  }
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -57,7 +96,7 @@ export default function Certifications() {
       name: form.name,
       category: 'professional',
       scopeDivision: form.scopeDivision || null,
-      scopeSubdivision: null,
+      scopeSubdivision: form.scopeSubdivision || null,
       targetDate: form.targetDate || null,
       targetCount: form.targetCount ? Number(form.targetCount) : activeStudents.length,
       requiredTrainingIds: form.requiredTrainingIds,
@@ -123,12 +162,27 @@ export default function Certifications() {
             Division (optional)
             <select
               value={form.scopeDivision}
-              onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, requiredTrainingIds: [] })}
+              onChange={(e) => setForm({ ...form, scopeDivision: e.target.value, scopeSubdivision: '' })}
             >
               <option value="">General (no division)</option>
               {divisions.map((d) => (
                 <option key={d} value={d}>
                   {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Subdivision (optional)
+            <select
+              value={form.scopeSubdivision}
+              onChange={(e) => setForm({ ...form, scopeSubdivision: e.target.value })}
+              disabled={!form.scopeDivision}
+            >
+              <option value="">Any</option>
+              {formSubdivisions.map((sd) => (
+                <option key={sd} value={sd}>
+                  {sd}
                 </option>
               ))}
             </select>
@@ -148,10 +202,10 @@ export default function Certifications() {
       </FormPanel>
 
       {groups.map((group) => (
-        <div key={group.title} className="cert-group">
+        <div key={group.key} className="cert-group">
           <h2>{group.title}</h2>
           <div className="cert-grid">
-            {group.certs.map((cert) => (
+            {group.certs.map((cert, i) => (
               <CertCard
                 key={cert.id}
                 cert={cert}
@@ -159,7 +213,12 @@ export default function Certifications() {
                 trainings={allTrainings}
                 requirableTrainings={requirableTrainings}
                 divisions={divisions}
+                subdivisionsByDivision={subdivisionsByDivision}
                 teamId={team.id}
+                index={i}
+                count={group.certs.length}
+                onMove={(direction) => move(group.certs, i, direction)}
+                onMoveTo={(toIndex) => moveTo(group.certs, i, toIndex)}
               />
             ))}
           </div>
@@ -187,6 +246,12 @@ function RequiredTrainingsPicker({ trainings, selected, onChange }) {
               <label>
                 <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
                 {t.name}
+                {t.outOfScope && (
+                  <span className="muted">
+                    {' '}
+                    (from {t.scopeDivision ? (t.scopeSubdivision ? `${t.scopeDivision} / ${t.scopeSubdivision}` : t.scopeDivision) : 'General'})
+                  </span>
+                )}
               </label>
             </li>
           ))}
@@ -196,7 +261,19 @@ function RequiredTrainingsPicker({ trainings, selected, onChange }) {
   )
 }
 
-function CertCard({ cert, students, trainings, requirableTrainings, divisions, teamId }) {
+function CertCard({
+  cert,
+  students,
+  trainings,
+  requirableTrainings,
+  divisions,
+  subdivisionsByDivision,
+  teamId,
+  index,
+  count,
+  onMove,
+  onMoveTo,
+}) {
   const [mode, setMode] = useState('view') // 'view' | 'edit'
   const [editForm, setEditForm] = useState(null)
 
@@ -206,9 +283,17 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
   const requiredNames = (cert.requiredTrainingIds || [])
     .map((id) => trainings.find((t) => t.id === id)?.name)
     .filter(Boolean)
+  const editFormSubdivisions = editForm?.scopeDivision ? subdivisionsByDivision[editForm.scopeDivision] || [] : []
   const editFormRequirableTrainings = useMemo(
     () =>
-      editForm ? requirableTrainings.filter((t) => (t.scopeDivision || null) === (editForm.scopeDivision || null)) : [],
+      editForm
+        ? requirableTrainingsFor(
+            requirableTrainings,
+            editForm.scopeDivision,
+            editForm.scopeSubdivision,
+            editForm.requiredTrainingIds
+          )
+        : [],
     [requirableTrainings, editForm]
   )
 
@@ -218,6 +303,7 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
       targetCount: cert.targetCount ?? '',
       targetDate: cert.targetDate || '',
       scopeDivision: cert.scopeDivision || '',
+      scopeSubdivision: cert.scopeSubdivision || '',
       requiredTrainingIds: cert.requiredTrainingIds || [],
     })
     setMode('edit')
@@ -230,6 +316,7 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
       targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.active).length,
       targetDate: editForm.targetDate || null,
       scopeDivision: editForm.scopeDivision || null,
+      scopeSubdivision: editForm.scopeSubdivision || null,
       requiredTrainingIds: editForm.requiredTrainingIds,
     })
     setMode('view')
@@ -268,12 +355,27 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
           Division
           <select
             value={editForm.scopeDivision}
-            onChange={(e) => setEditForm({ ...editForm, scopeDivision: e.target.value, requiredTrainingIds: [] })}
+            onChange={(e) => setEditForm({ ...editForm, scopeDivision: e.target.value, scopeSubdivision: '' })}
           >
             <option value="">General (no division)</option>
             {divisions.map((d) => (
               <option key={d} value={d}>
                 {d}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Subdivision
+          <select
+            value={editForm.scopeSubdivision}
+            onChange={(e) => setEditForm({ ...editForm, scopeSubdivision: e.target.value })}
+            disabled={!editForm.scopeDivision}
+          >
+            <option value="">Any</option>
+            {editFormSubdivisions.map((sd) => (
+              <option key={sd} value={sd}>
+                {sd}
               </option>
             ))}
           </select>
@@ -346,12 +448,25 @@ function CertCard({ cert, students, trainings, requirableTrainings, divisions, t
       </div>
 
       <div className="cert-card-actions">
-        <button type="button" className="link-btn" onClick={startEdit}>
-          Edit
-        </button>
-        <button type="button" className="link-btn danger" onClick={handleDelete}>
-          Delete
-        </button>
+        <MoveButtons
+          onUp={() => onMove(-1)}
+          onDown={() => onMove(1)}
+          canUp={index > 0}
+          canDown={index < count - 1}
+          index={index}
+          count={count}
+          onMoveTo={onMoveTo}
+          label="certification"
+          orientation="horizontal"
+          spread
+        >
+          <button type="button" className="link-btn" onClick={startEdit}>
+            Edit
+          </button>
+          <button type="button" className="link-btn danger" onClick={handleDelete}>
+            Delete
+          </button>
+        </MoveButtons>
       </div>
     </div>
   )

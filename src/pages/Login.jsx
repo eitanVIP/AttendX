@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/Logo'
 import PasswordInput from '../components/PasswordInput'
@@ -42,6 +42,9 @@ export default function Login() {
           </button>
         </div>
         {mode === 'signin' ? <SignInForm /> : <SignUpForm />}
+        <p className="muted" style={{ textAlign: 'center' }}>
+          <Link to="/student-login">Log in as a student</Link>
+        </p>
       </div>
     </div>
   )

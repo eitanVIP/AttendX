@@ -1,7 +1,8 @@
 // Remembers a student's team ID + code on this device (localStorage) so they
-// don't have to retype it every visit to /log-hours. Wrapped in try/catch
-// since localStorage can throw (private browsing, disabled storage, etc.) -
-// falling back to "not saved" is fine, it just means retyping is required.
+// don't have to retype it every visit to /student-login. Wrapped in
+// try/catch since localStorage can throw (private browsing, disabled
+// storage, etc.) - falling back to "not saved" is fine, it just means
+// retyping is required.
 const STORAGE_KEY = 'attendx.logHoursCode'
 
 export function loadSavedLogHoursCode() {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
-import { normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
+import { normalizeProduct, normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
 
 const byName = (a, b) => (a.fullName || a.name || '').localeCompare(b.fullName || b.name || '')
 const byDate = (a, b) => (a.date || '').localeCompare(b.date || '')
@@ -89,6 +89,24 @@ export function useCommunityLogs(teamId) {
 export function useEvents(teamId) {
   const result = useCollection(teamId ? ['teams', teamId, 'events'] : null)
   const data = useMemo(() => [...result.data].sort(byDate), [result.data])
+  return { ...result, data }
+}
+
+// Inventory and Orders are two views of one products collection - see
+// normalizeProduct in calc.js for why a single shared doc is what makes
+// them unable to drift into duplicate, unlinked entries.
+export function useProducts(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'products'] : null)
+  const data = useMemo(() => result.data.map(normalizeProduct).sort(byName), [result.data])
+  return { ...result, data }
+}
+
+// Pending product requests from the public request-a-product page (see
+// src/pages/RequestOrder.jsx) - same doc shape as a product (plus
+// requestedBy/requestedAt), so normalizeProduct fills in the same defaults.
+export function useOrderRequests(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'orderRequests'] : null)
+  const data = useMemo(() => result.data.map(normalizeProduct).sort(byName), [result.data])
   return { ...result, data }
 }
 

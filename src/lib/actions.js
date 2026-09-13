@@ -14,9 +14,69 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { normalizeStudent, remapStudentDivisions } from './calc'
+import { DEFAULT_CURRENCY_RATES } from './currency'
+
+// Mirrors just what the student area (the request-a-product page's form,
+// plus the team name shown in its header) needs to read - not the admin
+// join codes and everything else that lives on teams/{teamId} itself.
+// Firestore rules can't expose part of a document, so this is its own doc
+// under settings/ (same reasoning as setCommunitySettings below), which
+// firestore.rules lets a student read while the team doc stays admin-only.
+const PRODUCT_SETTINGS_FIELDS = ['categories', 'productTypes', 'currencyRates', 'name']
+
+function productSettingsMirror(changes) {
+  const mirror = {}
+  for (const key of PRODUCT_SETTINGS_FIELDS) {
+    if (key in changes) mirror[key] = changes[key]
+  }
+  return mirror
+}
+
+// Teams created (or last edited) before this mirroring existed have no
+// settings/products doc at all yet - updateTeam/updateCategories only push
+// to it on the next actual edit, which may never come if categories/types/
+// currencies already look right to the admin. Called once per team per
+// admin session (see AuthContext) so the request-a-product page still has
+// something to read even for a team nobody's touched these on since.
+export async function ensureProductSettingsMirror(team) {
+  const ref = doc(db, 'teams', team.id, 'settings', 'products')
+  if ((await getDoc(ref)).exists()) return
+  await setDoc(ref, {
+    categories: team.categories || [],
+    productTypes: team.productTypes || [],
+    currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
+    name: team.name || '',
+  })
+}
 
 export function updateTeam(teamId, changes) {
-  return updateDoc(doc(db, 'teams', teamId), changes)
+  const mirror = productSettingsMirror(changes)
+  const writes = [updateDoc(doc(db, 'teams', teamId), changes)]
+  if (Object.keys(mirror).length) {
+    writes.push(setDoc(doc(db, 'teams', teamId, 'settings', 'products'), mirror, { merge: true }))
+  }
+  return Promise.all(writes)
+}
+
+// Saving the category list has to reach every product referencing a
+// renamed or removed category, same spirit as updateTeamStructure below for
+// divisions/students. `renames` only needs actual renames (old name -> new
+// name, for rows that survived under a different name) - a product whose
+// category isn't in the new list AND isn't a rename's old name simply had
+// that category removed outright, so it's cleared rather than looked up.
+export async function updateCategories(teamId, categories, renames) {
+  const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
+  ]
+  for (const d of snap.docs) {
+    const current = d.data().category || ''
+    if (!current || categories.includes(current)) continue
+    const next = renames[current] || ''
+    writes.push((batch) => batch.update(d.ref, { category: next }))
+  }
+  await commitAll(writes)
 }
 
 // Firestore budgets 20 rules exists()/get() calls per batched write,
@@ -30,7 +90,7 @@ export function updateTeam(teamId, changes) {
 // together, so the local cache still applies them in one step.
 const BATCH_LIMIT = 15
 
-function commitAll(writes) {
+export function commitAll(writes) {
   const commits = []
   for (let i = 0; i < writes.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db)
@@ -49,7 +109,11 @@ function commitAll(writes) {
 export async function updateTeamStructure(teamId, changes, renames) {
   const structure = { divisions: changes.divisions, subdivisionsByDivision: changes.subdivisionsByDivision }
   const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
+  const mirror = productSettingsMirror(changes)
   const writes = [(batch) => batch.update(doc(db, 'teams', teamId), changes)]
+  if (Object.keys(mirror).length) {
+    writes.push((batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), mirror, { merge: true }))
+  }
   for (const d of snap.docs) {
     const fixed = remapStudentDivisions(normalizeStudent(d.data()), structure, renames)
     if (fixed) writes.push((batch) => batch.update(d.ref, { ...fixed, division: deleteField(), subdivision: deleteField() }))
@@ -222,4 +286,70 @@ export function setAttendance(teamId, sessionId, studentId, status) {
 
 export function clearAttendance(teamId, sessionId, studentId) {
   return deleteDoc(doc(db, 'teams', teamId, 'sessions', sessionId, 'attendance', studentId))
+}
+
+// Shared by Inventory and Orders - see normalizeProduct in calc.js.
+export function addProduct(teamId, product) {
+  return addDoc(collection(db, 'teams', teamId, 'products'), product)
+}
+
+export function updateProduct(teamId, productId, changes) {
+  return updateDoc(doc(db, 'teams', teamId, 'products', productId), changes)
+}
+
+export function deleteProduct(teamId, productId) {
+  return deleteDoc(doc(db, 'teams', teamId, 'products', productId))
+}
+
+// Bulk add from Import CSV (see parseProductImport in csv.js, which is what
+// validates and builds `products` before this is ever called) - batched via
+// commitAll so a large import stays within Firestore's per-batch limits the
+// same way a big reorder does.
+export function importProducts(teamId, products) {
+  return commitAll(products.map((product) => (batch) => batch.set(doc(collection(db, 'teams', teamId, 'products')), product)))
+}
+
+// Accepting a student's request turns it into a real product - which is all
+// "add it to inventory and orders" means, since those two pages are just two
+// views of one products collection (see normalizeProduct in calc.js).
+// Batched with deleting the request itself so the two can't ever end up
+// half-applied (a product created but the request left behind, or vice
+// versa).
+export function acceptOrderRequest(teamId, request) {
+  const { id, requestedBy: _requestedBy, requestedAt: _requestedAt, ...product } = request
+  const batch = writeBatch(db)
+  batch.set(doc(collection(db, 'teams', teamId, 'products')), product)
+  batch.delete(doc(db, 'teams', teamId, 'orderRequests', id))
+  return batch.commit()
+}
+
+// The Orders page offers this instead of acceptOrderRequest when the
+// request's name matches a product that already exists (see
+// findDuplicateProduct in calc.js) - rather than create a near-duplicate
+// doc, it's really the same product, so only the requested quantity gets
+// folded in. Everything else about the request (price, notes, custom
+// fields, ...) is discarded - the existing product's own fields are left
+// exactly as they were.
+export function mergeOrderRequestIntoProduct(teamId, request, existingProduct, extraChanges = {}) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'teams', teamId, 'products', existingProduct.id), {
+    wantedCount: (existingProduct.wantedCount || 0) + (request.wantedCount || 0),
+    ...extraChanges,
+  })
+  batch.delete(doc(db, 'teams', teamId, 'orderRequests', request.id))
+  return batch.commit()
+}
+
+export function declineOrderRequest(teamId, requestId) {
+  return deleteDoc(doc(db, 'teams', teamId, 'orderRequests', requestId))
+}
+
+// Hides one product from Orders' Bought table without touching anything
+// else about it - the product itself, and its to-buy math, are unaffected.
+export function dismissBought(teamId, productId) {
+  return updateDoc(doc(db, 'teams', teamId, 'products', productId), { boughtFlag: false })
+}
+
+export function dismissAllBought(teamId, productIds) {
+  return commitAll(productIds.map((id) => (batch) => batch.update(doc(db, 'teams', teamId, 'products', id), { boughtFlag: false })))
 }

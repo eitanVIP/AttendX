@@ -6,13 +6,16 @@ import MoveButtons from '../components/MoveButtons'
 import StickyTableScroll from '../components/StickyTableScroll'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import { useMatrixLayout } from '../lib/useMatrixLayout'
-import { movedWithinGroup, swappedRows, todayISO, trainingAppliesToStudent, trainingProgress } from '../lib/calc'
+import {
+  groupByScope,
+  movedWithinGroup,
+  swappedRows,
+  todayISO,
+  trainingAppliesToStudent,
+  trainingProgress,
+} from '../lib/calc'
 import { addTraining, deleteTraining, reorderDocs, setTrainingCompletion, updateTraining } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
-
-// Joins division + subdivision into one group key; NUL can't appear in a
-// name typed into Settings, unlike spaces or slashes.
-const SCOPE_SEP = '\u0000'
 
 const CATEGORIES = [
   { id: 'team', label: 'Team training' },
@@ -57,44 +60,15 @@ export default function Trainings() {
   // division/subdivision (renamed or removed in Settings) still show, after
   // the known ones, rather than silently disappearing. General last.
   const groups = useMemo(() => {
-    const byScope = new Map()
-    for (const t of visible) {
-      const key = `${t.scopeDivision || ''}${SCOPE_SEP}${t.scopeSubdivision || ''}`
-      if (!byScope.has(key)) byScope.set(key, [])
-      byScope.get(key).push(t)
-    }
     const knownDivisions = divisionFilter ? [divisionFilter] : divisions
-    const divisionRank = (d) => {
-      if (!d) return Number.MAX_SAFE_INTEGER
-      const i = knownDivisions.indexOf(d)
-      return i === -1 ? knownDivisions.length : i
-    }
-    const subdivisionRank = (d, s) => {
-      if (!s) return -1
-      const subs = subdivisionsByDivision[d] || []
-      const i = subs.indexOf(s)
-      return i === -1 ? subs.length : i
-    }
-    return [...byScope.keys()]
-      .map((key) => {
-        const [d, s] = key.split(SCOPE_SEP)
-        return { key, d, s }
-      })
-      .sort(
-        (a, b) =>
-          divisionRank(a.d) - divisionRank(b.d) ||
-          a.d.localeCompare(b.d) ||
-          subdivisionRank(a.d, a.s) - subdivisionRank(b.d, b.s) ||
-          a.s.localeCompare(b.s)
-      )
-      .map(({ key, d, s }) => ({
-        key,
-        title: d ? (s ? `${d} / ${s}` : d) : 'General (all students)',
-        trainings: byScope.get(key),
-        columnStudents: students.filter((st) =>
-          trainingAppliesToStudent({ scopeDivision: d || null, scopeSubdivision: s || null }, st)
-        ),
-      }))
+    return groupByScope(visible, knownDivisions, subdivisionsByDivision).map(({ key, division: d, subdivision: s, items }) => ({
+      key,
+      title: d ? (s ? `${d} / ${s}` : d) : 'General (all students)',
+      trainings: items,
+      columnStudents: students.filter((st) =>
+        trainingAppliesToStudent({ scopeDivision: d || null, scopeSubdivision: s || null }, st)
+      ),
+    }))
   }, [visible, divisions, subdivisionsByDivision, divisionFilter, students])
 
   function handleSubmit(e) {

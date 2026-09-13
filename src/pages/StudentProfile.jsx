@@ -13,6 +13,7 @@ import {
 import {
   activityLabel,
   describeStudentDivisions,
+  groupByScope,
   studentCommunityHours,
   studentHasCert,
   studentTrainingStats,
@@ -52,11 +53,12 @@ export default function StudentProfile() {
     return { division: summarizeAttendance(division), general: summarizeAttendance(general) }
   }, [attendanceRecords, sessionById])
 
+  const divisions = useMemo(() => team?.divisions || [], [team])
+  const subdivisionsByDivision = useMemo(() => team?.subdivisionsByDivision || {}, [team])
   const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
-  const certifications = useMemo(
-    () => trainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
-    [trainings]
-  )
+  // Order preserved from useTrainings (sorted by `order`, same as the
+  // Certifications/Trainings pages) rather than re-sorted by name here.
+  const certifications = useMemo(() => trainings.filter((t) => t.category === 'professional'), [trainings])
   const trainingStats = useMemo(
     () => (student ? studentTrainingStats(student, regularTrainings) : null),
     [student, regularTrainings]
@@ -73,6 +75,26 @@ export default function StudentProfile() {
     const required = new Set(applicableCerts.flatMap((c) => c.requiredTrainingIds || []))
     return applicableTrainings.filter((t) => !required.has(t.id))
   }, [applicableCerts, applicableTrainings])
+
+  // One section per division/subdivision (same order as Certifications.jsx/
+  // Trainings.jsx), each with that scope's certs first and its other
+  // (non-cert) trainings under them - built by grouping certs and other
+  // trainings separately, then walking the scopes in the order a
+  // combined grouping would produce, so a scope with only one of the two
+  // still gets a section instead of being dropped.
+  const scopeSections = useMemo(() => {
+    const certGroups = groupByScope(applicableCerts, divisions, subdivisionsByDivision)
+    const trainingGroups = groupByScope(otherTrainings, divisions, subdivisionsByDivision)
+    const certsByKey = new Map(certGroups.map((g) => [g.key, g.items]))
+    const trainingsByKey = new Map(trainingGroups.map((g) => [g.key, g.items]))
+    const order = groupByScope([...applicableCerts, ...otherTrainings], divisions, subdivisionsByDivision)
+    return order.map(({ key, division: d, subdivision: s }) => ({
+      key,
+      title: d ? (s ? `${d} / ${s}` : d) : 'General',
+      certs: certsByKey.get(key) || [],
+      otherTrainings: trainingsByKey.get(key) || [],
+    }))
+  }, [applicableCerts, otherTrainings, divisions, subdivisionsByDivision])
 
   const communityHours = useMemo(() => studentCommunityHours(communityLogs, studentId), [communityLogs, studentId])
   const studentCommunityLogs = useMemo(
@@ -221,42 +243,46 @@ export default function StudentProfile() {
       )}
 
       <h2>Certifications &amp; trainings</h2>
-      {applicableCerts.length === 0 && otherTrainings.length === 0 && (
-        <p className="muted">No trainings or certifications apply to this student.</p>
-      )}
-      {applicableCerts.map((cert) => {
-        const earned = studentHasCert(cert, student.id, trainings)
-        const required = trainings.filter((t) => cert.requiredTrainingIds?.includes(t.id))
-        const done = required.filter((t) => t.completedStudentIds?.includes(student.id)).length
-        return (
-          <TrainingGroup
-            key={cert.id}
-            title={cert.name}
-            badge={
-              <span className={`badge ${earned ? 'badge-ok' : 'badge-warn'}`}>
-                {earned ? 'Earned' : `${done}/${required.length}`}
-              </span>
-            }
-            trainings={required}
-            studentId={student.id}
-            defaultOpen={!earned}
-            emptyText="No trainings required for this certification yet."
-          />
-        )
-      })}
-      {otherTrainings.length > 0 && (
-        <TrainingGroup
-          title="Other trainings"
-          badge={
-            <span className="badge badge-muted">
-              {otherTrainings.filter((t) => t.completedStudentIds?.includes(student.id)).length}/{otherTrainings.length}
-            </span>
-          }
-          trainings={otherTrainings}
-          studentId={student.id}
-          defaultOpen
-        />
-      )}
+      {scopeSections.length === 0 && <p className="muted">No trainings or certifications apply to this student.</p>}
+      {scopeSections.map((scope) => (
+        <div key={scope.key} className="scope-section">
+          <h3 className="scope-section-title">{scope.title}</h3>
+          {scope.certs.map((cert) => {
+            const earned = studentHasCert(cert, student.id, trainings)
+            const required = trainings.filter((t) => cert.requiredTrainingIds?.includes(t.id))
+            const done = required.filter((t) => t.completedStudentIds?.includes(student.id)).length
+            return (
+              <TrainingGroup
+                key={cert.id}
+                title={cert.name}
+                badge={
+                  <span className={`badge ${earned ? 'badge-ok' : 'badge-warn'}`}>
+                    {earned ? 'Earned' : `${done}/${required.length}`}
+                  </span>
+                }
+                trainings={required}
+                studentId={student.id}
+                defaultOpen={!earned}
+                emptyText="No trainings required for this certification yet."
+              />
+            )
+          })}
+          {scope.otherTrainings.length > 0 && (
+            <TrainingGroup
+              title="Other trainings"
+              badge={
+                <span className="badge badge-muted">
+                  {scope.otherTrainings.filter((t) => t.completedStudentIds?.includes(student.id)).length}/
+                  {scope.otherTrainings.length}
+                </span>
+              }
+              trainings={scope.otherTrainings}
+              studentId={student.id}
+              defaultOpen
+            />
+          )}
+        </div>
+      ))}
     </div>
   )
 }

@@ -1,7 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { StudentAuthProvider } from './context/StudentAuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import StudentLayout from './components/StudentLayout'
 import Login from './pages/Login'
 import Teams from './pages/Teams'
 import Dashboard from './pages/Dashboard'
@@ -10,8 +12,13 @@ import StudentProfile from './pages/StudentProfile'
 import Trainings from './pages/Trainings'
 import Certifications from './pages/Certifications'
 import Sessions from './pages/Sessions'
+import Inventory from './pages/Inventory'
+import Orders from './pages/Orders'
 import Settings from './pages/Settings'
+import StudentLogin from './pages/StudentLogin'
 import CommunityHours from './pages/CommunityHours'
+import RequestOrder from './pages/RequestOrder'
+import MySystems from './pages/MySystems'
 import QuotaExceeded from './pages/QuotaExceeded'
 import { useQuotaExceeded } from './lib/quotaStatus'
 
@@ -34,29 +41,38 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <QuotaGate>
-          <Routes>
-            <Route path={QUOTA_PATH} element={<QuotaExceeded />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/teams" element={<Teams />} />
-            <Route path="/log-hours" element={<CommunityHours />} />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/students" element={<Students />} />
-              <Route path="/students/:studentId" element={<StudentProfile />} />
-              <Route path="/trainings" element={<Trainings />} />
-              <Route path="/certifications" element={<Certifications />} />
-              <Route path="/sessions" element={<Sessions />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </QuotaGate>
+        <StudentAuthProvider>
+          <QuotaGate>
+            <Routes>
+              <Route path={QUOTA_PATH} element={<QuotaExceeded />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/teams" element={<Teams />} />
+              <Route path="/student-login" element={<StudentLogin />} />
+              <Route element={<StudentLayout />}>
+                <Route path="/log-hours" element={<CommunityHours />} />
+                <Route path="/request-order" element={<RequestOrder />} />
+                <Route path="/my-systems" element={<MySystems />} />
+              </Route>
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/students" element={<Students />} />
+                <Route path="/students/:studentId" element={<StudentProfile />} />
+                <Route path="/trainings" element={<Trainings />} />
+                <Route path="/certifications" element={<Certifications />} />
+                <Route path="/sessions" element={<Sessions />} />
+                <Route path="/inventory" element={<Inventory />} />
+                <Route path="/orders" element={<Orders />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+            </Routes>
+          </QuotaGate>
+        </StudentAuthProvider>
       </AuthProvider>
     </BrowserRouter>
   )

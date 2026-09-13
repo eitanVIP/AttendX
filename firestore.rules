@@ -99,5 +99,18 @@ service cloud.firestore {
       allow read: if hasStudentAccess(teamId);
       allow create: if hasStudentAccess(teamId) && request.resource.data.studentId is string;
     }
+
+    // The request-a-product page: a verified student can submit one (the
+    // same fields the regular add-product form collects, plus who's
+    // asking), but never read, edit, or delete them afterward - unlike
+    // communityLogs there's no running total to show, so there's nothing a
+    // student needs read access for. An admin reviewing a request (via the
+    // teams/{teamId}/{document=**} rule above) either turns it into a real
+    // product or deletes it outright.
+    match /teams/{teamId}/orderRequests/{requestId} {
+      allow create: if hasStudentAccess(teamId)
+        && request.resource.data.requestedBy is string
+        && request.resource.data.requestedBy.size() > 0;
+    }
   }
 }

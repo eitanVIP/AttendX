@@ -3,8 +3,9 @@
 // never touches the database or localStorage.
 const lastValues = {}
 
-export function rememberForm(key, values, skipField) {
-  const { [skipField]: _skip, ...rest } = values
+export function rememberForm(key, values, skipFields = []) {
+  const rest = { ...values }
+  for (const field of [].concat(skipFields)) delete rest[field]
   lastValues[key] = rest
 }
 

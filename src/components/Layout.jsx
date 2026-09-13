@@ -9,6 +9,8 @@ const links = [
   { to: '/sessions', label: 'Attendance' },
   { to: '/trainings', label: 'Trainings' },
   { to: '/certifications', label: 'Certifications' },
+  { to: '/inventory', label: 'Inventory' },
+  { to: '/orders', label: 'Orders' },
   { to: '/settings', label: 'Settings' },
 ]
 

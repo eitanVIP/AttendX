@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -9,9 +9,32 @@ import {
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { DEFAULT_ACCENT } from '../lib/theme'
-import { clearTeamContent, readTeamForClone, writeClonedContent } from '../lib/actions'
+import {
+  clearTeamContent,
+  ensureProductSettingsMirror,
+  readTeamForClone,
+  updateTeam,
+  writeClonedContent,
+} from '../lib/actions'
+import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 
 const AuthContext = createContext(null)
+
+// The baseline every brand-new team doc starts with (createTeam and
+// cloneTeam both build on this) - keeping it in one place is what stops the
+// two from drifting apart, which is exactly how cloneTeam ended up writing
+// a team with no currencyRates/categories/productTypes at all for a while:
+// createTeam had its own defaults for them and cloneTeam simply never got
+// the same treatment.
+const DEFAULT_TEAM_FIELDS = {
+  divisions: [],
+  subdivisionsByDivision: {},
+  colorPrimary: DEFAULT_ACCENT,
+  categories: [],
+  productTypes: [],
+  preferredCurrency: 'NIS',
+  currencyRates: DEFAULT_CURRENCY_RATES,
+}
 
 // Signing in (a Firebase Auth account) and belonging to a team are
 // separate: `user` below is just an account. Teams are plain Firestore
@@ -97,6 +120,19 @@ export function AuthProvider({ children }) {
     document.documentElement.style.setProperty('--accent', team?.colorPrimary || DEFAULT_ACCENT)
   }, [team?.colorPrimary])
 
+  // One-time-per-session backfill: a team last edited before the
+  // request-a-product page existed has no settings/products doc yet (see
+  // ensureProductSettingsMirror in actions.js) - without this, that page
+  // would see no categories/product types until an admin happened to
+  // re-save one of those sections. Guarded by teamId (not re-run on every
+  // unrelated team-doc change) since the check itself is a Firestore read.
+  const backfilledProductSettingsRef = useRef(null)
+  useEffect(() => {
+    if (!team || backfilledProductSettingsRef.current === team.id) return
+    backfilledProductSettingsRef.current = team.id
+    ensureProductSettingsMirror(team).catch(() => {})
+  }, [team])
+
   async function signup(email, password) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     await setDoc(doc(db, 'users', cred.user.uid), { email })
@@ -126,16 +162,15 @@ export function AuthProvider({ children }) {
 
   async function createTeam(teamId, code, studentCode, teamData) {
     const uid = auth.currentUser.uid
-    const teamDoc = {
-      divisions: [],
-      subdivisionsByDivision: {},
-      colorPrimary: DEFAULT_ACCENT,
-      ...teamData,
-      code,
-      studentCode,
-    }
+    const teamDoc = { ...DEFAULT_TEAM_FIELDS, ...teamData, code, studentCode }
     await setDoc(doc(db, 'teams', teamId), teamDoc)
     await setDoc(doc(db, 'users', uid, 'memberships', teamId), { code })
+    // Writes teams/{teamId}/settings/products (categories/productTypes/
+    // currencyRates/name) immediately, rather than leaving it to the
+    // AuthContext backfill effect below to notice it's missing on some
+    // later load - a brand-new team should be complete the moment it's
+    // created, not "eventually consistent".
+    await ensureProductSettingsMirror({ id: teamId, ...teamDoc })
     await updateDoc(doc(db, 'users', uid), { activeTeamId: teamId })
     await refreshProfile(uid)
   }
@@ -166,24 +201,33 @@ export function AuthProvider({ children }) {
   }
 
   // Copies another team's trainings, certifications, events, community
-  // settings, divisions/subdivisions, and auto-inactive threshold into a
-  // brand-new team - not its students, number, accent, name, or codes,
-  // which the form below already asks for like any other new team.
+  // settings, divisions/subdivisions, auto-inactive threshold, categories,
+  // product types, and currency setup into a brand-new team - not its
+  // students, number, accent, name, codes, or any actual inventory/order
+  // data, which either the form below already asks for or belongs to the
+  // real world rather than to a copy of it.
   async function cloneTeam(teamId, code, studentCode, teamData, sourceTeamId, sourceCode) {
     const uid = auth.currentUser.uid
     const source = await readSourceForClone(uid, sourceTeamId, sourceCode)
 
     const teamDoc = {
+      ...DEFAULT_TEAM_FIELDS,
       divisions: source.team.divisions || [],
       subdivisionsByDivision: source.team.subdivisionsByDivision || {},
       minAttendancePercent: source.team.minAttendancePercent || 0,
-      colorPrimary: DEFAULT_ACCENT,
+      categories: source.team.categories || [],
+      productTypes: source.team.productTypes || [],
+      preferredCurrency: source.team.preferredCurrency || 'NIS',
+      currencyRates: source.team.currencyRates || DEFAULT_CURRENCY_RATES,
       ...teamData,
       code,
       studentCode,
     }
     await setDoc(doc(db, 'teams', teamId), teamDoc)
     await setDoc(doc(db, 'users', uid, 'memberships', teamId), { code })
+    // Same immediate settings/products write as createTeam - a clone
+    // shouldn't need a later page load to become fully usable for students.
+    await ensureProductSettingsMirror({ id: teamId, ...teamDoc })
     await writeClonedContent(teamId, source)
     await updateDoc(doc(db, 'users', uid), { activeTeamId: teamId })
     await refreshProfile(uid)
@@ -191,9 +235,10 @@ export function AuthProvider({ children }) {
 
   // The destructive twin of cloneTeam: instead of creating a new team,
   // replaces an EXISTING one's trainings, certifications, events, community
-  // settings, divisions/subdivisions, and auto-inactive threshold with the
-  // source's - permanently. Its students, number, name, codes, and accent
-  // are untouched, same exclusions as a normal clone. The UI is expected to
+  // settings, divisions/subdivisions, auto-inactive threshold, categories,
+  // product types, and currency setup with the source's - permanently. Its
+  // students, number, name, codes, and accent are untouched, same
+  // exclusions as a normal clone. The UI is expected to
   // have already made the caller confirm this in plain terms before calling
   // it; this only enforces that they actually have the destination's code.
   //
@@ -223,10 +268,19 @@ export function AuthProvider({ children }) {
       }
     }
 
-    await updateDoc(doc(db, 'teams', teamId), {
+    // Goes through updateTeam (not a raw updateDoc) so the destination's
+    // settings/products mirror gets overwritten with the source's
+    // categories/productTypes/currencyRates in the same step - otherwise
+    // it'd be left holding whatever the destination had before, silently
+    // stale relative to the team doc it's supposed to mirror.
+    await updateTeam(teamId, {
       divisions: source.team.divisions || [],
       subdivisionsByDivision: source.team.subdivisionsByDivision || {},
       minAttendancePercent: source.team.minAttendancePercent || 0,
+      categories: source.team.categories || [],
+      productTypes: source.team.productTypes || [],
+      preferredCurrency: source.team.preferredCurrency || 'NIS',
+      currencyRates: source.team.currencyRates || DEFAULT_CURRENCY_RATES,
     })
     await clearTeamContent(teamId)
     await writeClonedContent(teamId, source)

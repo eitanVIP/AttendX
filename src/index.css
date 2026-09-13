@@ -528,6 +528,12 @@ code {
   white-space: nowrap;
 }
 
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .page-loading {
   padding: 48px;
   text-align: center;
@@ -843,7 +849,35 @@ body:has(dialog.modal[open]) {
   margin-bottom: 0;
 }
 
+/* Settings has a fixed, tall, unpredictable-length section (Divisions can
+   run to any number of rows) mixed in with several short ones - splitting
+   those into two fixed halves (like the dashboard's grid above) means
+   whichever half doesn't get the long section runs out of content early,
+   leaving the two columns visibly uneven for the rest of the page. A CSS
+   multi-column container sidesteps that: every section flows in as one
+   sequence and the browser balances actual rendered height across both
+   columns itself, wherever that split ends up falling - no fixed column
+   ever "ends" while the other keeps going, and it responds correctly to
+   however long Divisions happens to be for this team. break-inside: avoid
+   on each section keeps one from being cut across the column gap.*/
+.settings-columns {
+  columns: 2;
+  column-gap: 28px;
+}
+
+.settings-section {
+  break-inside: avoid;
+  margin-bottom: 24px;
+}
+
+.settings-section > h2:first-child {
+  margin-top: 0;
+}
+
 @media (max-width: 800px) {
+  .settings-columns {
+    columns: 1;
+  }
   .dashboard-columns {
     grid-template-columns: 1fr;
   }
@@ -910,6 +944,14 @@ body:has(dialog.modal[open]) {
    instead. */
 
 .data-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* The last body row already loses its own border-bottom via the rule
+   above (tfoot's row is *its* parent's last child too) - without its own
+   top border the totals row would run straight into it with no divider. */
+.data-table tfoot td {
+  border-top: 1px solid var(--border);
   border-bottom: none;
 }
 
@@ -1058,10 +1100,23 @@ th.col-inactive {
   align-items: center;
 }
 
-.move-btn {
+/* .link-btn.move-btn (two classes) rather than plain .move-btn - the arrow
+   buttons carry both classes, and button.link-btn's own font-size (element
+   + class) otherwise wins on specificity regardless of source order. */
+.link-btn.move-btn {
   padding: 2px 4px;
-  font-size: 14px;
+  font-size: 20px;
   line-height: 1;
+}
+
+/* MoveButtons' `spread` layout: arrows pinned to the two edges, whatever's
+   passed as children (e.g. Edit/Delete) centered between them - a card's
+   own action row, rather than a table's cramped actions column. */
+.move-buttons-spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .move-btn:disabled {
@@ -1264,7 +1319,12 @@ th.col-inactive {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  /* Pins the actions row to the card's bottom edge instead of sitting right
+     under whatever text happens to be above it - cert-grid stretches every
+     card in a row to the tallest one's height, so a shorter card would
+     otherwise leave a gap below its own actions. */
+  margin-top: auto;
+  padding-top: 6px;
 }
 
 .cert-manage-btn {
@@ -1302,6 +1362,22 @@ th.col-inactive {
   gap: 8px;
   color: var(--text);
   font-size: 14px;
+}
+
+/* Student profile: one division/subdivision's certs + other trainings */
+.scope-section {
+  margin-bottom: 28px;
+}
+
+.scope-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 
 /* Student profile: a certification as a collapsible heading over its
@@ -1483,6 +1559,10 @@ th.col-inactive {
 
   .page-header button {
     width: 100%;
+  }
+
+  .page-header-actions {
+    flex-direction: column;
   }
 
   h1 {
