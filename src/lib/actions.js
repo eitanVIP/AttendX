@@ -18,13 +18,15 @@ export function updateTeam(teamId, changes) {
   return updateDoc(doc(db, 'teams', teamId), changes)
 }
 
-// Firestore evaluates security rules per write and caps the exists()/get()
-// calls one batched write may make at 20; hasAccess() spends one per
-// document, so a single batch touching more than ~20 docs is rejected
-// outright - which is how a team with 128 trainings couldn't reorder
-// while a 5-training test team could. Each `write` is a (batch) => void;
-// they're split across batches small enough to stay under the cap and
-// committed together, so the local cache still applies them in one step.
+// Firestore budgets 20 rules exists()/get() calls per batched write,
+// counted across the batch's operations, and hasAccess() spends one per
+// document. Identical calls are cached and cached calls don't count, and in
+// practice 128-document reorder batches did go through (they're what used
+// up the write quota on 12 Sep 2026 - the reverts seen that evening were
+// the quota, not a rejection), so the budget shouldn't bite. The split is
+// kept anyway as a cheap guard, since the docs only promise calls "may" be
+// cached. Each `write` is a (batch) => void; the batches are committed
+// together, so the local cache still applies them in one step.
 const BATCH_LIMIT = 15
 
 function commitAll(writes) {

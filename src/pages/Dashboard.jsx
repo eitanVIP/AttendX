@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
+import StickyTableScroll from '../components/StickyTableScroll'
 import {
   useAllAttendance,
   useCommunityLogs,
@@ -123,7 +124,7 @@ export default function Dashboard() {
       <div className="dashboard-columns">
         <div className="dashboard-col">
           <h2>By division</h2>
-          <div className="table-scroll">
+          <StickyTableScroll>
             <table className="data-table">
               <thead>
                 <tr>
@@ -149,10 +150,10 @@ export default function Dashboard() {
                 )}
               </tbody>
             </table>
-          </div>
+          </StickyTableScroll>
 
           <h2>Certifications</h2>
-          <div className="table-scroll">
+          <StickyTableScroll>
             <table className="data-table">
               <thead>
                 <tr>
@@ -185,7 +186,7 @@ export default function Dashboard() {
                 )}
               </tbody>
             </table>
-          </div>
+          </StickyTableScroll>
 
           <h2>Training completion by grade</h2>
           <div className="card bar-chart grade-chart">

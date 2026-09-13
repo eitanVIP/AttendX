@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, inMemoryPersistence } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,7 +13,20 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
-export const db = getFirestore(app)
+// Firestore's default (memory) cache drops a document the moment its last
+// listener goes away, and every page owns its own listeners - so each
+// navigation used to re-read the entire team from the server (~1,500 reads
+// a click on a real roster, against a 50K/day free allowance). The
+// persistent cache keeps documents plus each query's resume token in
+// IndexedDB: re-attaching a listener then fetches only what changed since,
+// and a full page load starts from what's on disk. (The server still
+// charges a full re-read for a listener that was away over 30 minutes.)
+// Multi-tab so extra tabs share the cache and one connection rather than
+// each falling back to memory. Queued writes persist too, so an edit made
+// while the daily quota was out survives the reload the quota page does.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+})
 
 // The public community-hours page (src/pages/CommunityHours.jsx) signs in
 // anonymously without any admin ever "logging in" it. Firebase Auth syncs

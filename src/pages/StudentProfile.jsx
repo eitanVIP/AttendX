@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import StickyTableScroll from '../components/StickyTableScroll'
 import {
   useCommunityLogs,
   useCommunitySettings,
@@ -142,7 +143,7 @@ export default function StudentProfile() {
       {loading ? (
         <p className="muted">Loading history…</p>
       ) : (
-        <div className="table-scroll">
+        <StickyTableScroll>
           <table className="data-table">
             <thead>
               <tr>
@@ -170,13 +171,13 @@ export default function StudentProfile() {
               )}
             </tbody>
           </table>
-        </div>
+        </StickyTableScroll>
       )}
 
       {communitySettings.hoursTarget > 0 && (
         <>
           <h2>Community hours log</h2>
-          <div className="table-scroll">
+          <StickyTableScroll>
             <table className="data-table">
               <thead>
                 <tr>
@@ -212,7 +213,7 @@ export default function StudentProfile() {
                 )}
               </tbody>
             </table>
-          </div>
+          </StickyTableScroll>
         </>
       )}
 
@@ -280,7 +281,7 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
         {badge}
       </div>
       {open && (
-        <div className="table-scroll">
+        <StickyTableScroll>
           <table className="data-table">
             <thead>
               <tr>
@@ -313,7 +314,7 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
               )}
             </tbody>
           </table>
-        </div>
+        </StickyTableScroll>
       )}
     </div>
   )

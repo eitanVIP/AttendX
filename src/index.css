@@ -841,6 +841,27 @@ body:has(dialog.modal[open]) {
   border-radius: 10px;
 }
 
+/* The floating header clone StickyTableScroll shows once a table has
+   scrolled up under the page's sticky header/toolbar - see that
+   component for why a real sticky <thead> can't do this job itself.
+   overflow: hidden (not auto) because its horizontal offset is driven by
+   setting .scrollLeft directly in JS, not by user-drag; no scrollbar
+   should ever show here. Below the header/toolbar (z-index 20/10) since
+   both stay visible above it; above ordinary page content and the matrix
+   tables' own frozen-column z-indexes (1-2) since it must fully occlude
+   the real header scrolling up behind it. */
+.sticky-thead-clone {
+  position: fixed;
+  top: var(--sticky-top, 0px);
+  overflow: hidden;
+  z-index: 15;
+  pointer-events: none;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+}
+
 .data-table {
   width: 100%;
   min-width: 480px;
@@ -862,6 +883,12 @@ body:has(dialog.modal[open]) {
   font-size: 12px;
   text-transform: uppercase;
 }
+
+/* Table headers don't stick via CSS position: sticky here - see
+   StickyTableScroll.jsx for why (overflow-x: auto on .table-scroll, needed
+   for wide tables, always makes IT the sticky containing block for
+   anything inside it, not the page) and how the header row stays visible
+   instead. */
 
 .data-table tr:last-child td {
   border-bottom: none;

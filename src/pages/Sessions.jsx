@@ -3,9 +3,10 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
+import StickyTableScroll from '../components/StickyTableScroll'
 import { useAllAttendance, useSessions, useStudents } from '../lib/firestore-hooks'
 import { useMatrixLayout } from '../lib/useMatrixLayout'
-import { ATTENDANCE_STATUSES, isSessionRelevantToStudent, swappedRows, todayISO } from '../lib/calc'
+import { ATTENDANCE_STATUSES, isSessionRelevantToStudent, movedWithinGroup, swappedRows, todayISO } from '../lib/calc'
 import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
@@ -100,6 +101,10 @@ export default function Sessions() {
     const neighbour = groupSessions[index + direction]
     if (!neighbour) return
     reorderDocs(team.id, 'sessions', swappedRows(sessions, groupSessions[index].id, neighbour.id))
+  }
+
+  function moveTo(groupSessions, index, toIndex) {
+    reorderDocs(team.id, 'sessions', movedWithinGroup(sessions, groupSessions, groupSessions[index].id, toIndex))
   }
 
   if (loading || studentsLoading || attLoading) return <div className="page-loading">Loading sessions…</div>
@@ -197,6 +202,7 @@ export default function Sessions() {
           onEdit={startEdit}
           onDelete={handleDelete}
           onMove={(index, direction) => move(group.sessions, index, direction)}
+          onMoveTo={(index, toIndex) => moveTo(group.sessions, index, toIndex)}
           onStatusChange={handleStatusChange}
         />
       ))}
@@ -205,14 +211,24 @@ export default function Sessions() {
   )
 }
 
-function SessionGroupTable({ title, sessions, students, statusBySessionAndStudent, onEdit, onDelete, onMove, onStatusChange }) {
+function SessionGroupTable({
+  title,
+  sessions,
+  students,
+  statusBySessionAndStudent,
+  onEdit,
+  onDelete,
+  onMove,
+  onMoveTo,
+  onStatusChange,
+}) {
   const tableRef = useRef(null)
   useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
 
   return (
     <>
       <h2>{title}</h2>
-      <div className="table-scroll">
+      <StickyTableScroll>
         <table className="data-table matrix" ref={tableRef}>
           <thead>
             <tr>
@@ -266,6 +282,10 @@ function SessionGroupTable({ title, sessions, students, statusBySessionAndStuden
                       onDown={() => onMove(i, 1)}
                       canUp={i > 0}
                       canDown={i < sessions.length - 1}
+                      index={i}
+                      count={sessions.length}
+                      onMoveTo={(toIndex) => onMoveTo(i, toIndex)}
+                      label="session"
                     />
                     <button className="link-btn" onClick={() => onEdit(session)}>
                       Edit
@@ -279,7 +299,7 @@ function SessionGroupTable({ title, sessions, students, statusBySessionAndStuden
             ))}
           </tbody>
         </table>
-      </div>
+      </StickyTableScroll>
     </>
   )
 }

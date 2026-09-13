@@ -4,8 +4,9 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
+import StickyTableScroll from '../components/StickyTableScroll'
 import { useStudents } from '../lib/firestore-hooks'
-import { GRADES, activityLabel, swappedRows } from '../lib/calc'
+import { GRADES, activityLabel, movedWithinGroup, swappedRows } from '../lib/calc'
 import { addStudent, deleteStudent, reorderDocs, updateStudent } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
@@ -99,6 +100,10 @@ export default function Students() {
     const neighbour = filtered[index + direction]
     if (!neighbour) return
     reorderDocs(team.id, 'students', swappedRows(students, filtered[index].id, neighbour.id))
+  }
+
+  function moveTo(index, toIndex) {
+    reorderDocs(team.id, 'students', movedWithinGroup(students, filtered, filtered[index].id, toIndex))
   }
 
   if (loading) return <div className="page-loading">Loading students…</div>
@@ -203,7 +208,7 @@ export default function Students() {
         </div>
       </FormPanel>
 
-      <div className="table-scroll">
+      <StickyTableScroll>
       <table className="data-table">
         <thead>
           <tr>
@@ -243,6 +248,10 @@ export default function Students() {
                     onDown={() => move(i, 1)}
                     canUp={i > 0}
                     canDown={i < filtered.length - 1}
+                    index={i}
+                    count={filtered.length}
+                    onMoveTo={(toIndex) => moveTo(i, toIndex)}
+                    label="student"
                   />
                   <button className="link-btn" onClick={() => startEdit(s)}>
                     Edit
@@ -263,7 +272,7 @@ export default function Students() {
           )}
         </tbody>
       </table>
-      </div>
+      </StickyTableScroll>
     </div>
   )
 }

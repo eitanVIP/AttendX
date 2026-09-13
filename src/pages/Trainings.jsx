@@ -3,9 +3,10 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
+import StickyTableScroll from '../components/StickyTableScroll'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import { useMatrixLayout } from '../lib/useMatrixLayout'
-import { swappedRows, todayISO, trainingAppliesToStudent, trainingProgress } from '../lib/calc'
+import { movedWithinGroup, swappedRows, todayISO, trainingAppliesToStudent, trainingProgress } from '../lib/calc'
 import { addTraining, deleteTraining, reorderDocs, setTrainingCompletion, updateTraining } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
@@ -139,6 +140,10 @@ export default function Trainings() {
     reorderDocs(team.id, 'trainings', swappedRows(allTrainings, groupTrainings[index].id, neighbour.id))
   }
 
+  function moveTo(groupTrainings, index, toIndex) {
+    reorderDocs(team.id, 'trainings', movedWithinGroup(allTrainings, groupTrainings, groupTrainings[index].id, toIndex))
+  }
+
   if (loading) return <div className="page-loading">Loading trainings…</div>
 
   return (
@@ -249,6 +254,7 @@ export default function Trainings() {
           onEdit={startEdit}
           onDelete={handleDelete}
           onMove={(index, direction) => move(group.trainings, index, direction)}
+          onMoveTo={(index, toIndex) => moveTo(group.trainings, index, toIndex)}
         />
       ))}
       {groups.length === 0 && <p className="muted">No trainings yet.</p>}
@@ -256,7 +262,7 @@ export default function Trainings() {
   )
 }
 
-function TrainingGroupTable({ title, trainings, students, teamId, allStudents, onEdit, onDelete, onMove }) {
+function TrainingGroupTable({ title, trainings, students, teamId, allStudents, onEdit, onDelete, onMove, onMoveTo }) {
   const tableRef = useRef(null)
   useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
   const today = todayISO()
@@ -264,7 +270,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
   return (
     <>
       <h2>{title}</h2>
-      <div className="table-scroll">
+      <StickyTableScroll>
         <table className="data-table matrix" ref={tableRef}>
           <thead>
             <tr>
@@ -320,6 +326,10 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
                         onDown={() => onMove(i, 1)}
                         canUp={i > 0}
                         canDown={i < trainings.length - 1}
+                        index={i}
+                        count={trainings.length}
+                        onMoveTo={(toIndex) => onMoveTo(i, toIndex)}
+                        label="training"
                       />
                       <button className="link-btn" onClick={() => onEdit(t)}>
                         Edit
@@ -334,7 +344,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
             })}
           </tbody>
         </table>
-      </div>
+      </StickyTableScroll>
     </>
   )
 }

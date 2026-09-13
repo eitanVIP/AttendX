@@ -3,9 +3,10 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import MoveButtons from '../components/MoveButtons'
 import PasswordInput, { RevealButton } from '../components/PasswordInput'
+import StickyTableScroll from '../components/StickyTableScroll'
 import { DEFAULT_ACCENT } from '../lib/theme'
 import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
-import { todayISO } from '../lib/calc'
+import { movedTo, todayISO } from '../lib/calc'
 import {
   addEvent,
   deleteEvent,
@@ -97,10 +98,24 @@ export default function Settings() {
     setRows(swapNeighbours(rows, (r) => r.key === key, direction))
   }
 
+  function moveDivisionTo(key, toIndex) {
+    setRows(movedTo(rows, rows.findIndex((r) => r.key === key), toIndex))
+  }
+
   function moveSubdivision(key, subKey, direction) {
     setRows(
       rows.map((r) =>
         r.key === key ? { ...r, subdivisions: swapNeighbours(r.subdivisions, (s) => s.key === subKey, direction) } : r
+      )
+    )
+  }
+
+  function moveSubdivisionTo(key, subKey, toIndex) {
+    setRows(
+      rows.map((r) =>
+        r.key === key
+          ? { ...r, subdivisions: movedTo(r.subdivisions, r.subdivisions.findIndex((s) => s.key === subKey), toIndex) }
+          : r
       )
     )
   }
@@ -187,15 +202,19 @@ export default function Settings() {
             <DivisionRow
               key={row.key}
               row={row}
+              index={i}
+              count={rows.length}
               canUp={i > 0}
               canDown={i < rows.length - 1}
               onMove={(direction) => moveDivision(row.key, direction)}
+              onMoveTo={(toIndex) => moveDivisionTo(row.key, toIndex)}
               onRename={(v) => renameDivision(row.key, v)}
               onRemove={() => removeDivision(row.key)}
               onAddSub={(v) => addSubdivision(row.key, v)}
               onRenameSub={(subKey, v) => renameSubdivision(row.key, subKey, v)}
               onRemoveSub={(subKey) => removeSubdivision(row.key, subKey)}
               onMoveSub={(subKey, direction) => moveSubdivision(row.key, subKey, direction)}
+              onMoveSubTo={(subKey, toIndex) => moveSubdivisionTo(row.key, subKey, toIndex)}
             />
           ))}
           {rows.length === 0 && <p className="muted">No divisions yet - everyone will be ungrouped.</p>}
@@ -299,7 +318,7 @@ function EventsSection({ teamId }) {
         Upcoming events count down on the dashboard, nearest first. Past ones drop off the dashboard
         but stay here until you delete them.
       </p>
-      <div className="table-scroll" style={{ maxWidth: 560 }}>
+      <StickyTableScroll style={{ maxWidth: 560 }}>
         <table className="data-table">
           <thead>
             <tr>
@@ -334,7 +353,7 @@ function EventsSection({ teamId }) {
             )}
           </tbody>
         </table>
-      </div>
+      </StickyTableScroll>
       <button type="button" className="secondary" onClick={startNew}>
         + Add event
       </button>
@@ -518,6 +537,10 @@ function CommunityHoursSection({ teamId }) {
     setTypes(swapNeighbours(types, (_, i) => i === index, direction))
   }
 
+  function moveTypeTo(index, toIndex) {
+    setTypes(movedTo(types, index, toIndex))
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -568,6 +591,10 @@ function CommunityHoursSection({ teamId }) {
                 onDown={() => moveType(i, 1)}
                 canUp={i > 0}
                 canDown={i < types.length - 1}
+                index={i}
+                count={types.length}
+                onMoveTo={(toIndex) => moveTypeTo(i, toIndex)}
+                label="community type"
               />
               <input
                 value={t}
@@ -616,15 +643,19 @@ function CommunityHoursSection({ teamId }) {
 
 function DivisionRow({
   row,
+  index,
+  count,
   canUp,
   canDown,
   onMove,
+  onMoveTo,
   onRename,
   onRemove,
   onAddSub,
   onRenameSub,
   onRemoveSub,
   onMoveSub,
+  onMoveSubTo,
 }) {
   const [subInput, setSubInput] = useState('')
 
@@ -636,7 +667,16 @@ function DivisionRow({
   return (
     <div className="card" style={{ padding: 12, marginBottom: 8 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <MoveButtons onUp={() => onMove(-1)} onDown={() => onMove(1)} canUp={canUp} canDown={canDown} />
+        <MoveButtons
+          onUp={() => onMove(-1)}
+          onDown={() => onMove(1)}
+          canUp={canUp}
+          canDown={canDown}
+          index={index}
+          count={count}
+          onMoveTo={onMoveTo}
+          label="division"
+        />
         <input
           value={row.name}
           onChange={(e) => onRename(e.target.value)}
@@ -656,6 +696,10 @@ function DivisionRow({
               onDown={() => onMoveSub(sub.key, 1)}
               canUp={i > 0}
               canDown={i < row.subdivisions.length - 1}
+              index={i}
+              count={row.subdivisions.length}
+              onMoveTo={(toIndex) => onMoveSubTo(sub.key, toIndex)}
+              label="subdivision"
             />
             <input
               value={sub.name}

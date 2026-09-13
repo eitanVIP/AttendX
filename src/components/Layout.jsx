@@ -18,17 +18,56 @@ export default function Layout() {
   const location = useLocation()
   const headerRef = useRef(null)
 
-  // Sticky page toolbars (see .page-toolbar) need to sit right below the
-  // sticky header, whose height varies (wraps on narrow widths, different
-  // font metrics per OS) - so it's measured rather than hardcoded, same
-  // pattern as the accent colour var in AuthContext.
+  // Sticky page toolbars (see .page-toolbar) sit right below the sticky
+  // header, and each table's own header row sticks right below whichever
+  // of those the current page has - all three heights vary (wrapping,
+  // font metrics, whether a page even has a toolbar/filter row), so
+  // they're measured rather than hardcoded, same pattern as the accent
+  // colour var in AuthContext. --sticky-top is the combined header +
+  // toolbar height table headers use; --header-h (just the header) is what
+  // the toolbar itself sticks to.
+  //
+  // The toolbar is watched via MutationObserver rather than a ref, because
+  // every page that has one renders a loading placeholder (no toolbar in
+  // the DOM at all) until its Firestore data arrives, and route changes
+  // swap in a different page under the same Layout instance - a plain
+  // effect keyed on the route would measure too early and never notice it
+  // showing up moments later.
   useEffect(() => {
     const header = headerRef.current
-    const set = () => document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`)
-    set()
-    const observer = new ResizeObserver(set)
-    observer.observe(header)
-    return () => observer.disconnect()
+    let toolbarObserver = null
+    let currentToolbar = null
+
+    function measure() {
+      const headerH = header.offsetHeight
+      document.documentElement.style.setProperty('--header-h', `${headerH}px`)
+      document.documentElement.style.setProperty('--sticky-top', `${headerH + (currentToolbar?.offsetHeight || 0)}px`)
+    }
+
+    function syncToolbar() {
+      const el = document.querySelector('.page-toolbar')
+      if (el === currentToolbar) return
+      toolbarObserver?.disconnect()
+      currentToolbar = el
+      if (el) {
+        toolbarObserver = new ResizeObserver(measure)
+        toolbarObserver.observe(el)
+      }
+      measure()
+    }
+
+    const headerObserver = new ResizeObserver(measure)
+    headerObserver.observe(header)
+
+    const bodyObserver = new MutationObserver(syncToolbar)
+    bodyObserver.observe(document.querySelector('.app-main'), { childList: true, subtree: true })
+    syncToolbar()
+
+    return () => {
+      headerObserver.disconnect()
+      bodyObserver.disconnect()
+      toolbarObserver?.disconnect()
+    }
   }, [])
 
   useEffect(() => {

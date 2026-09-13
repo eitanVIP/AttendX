@@ -85,6 +85,46 @@ export function swappedRows(items, idA, idB) {
   return rows
 }
 
+// Moves the item at `index` to `toIndex` within a plain array, clamping
+// `toIndex` to the array's own bounds - so a stray out-of-range value (an
+// admin typing 0 or 999 into the "move to position" dialog) always lands
+// on the closest real position (first or last) instead of doing nothing or
+// producing an invalid array. Used by Settings' locally-held lists
+// (divisions, their subdivisions, community types), which have no
+// Firestore `order` field - just this array's position.
+export function movedTo(list, index, toIndex) {
+  const clamped = Math.max(0, Math.min(toIndex, list.length - 1))
+  const next = [...list]
+  const [item] = next.splice(index, 1)
+  next.splice(clamped, 0, item)
+  return next
+}
+
+// The full list to hand reorderDocs after moving one row to a new position
+// within its group (e.g. one division's table) - every row outside the
+// group keeps its exact slot; the group's own rows trade places among the
+// slots they already occupied. `toIndex` is clamped to the group's own
+// bounds (see movedTo above), which is what keeps a corrupt or
+// out-of-range target - including one computed from a stray negative
+// `order` on some doc - from ever landing outside the group.
+export function movedWithinGroup(items, groupItems, id, toIndex) {
+  const ids = new Set(groupItems.map((x) => x.id))
+  const slots = []
+  items.forEach((item, i) => {
+    if (ids.has(item.id)) slots.push(i)
+  })
+  const group = movedTo(
+    groupItems,
+    groupItems.findIndex((x) => x.id === id),
+    toIndex
+  )
+  const rows = [...items]
+  slots.forEach((slot, k) => {
+    rows[slot] = group[k]
+  })
+  return rows
+}
+
 // A student is active unless marked inactive by hand OR their attendance
 // has fallen under the team's minimum (see useStudents, which derives
 // `active`/`autoInactive` for every student). The label distinguishes the
