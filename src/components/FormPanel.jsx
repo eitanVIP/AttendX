@@ -11,6 +11,8 @@ const EXIT_MS = 160
 export default function FormPanel({ open, onClose, children, ...formProps }) {
   const [visible, setVisible] = useState(open)
   const dialogRef = useRef(null)
+  const cardRef = useRef(null)
+  const pressedBackdropRef = useRef(false)
 
   if (open && !visible) setVisible(true)
 
@@ -48,11 +50,27 @@ export default function FormPanel({ open, onClose, children, ...formProps }) {
         onClose()
       }}
       onClose={onClose}
+      onMouseDown={(e) => {
+        pressedBackdropRef.current = e.target === e.currentTarget
+      }}
+      // A held mouse button captures every later event on the element it
+      // pressed down on - so a press that starts on the backdrop still
+      // reports the backdrop as this click's target even after dragging
+      // onto the card and releasing there (a slightly mis-aimed click, or a
+      // text selection that starts outside the card), and it used to close
+      // the panel on exactly that press rather than where the mouse came
+      // up. e.target can't tell the two apart since it's always the
+      // backdrop either way; comparing the release point to the card's own
+      // box can, so a release actually over the card is left alone.
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (!pressedBackdropRef.current) return
+        const card = cardRef.current?.getBoundingClientRect()
+        const releasedOnCard =
+          card && e.clientX >= card.left && e.clientX <= card.right && e.clientY >= card.top && e.clientY <= card.bottom
+        if (!releasedOnCard) onClose()
       }}
     >
-      <form className="modal-card" {...formProps}>
+      <form ref={cardRef} className="modal-card" {...formProps}>
         {children}
       </form>
     </dialog>

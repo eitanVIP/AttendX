@@ -53,7 +53,10 @@ export default function StudentProfile() {
   }, [attendanceRecords, sessionById])
 
   const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
-  const certifications = useMemo(() => trainings.filter((t) => t.category === 'professional'), [trainings])
+  const certifications = useMemo(
+    () => trainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
+    [trainings]
+  )
   const trainingStats = useMemo(
     () => (student ? studentTrainingStats(student, regularTrainings) : null),
     [student, regularTrainings]

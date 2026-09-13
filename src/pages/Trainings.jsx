@@ -262,6 +262,21 @@ export default function Trainings() {
   )
 }
 
+// After checking a box in the rightmost column still clear of the frozen
+// Progress/Actions columns, scrolls over by one column so the next
+// checkbox lands in that spot instead of staying hidden underneath them.
+function scrollToRevealNext(checkbox) {
+  const cell = checkbox.closest('td')
+  const scrollEl = checkbox.closest('.table-scroll')
+  const frozen = cell?.closest('tr')?.querySelector('.matrix-progress-col')
+  if (!cell || !scrollEl || !frozen) return
+  const cellRect = cell.getBoundingClientRect()
+  const frozenLeft = frozen.getBoundingClientRect().left
+  if (frozenLeft - cellRect.right < 6) {
+    scrollEl.scrollBy({ left: cellRect.width, behavior: 'smooth' })
+  }
+}
+
 function TrainingGroupTable({ title, trainings, students, teamId, allStudents, onEdit, onDelete, onMove, onMoveTo }) {
   const tableRef = useRef(null)
   useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
@@ -306,7 +321,10 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
                           <input
                             type="checkbox"
                             checked={!!checked}
-                            onChange={(e) => setTrainingCompletion(teamId, t.id, s.id, e.target.checked)}
+                            onChange={(e) => {
+                              setTrainingCompletion(teamId, t.id, s.id, e.target.checked)
+                              scrollToRevealNext(e.target)
+                            }}
                           />
                         ) : (
                           <span className="muted">–</span>

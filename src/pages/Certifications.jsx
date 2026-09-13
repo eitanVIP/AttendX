@@ -17,7 +17,12 @@ export default function Certifications() {
 
   const divisions = useMemo(() => team?.divisions || [], [team])
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
-  const certifications = useMemo(() => allTrainings.filter((t) => t.category === 'professional'), [allTrainings])
+  // Sorted by name, not the global training order the ↑/↓ arrows control -
+  // certs here are cards in a grid, not a reorderable table.
+  const certifications = useMemo(
+    () => allTrainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
+    [allTrainings]
+  )
   // A cert's required trainings can only come from its own division (or, for
   // a division-less "General" cert, only from other division-less
   // trainings) - a Mechanical cert has no business requiring a Controls

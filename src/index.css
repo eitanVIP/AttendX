@@ -305,6 +305,10 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
+button.danger {
+  background: var(--danger);
+}
+
 button.link-btn {
   background: none;
   color: var(--accent);
@@ -493,6 +497,21 @@ code {
 .notice a {
   color: inherit;
   font-weight: 600;
+}
+
+.notice-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.notice-danger strong {
+  display: block;
+  margin-bottom: 4px;
 }
 
 /* Layout helpers */
@@ -994,6 +1013,11 @@ thead .matrix-actions-col {
   text-align: center;
   width: var(--student-col, auto);
   min-width: var(--student-col, 44px);
+}
+
+.data-table.matrix .matrix-student-col input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
 }
 
 /* Trainings whose due date has passed with students still missing. Opaque

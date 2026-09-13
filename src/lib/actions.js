@@ -6,6 +6,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   updateDoc,
@@ -54,6 +55,69 @@ export async function updateTeamStructure(teamId, changes, renames) {
     if (fixed) writes.push((batch) => batch.update(d.ref, { ...fixed, division: deleteField(), subdivision: deleteField() }))
   }
   await commitAll(writes)
+}
+
+// The two halves of "clone a team": read everything the new team should
+// copy off the source (requires the caller already has hasAccess to it -
+// see cloneTeam in AuthContext, which arranges that via a temporary
+// membership), then write it under the freshly created team. Split so the
+// caller can create the new team doc in between (writeClonedContent needs
+// hasAccess to the destination, which only exists once that doc and the
+// caller's membership on it are in place).
+export async function readTeamForClone(teamId) {
+  const [teamSnap, trainingsSnap, eventsSnap, communitySnap] = await Promise.all([
+    getDoc(doc(db, 'teams', teamId)),
+    getDocs(collection(db, 'teams', teamId, 'trainings')),
+    getDocs(collection(db, 'teams', teamId, 'events')),
+    getDoc(doc(db, 'teams', teamId, 'settings', 'community')),
+  ])
+  return {
+    team: teamSnap.data() || {},
+    trainings: trainingsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    events: eventsSnap.docs.map((d) => d.data()),
+    communitySettings: communitySnap.exists() ? communitySnap.data() : null,
+  }
+}
+
+// Trainings get new document ids (rather than reusing the source's) since
+// they're being copied into a different collection; a certification's
+// requiredTrainingIds has to follow along, or it would end up pointing at
+// training ids that don't exist in the new team. completedStudentIds always
+// resets to empty - the new team has none of the source's students.
+export async function writeClonedContent(teamId, source) {
+  const idMap = new Map(source.trainings.map((t) => [t.id, doc(collection(db, 'teams', teamId, 'trainings')).id]))
+  const writes = source.trainings.map((t) => (batch) => {
+    const { id, requiredTrainingIds, completedStudentIds: _completedStudentIds, ...rest } = t
+    batch.set(doc(db, 'teams', teamId, 'trainings', idMap.get(id)), {
+      ...rest,
+      completedStudentIds: [],
+      ...(requiredTrainingIds && { requiredTrainingIds: requiredTrainingIds.map((rid) => idMap.get(rid)).filter(Boolean) }),
+    })
+  })
+  for (const event of source.events) {
+    writes.push((batch) => batch.set(doc(collection(db, 'teams', teamId, 'events')), event))
+  }
+  await commitAll(writes)
+  if (source.communitySettings) await setCommunitySettings(teamId, source.communitySettings)
+}
+
+// Wipes a team's trainings, certifications, events, and community-hours
+// settings ahead of a destructive clone overriding them (see
+// overrideTeamWithClone in AuthContext) - students and the team doc itself
+// (its number, name, codes, accent) are untouched. Community settings reset
+// to empty rather than being left as whatever the destination had, so a
+// source with none of its own doesn't leave the old ones behind.
+export async function clearTeamContent(teamId) {
+  const [trainingsSnap, eventsSnap] = await Promise.all([
+    getDocs(collection(db, 'teams', teamId, 'trainings')),
+    getDocs(collection(db, 'teams', teamId, 'events')),
+  ])
+  const writes = [
+    ...trainingsSnap.docs.map((d) => (batch) => batch.delete(d.ref)),
+    ...eventsSnap.docs.map((d) => (batch) => batch.delete(d.ref)),
+  ]
+  await commitAll(writes)
+  await setCommunitySettings(teamId, { hoursTarget: 0, types: [] })
 }
 
 // Community-hours settings (target hours + the list of community types

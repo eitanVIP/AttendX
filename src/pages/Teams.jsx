@@ -45,8 +45,13 @@ export default function Teams() {
           <button className={mode === 'create' ? 'chip active' : 'chip'} onClick={() => setMode('create')}>
             Create a team
           </button>
+          <button className={mode === 'clone' ? 'chip active' : 'chip'} onClick={() => setMode('clone')}>
+            Clone a team
+          </button>
         </div>
-        {mode === 'join' ? <JoinForm /> : <CreateForm />}
+        {mode === 'join' && <JoinForm />}
+        {mode === 'create' && <CreateForm />}
+        {mode === 'clone' && <CloneForm />}
       </div>
     </div>
   )
@@ -213,6 +218,149 @@ function CreateForm() {
       {error && <p className="form-error">{error}</p>}
       <button type="submit" disabled={submitting}>
         {submitting ? 'Creating…' : 'Create team'}
+      </button>
+    </form>
+  )
+}
+
+function CloneForm() {
+  const { cloneTeam, overrideTeamWithClone } = useAuth()
+  const [teamNumber, setTeamNumber] = useState('')
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [studentCode, setStudentCode] = useState('')
+  const [sourceTeamNumber, setSourceTeamNumber] = useState('')
+  const [sourceCode, setSourceCode] = useState('')
+  const [overwrite, setOverwrite] = useState(false)
+  const [destinationCode, setDestinationCode] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  function toggleOverwrite(checked) {
+    setOverwrite(checked)
+    setError('')
+    setConfirmed(false)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+
+    if (overwrite) {
+      setSubmitting(true)
+      try {
+        await overrideTeamWithClone(teamNumber, destinationCode, sourceTeamNumber, sourceCode)
+      } catch (err) {
+        setError(
+          err.message === 'source-access'
+            ? 'Source team number or admin code is incorrect.'
+            : err.message === 'same-team'
+              ? "Can't overwrite a team with itself - pick a different team to clone from."
+              : `Team ${teamNumber}'s number or admin code is incorrect.`
+        )
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    if (code.length < 4 || studentCode.length < 4) {
+      setError('Both codes must be at least 4 characters.')
+      return
+    }
+    if (code === studentCode) {
+      setError('Admin and student codes must be different.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await cloneTeam(
+        teamNumber,
+        code,
+        studentCode,
+        { name: name.trim() || `Team ${teamNumber}` },
+        sourceTeamNumber,
+        sourceCode
+      )
+    } catch (err) {
+      setError(
+        err.message === 'source-access'
+          ? 'Source team number or admin code is incorrect.'
+          : `Team ${teamNumber} already exists on AttendX - ask its admin for the code and join it instead.`
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <p className="muted" style={{ margin: '-6px 0 0' }}>
+        Copies trainings, certifications, events, community-hours settings, divisions, and the
+        auto-inactive threshold from an existing team. Not its students, number, accent, name, or
+        codes.
+      </p>
+      <label>
+        Team to clone from - number
+        <TeamNumberInput value={sourceTeamNumber} onChange={setSourceTeamNumber} placeholder="e.g. 4744" />
+      </label>
+      <label>
+        Team to clone from - admin code
+        <PasswordInput value={sourceCode} onChange={(e) => setSourceCode(e.target.value)} required />
+      </label>
+
+      <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" checked={overwrite} onChange={(e) => toggleOverwrite(e.target.checked)} />
+        Overwrite an existing team instead of creating a new one
+      </label>
+
+      {overwrite ? (
+        <>
+          <div className="notice-danger">
+            <strong>This permanently replaces the target team's data.</strong>
+            Its trainings, certifications, events, and community-hours settings are deleted and
+            replaced with the source's above. Its roster, name, number, accent, and codes stay as
+            they are. There is no undo.
+          </div>
+          <label>
+            Team to overwrite - number
+            <TeamNumberInput value={teamNumber} onChange={setTeamNumber} placeholder="e.g. 4744" />
+          </label>
+          <label>
+            Team to overwrite - admin code
+            <PasswordInput value={destinationCode} onChange={(e) => setDestinationCode(e.target.value)} required />
+          </label>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            I understand this permanently deletes {teamNumber ? `team ${teamNumber}'s` : "the target team's"}{' '}
+            existing trainings, certifications, events, and community-hours settings.
+          </label>
+        </>
+      ) : (
+        <>
+          <label>
+            New team's FRC number
+            <TeamNumberInput value={teamNumber} onChange={setTeamNumber} placeholder="e.g. 4744" />
+          </label>
+          <label>
+            New team's name
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. DaVinci 4744" />
+          </label>
+          <label>
+            Choose an admin code
+            <PasswordInput value={code} onChange={(e) => setCode(e.target.value)} minLength={4} required />
+          </label>
+          <label>
+            Choose a student code
+            <PasswordInput value={studentCode} onChange={(e) => setStudentCode(e.target.value)} minLength={4} required />
+          </label>
+        </>
+      )}
+
+      {error && <p className="form-error">{error}</p>}
+      <button type="submit" className={overwrite ? 'danger' : undefined} disabled={submitting || (overwrite && !confirmed)}>
+        {submitting ? (overwrite ? 'Overwriting…' : 'Cloning…') : overwrite ? 'Overwrite team' : 'Clone team'}
       </button>
     </form>
   )

@@ -30,7 +30,10 @@ export default function Dashboard() {
   const { data: events } = useEvents(team?.id)
 
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
-  const certifications = useMemo(() => trainings.filter((t) => t.category === 'professional'), [trainings])
+  const certifications = useMemo(
+    () => trainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
+    [trainings]
+  )
   const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
 
   const completionByGrade = useMemo(
@@ -152,6 +155,50 @@ export default function Dashboard() {
             </table>
           </StickyTableScroll>
 
+          <h2>Attendance by student</h2>
+          <div className="card bar-chart">
+            {attendanceBars.map(({ student, percent }) => (
+              <Link
+                to={`/students/${student.id}`}
+                key={student.id}
+                className={`bar-row ${student.active ? '' : 'row-inactive'}`}
+                title={student.active ? undefined : 'Inactive'}
+              >
+                <span className="bar-row-name">{student.fullName}</span>
+                <span className="bar-row-track">
+                  <span className="bar-row-fill" style={{ width: `${percent ?? 0}%` }} />
+                </span>
+                <span className="bar-row-value">{percent === null ? '—' : `${percent}%`}</span>
+              </Link>
+            ))}
+            {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
+          </div>
+
+          <h2>Training completion by grade</h2>
+          <div className="card bar-chart grade-chart">
+            {completionByGrade.map(({ division, rows }) => (
+              <div key={division} className="grade-chart-block">
+                <div className="grade-chart-division">{division}</div>
+                {rows.map((row) => (
+                  <div
+                    key={row.grade}
+                    className="bar-row"
+                    title={`${row.completed} of ${row.total} trainings completed across ${row.students} student${row.students === 1 ? '' : 's'}`}
+                  >
+                    <span className="bar-row-name">{row.grade}</span>
+                    <span className="bar-row-track">
+                      <span className="bar-row-fill" style={{ width: `${row.percent ?? 0}%` }} />
+                    </span>
+                    <span className="bar-row-value">{row.percent === null ? '—' : `${row.percent}%`}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {completionByGrade.length === 0 && <p className="muted">No trainings apply to any active student yet.</p>}
+          </div>
+        </div>
+
+        <div className="dashboard-col">
           <h2>Certifications</h2>
           <StickyTableScroll>
             <table className="data-table">
@@ -187,50 +234,6 @@ export default function Dashboard() {
               </tbody>
             </table>
           </StickyTableScroll>
-
-          <h2>Training completion by grade</h2>
-          <div className="card bar-chart grade-chart">
-            {completionByGrade.map(({ division, rows }) => (
-              <div key={division} className="grade-chart-block">
-                <div className="grade-chart-division">{division}</div>
-                {rows.map((row) => (
-                  <div
-                    key={row.grade}
-                    className="bar-row"
-                    title={`${row.completed} of ${row.total} trainings completed across ${row.students} student${row.students === 1 ? '' : 's'}`}
-                  >
-                    <span className="bar-row-name">{row.grade}</span>
-                    <span className="bar-row-track">
-                      <span className="bar-row-fill" style={{ width: `${row.percent ?? 0}%` }} />
-                    </span>
-                    <span className="bar-row-value">{row.percent === null ? '—' : `${row.percent}%`}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {completionByGrade.length === 0 && <p className="muted">No trainings apply to any active student yet.</p>}
-          </div>
-        </div>
-
-        <div className="dashboard-col">
-          <h2>Attendance by student</h2>
-          <div className="card bar-chart">
-            {attendanceBars.map(({ student, percent }) => (
-              <Link
-                to={`/students/${student.id}`}
-                key={student.id}
-                className={`bar-row ${student.active ? '' : 'row-inactive'}`}
-                title={student.active ? undefined : 'Inactive'}
-              >
-                <span className="bar-row-name">{student.fullName}</span>
-                <span className="bar-row-track">
-                  <span className="bar-row-fill" style={{ width: `${percent ?? 0}%` }} />
-                </span>
-                <span className="bar-row-value">{percent === null ? '—' : `${percent}%`}</span>
-              </Link>
-            ))}
-            {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
-          </div>
         </div>
       </div>
     </div>
