@@ -37,22 +37,39 @@ export function eventCountdown(dateISO, now = new Date()) {
   }
 }
 
-// Training completion per division, broken down by grade: within each
-// division, each grade's active students' completed applicable trainings
-// over their total applicable trainings. Grades with no students in the
-// division are left out; students without a grade pool under "—".
+// Training completion per division, broken down by grade - plus a leading
+// "General" block of its own for trainings with no scopeDivision at all
+// (every active student, not scoped to any particular division). Each
+// block only counts trainings actually scoped to THAT block: a division's
+// numbers never include General's trainings, and a student who belongs to
+// two divisions doesn't have one division's trainings bleed into the
+// other's total - unlike trainingAppliesToStudent's "any division the
+// student is in" check (right for a student's own profile, wrong for a
+// chart trying to isolate one division's completion), each block pre-
+// filters `trainings` down to its own scope before handing them to
+// studentTrainingStats. Grades with no students in a block are left out;
+// students without a grade pool under "—".
 export function trainingCompletionByGrade(students, trainings, divisions) {
-  return divisions
-    .map((division) => {
-      const inDivision = students.filter((s) => s.active && s.divisions.includes(division))
-      const grades = [...GRADES, '—'].filter((g) => inDivision.some((s) => (s.grade || '—') === g))
+  const blocks = [
+    { label: 'General', inBlock: (s) => s.active, ownTrainings: (t) => !t.scopeDivision },
+    ...divisions.map((division) => ({
+      label: division,
+      inBlock: (s) => s.active && s.divisions.includes(division),
+      ownTrainings: (t) => t.scopeDivision === division,
+    })),
+  ]
+  return blocks
+    .map(({ label, inBlock, ownTrainings }) => {
+      const inScope = students.filter(inBlock)
+      const scoped = trainings.filter(ownTrainings)
+      const grades = [...GRADES, '—'].filter((g) => inScope.some((s) => (s.grade || '—') === g))
       const rows = grades
         .map((grade) => {
-          const members = inDivision.filter((s) => (s.grade || '—') === grade)
+          const members = inScope.filter((s) => (s.grade || '—') === grade)
           let completed = 0
           let total = 0
           for (const s of members) {
-            const stats = studentTrainingStats(s, trainings)
+            const stats = studentTrainingStats(s, scoped)
             completed += stats.completed
             total += stats.total
           }
@@ -65,7 +82,7 @@ export function trainingCompletionByGrade(students, trainings, divisions) {
           }
         })
         .filter((row) => row.total > 0)
-      return { division, rows }
+      return { division: label, rows }
     })
     .filter((block) => block.rows.length > 0)
 }
@@ -339,9 +356,13 @@ export function usedQuantitiesByProduct(systems, excludeSystemId) {
 // what every OTHER system has already claimed (see usedQuantitiesByProduct
 // above). Never negative even if stock has since dropped below what's
 // already claimed elsewhere.
+// Deliberately NOT floored at 0 - a system is allowed to claim more of a
+// product than is actually free (NeedsTable then offers to auto-request an
+// order for the shortfall), so "available" has to be able to show the
+// resulting deficit rather than hiding it behind a 0.
 export function availableForProduct(product, usedQuantities) {
   const used = usedQuantities[product.id] || 0
-  return Math.max((product.countInInventory || 0) - used, 0)
+  return (product.countInInventory || 0) - used
 }
 
 // Free-text search across every field a search box could plausibly mean by

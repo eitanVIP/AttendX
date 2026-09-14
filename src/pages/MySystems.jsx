@@ -13,7 +13,7 @@ import NeedsTable from '../components/NeedsTable'
 // still available" depends on what everyone else's systems claim, and that
 // can change while this page is open.
 export default function MySystems() {
-  const { verified, studentId } = useStudentAuth()
+  const { verified, studentId, student } = useStudentAuth()
   const [products, setProducts] = useState([])
   const [systems, setSystems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -72,6 +72,23 @@ export default function MySystems() {
     await deleteDoc(doc(communityDb, 'teams', verified.teamId, 'systems', id))
   }
 
+  // Students can't write to products directly (see firestore.rules), so
+  // "request an order" here means the same thing the Request Order tab
+  // does: drop a doc in orderRequests for an admin to review. Since the
+  // product already exists, an admin accepting it will hit the existing
+  // duplicate-name prompt on Orders and fold the shortfall into its real
+  // wantedCount instead of creating a second product.
+  async function handleRequestOrder(product, shortfall) {
+    const { id: _id, boughtFlag: _boughtFlag, ...rest } = product
+    await addDoc(collection(communityDb, 'teams', verified.teamId, 'orderRequests'), {
+      ...rest,
+      countInInventory: 0,
+      wantedCount: shortfall,
+      requestedBy: student?.fullName || '',
+      requestedAt: new Date().toISOString().slice(0, 10),
+    })
+  }
+
   if (loading) return <div className="page-loading">Loading…</div>
 
   return (
@@ -80,9 +97,10 @@ export default function MySystems() {
         <h1>My Systems</h1>
         <button onClick={startNew}>+ New system</button>
       </div>
-      <p className="muted" style={{ marginTop: -12 }}>
+      <p className="muted">
         Track what inventory each of your systems needs - "Available" already accounts for what your
-        other systems, and everyone else's, have already claimed.
+        other systems, and everyone else's, have already claimed. You can still claim more than what's
+        available; you'll be offered to automatically request an order for the difference.
       </p>
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
@@ -102,6 +120,7 @@ export default function MySystems() {
           needs={form.needs}
           usedQuantities={usedQuantities}
           onChange={(needs) => setForm({ ...form, needs })}
+          onRequestOrder={handleRequestOrder}
         />
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setShowForm(false)}>

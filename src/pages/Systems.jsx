@@ -4,14 +4,15 @@ import FormPanel from '../components/FormPanel'
 import StickyTableScroll from '../components/StickyTableScroll'
 import NeedsTable from '../components/NeedsTable'
 import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
-import { DEFAULT_SYSTEM, usedQuantitiesByProduct } from '../lib/calc'
-import { addSystem, deleteSystem, updateSystem } from '../lib/actions'
+import { DEFAULT_SYSTEM, boughtFlagChanges, usedQuantitiesByProduct } from '../lib/calc'
+import { addSystem, deleteSystem, updateProduct, updateSystem } from '../lib/actions'
 
 export default function Systems() {
   const { team } = useAuth()
   const { data: students } = useStudents(team)
   const { data: products } = useProducts(team?.id)
   const { data: systems, loading } = useSystems(team?.id)
+  const productTypes = team?.productTypes || []
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_SYSTEM)
@@ -60,6 +61,18 @@ export default function Systems() {
     await deleteSystem(team.id, id)
   }
 
+  // Unlike the student side (MySystems), an admin already has full write
+  // access to products - so "request an order" here just bumps the real
+  // wantedCount directly, the same field Orders' to-buy math reads, rather
+  // than going through orderRequests for someone else to review.
+  async function handleRequestOrder(product, shortfall) {
+    const updated = { ...product, wantedCount: (product.wantedCount || 0) + shortfall }
+    await updateProduct(team.id, product.id, {
+      wantedCount: updated.wantedCount,
+      ...boughtFlagChanges(product, updated, productTypes),
+    })
+  }
+
   if (loading) return <div className="page-loading">Loading systems…</div>
 
   return (
@@ -68,9 +81,10 @@ export default function Systems() {
         <h1>Systems</h1>
         <button onClick={startNew}>+ Add system</button>
       </div>
-      <p className="muted" style={{ marginTop: -12 }}>
+      <p className="muted">
         What each student is building and the inventory it claims - "Available" already excludes every
-        other system's own claim on the same item.
+        other system's own claim on the same item. A system can still claim more than what's available;
+        you'll be offered to bump the product's wanted count for the difference.
       </p>
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
@@ -104,6 +118,7 @@ export default function Systems() {
           needs={form.needs}
           usedQuantities={usedQuantities}
           onChange={(needs) => setForm({ ...form, needs })}
+          onRequestOrder={handleRequestOrder}
         />
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setShowForm(false)}>
