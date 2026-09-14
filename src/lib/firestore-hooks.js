@@ -110,6 +110,15 @@ export function useOrderRequests(teamId) {
   return { ...result, data }
 }
 
+// Admin view of every student's systems (see DEFAULT_SYSTEM in calc.js) -
+// `needs` defaults to [] for a doc somehow missing it, same defensive
+// normalization normalizeProduct does for products.
+export function useSystems(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'systems'] : null)
+  const data = useMemo(() => result.data.map((s) => ({ needs: [], ...s })), [result.data])
+  return { ...result, data }
+}
+
 // Re-renders on a fixed cadence - for countdowns that should tick.
 export function useNow(intervalMs) {
   const [now, setNow] = useState(() => new Date())

@@ -14,11 +14,13 @@ import Certifications from './pages/Certifications'
 import Sessions from './pages/Sessions'
 import Inventory from './pages/Inventory'
 import Orders from './pages/Orders'
+import Systems from './pages/Systems'
 import Settings from './pages/Settings'
 import StudentLogin from './pages/StudentLogin'
 import CommunityHours from './pages/CommunityHours'
 import RequestOrder from './pages/RequestOrder'
 import MySystems from './pages/MySystems'
+import MyProfile from './pages/MyProfile'
 import QuotaExceeded from './pages/QuotaExceeded'
 import { useQuotaExceeded } from './lib/quotaStatus'
 
@@ -52,6 +54,7 @@ export default function App() {
                 <Route path="/log-hours" element={<CommunityHours />} />
                 <Route path="/request-order" element={<RequestOrder />} />
                 <Route path="/my-systems" element={<MySystems />} />
+                <Route path="/my-profile" element={<MyProfile />} />
               </Route>
               <Route
                 element={
@@ -68,6 +71,7 @@ export default function App() {
                 <Route path="/sessions" element={<Sessions />} />
                 <Route path="/inventory" element={<Inventory />} />
                 <Route path="/orders" element={<Orders />} />
+                <Route path="/systems" element={<Systems />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
             </Routes>

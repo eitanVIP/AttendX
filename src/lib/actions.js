@@ -16,13 +16,23 @@ import { db } from '../firebase'
 import { normalizeStudent, remapStudentDivisions } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 
-// Mirrors just what the student area (the request-a-product page's form,
-// plus the team name shown in its header) needs to read - not the admin
-// join codes and everything else that lives on teams/{teamId} itself.
-// Firestore rules can't expose part of a document, so this is its own doc
-// under settings/ (same reasoning as setCommunitySettings below), which
-// firestore.rules lets a student read while the team doc stays admin-only.
-const PRODUCT_SETTINGS_FIELDS = ['categories', 'productTypes', 'currencyRates', 'name']
+// Mirrors just what the student area needs to read - the request-a-product
+// form's own fields, the team name shown in its header, and the division
+// structure My Profile needs to group a student's own certs/trainings and
+// judge their auto-inactive status - not the admin join codes and
+// everything else that lives on teams/{teamId} itself. Firestore rules
+// can't expose part of a document, so this is its own doc under settings/
+// (same reasoning as setCommunitySettings below), which firestore.rules
+// lets a student read while the team doc stays admin-only.
+const PRODUCT_SETTINGS_FIELDS = [
+  'categories',
+  'productTypes',
+  'currencyRates',
+  'name',
+  'divisions',
+  'subdivisionsByDivision',
+  'minAttendancePercent',
+]
 
 function productSettingsMirror(changes) {
   const mirror = {}
@@ -32,21 +42,29 @@ function productSettingsMirror(changes) {
   return mirror
 }
 
-// Teams created (or last edited) before this mirroring existed have no
-// settings/products doc at all yet - updateTeam/updateCategories only push
-// to it on the next actual edit, which may never come if categories/types/
-// currencies already look right to the admin. Called once per team per
-// admin session (see AuthContext) so the request-a-product page still has
-// something to read even for a team nobody's touched these on since.
+// Keeps teams/{teamId}/settings/products in sync with whatever the team doc
+// currently has for PRODUCT_SETTINGS_FIELDS - always merges the current
+// values in, not just when the mirror doc is missing outright, so a field
+// added to that list after a team's mirror doc already existed (e.g.
+// divisions, added after name) still shows up without needing an admin to
+// happen to re-save the section that owns it. Called once per team per
+// admin session (see AuthContext), and right after creating/cloning a team,
+// so the student area is never left reading a stale or incomplete mirror.
 export async function ensureProductSettingsMirror(team) {
   const ref = doc(db, 'teams', team.id, 'settings', 'products')
-  if ((await getDoc(ref)).exists()) return
-  await setDoc(ref, {
-    categories: team.categories || [],
-    productTypes: team.productTypes || [],
-    currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
-    name: team.name || '',
-  })
+  await setDoc(
+    ref,
+    {
+      categories: team.categories || [],
+      productTypes: team.productTypes || [],
+      currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
+      name: team.name || '',
+      divisions: team.divisions || [],
+      subdivisionsByDivision: team.subdivisionsByDivision || {},
+      minAttendancePercent: team.minAttendancePercent || 0,
+    },
+    { merge: true }
+  )
 }
 
 export function updateTeam(teamId, changes) {
@@ -352,4 +370,19 @@ export function dismissBought(teamId, productId) {
 
 export function dismissAllBought(teamId, productIds) {
   return commitAll(productIds.map((id) => (batch) => batch.update(doc(db, 'teams', teamId, 'products', id), { boughtFlag: false })))
+}
+
+// Admin-side CRUD for systems (see DEFAULT_SYSTEM in calc.js) - students
+// manage their own the same way but through communityDb directly (see
+// MySystems.jsx), the same split as products vs. orderRequests.
+export function addSystem(teamId, system) {
+  return addDoc(collection(db, 'teams', teamId, 'systems'), system)
+}
+
+export function updateSystem(teamId, systemId, changes) {
+  return updateDoc(doc(db, 'teams', teamId, 'systems', systemId), changes)
+}
+
+export function deleteSystem(teamId, systemId) {
+  return deleteDoc(doc(db, 'teams', teamId, 'systems', systemId))
 }

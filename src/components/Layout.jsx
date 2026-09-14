@@ -11,6 +11,7 @@ const links = [
   { to: '/certifications', label: 'Certifications' },
   { to: '/inventory', label: 'Inventory' },
   { to: '/orders', label: 'Orders' },
+  { to: '/systems', label: 'Systems' },
   { to: '/settings', label: 'Settings' },
 ]
 

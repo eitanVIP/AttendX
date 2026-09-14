@@ -112,5 +112,50 @@ service cloud.firestore {
         && request.resource.data.requestedBy is string
         && request.resource.data.requestedBy.size() > 0;
     }
+
+    // My Systems needs the real inventory (not just the settings/products
+    // mirror) to show what's actually in stock - products aren't sensitive
+    // the way the team's admin code is, so this is a plain read grant
+    // rather than another mirrored doc.
+    match /teams/{teamId}/products/{productId} {
+      allow read: if hasStudentAccess(teamId);
+    }
+
+    // A "system" a student is building and the inventory it claims (see
+    // DEFAULT_SYSTEM in calc.js). Read by every verified student, not just
+    // its owner - computing how much of a product is still free to claim
+    // has to account for every OTHER student's systems too, not just your
+    // own. Write is scoped the same way communityLogs/orderRequests are:
+    // the team's student code is the only real boundary this access level
+    // has, there's no per-student identity to check a write against, so
+    // this only checks the doc still carries a plausible studentId, not
+    // that it's a particular one.
+    match /teams/{teamId}/systems/{systemId} {
+      allow read: if hasStudentAccess(teamId);
+      allow create, update: if hasStudentAccess(teamId)
+        && request.resource.data.studentId is string
+        && request.resource.data.studentId.size() > 0;
+      allow delete: if hasStudentAccess(teamId);
+    }
+
+    // My Profile - a student's own read-only view of the same page an
+    // admin sees at /students/:id. Read-only is enforced by simply never
+    // granting hasStudentAccess a write here: trainings/certifications and
+    // sessions stay editable by admins only, via the catch-all above.
+    // There's still no per-student identity to scope "their own" data to
+    // (same limitation as everywhere else hasStudentAccess is used) - the
+    // page itself only ever displays the signed-in student's own records,
+    // but the rule can't enforce that beyond the team-wide student code.
+    match /teams/{teamId}/trainings/{trainingId} {
+      allow read: if hasStudentAccess(teamId);
+    }
+
+    match /teams/{teamId}/sessions/{sessionId} {
+      allow read: if hasStudentAccess(teamId);
+    }
+
+    match /teams/{teamId}/sessions/{sessionId}/attendance/{attendanceId} {
+      allow read: if hasStudentAccess(teamId);
+    }
   }
 }

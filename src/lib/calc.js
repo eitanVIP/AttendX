@@ -313,6 +313,37 @@ export function hasCustomData(product) {
   return !!product.customData?.type
 }
 
+// A "system" is what a student is building (e.g. "Shooting mechanism") -
+// see MySystems.jsx (student) and Systems.jsx (admin) - and `needs` is the
+// list of { productId, quantity } it claims from the shared inventory.
+export const DEFAULT_SYSTEM = { studentId: '', name: '', needs: [] }
+
+// Sums each product's claimed quantity across every system except
+// `excludeSystemId` (the one currently being created/edited, so its own
+// existing claim doesn't count against itself) - the basis for how much of
+// a product a system can still claim. Deliberately global across every
+// student's systems, not just the current student's own - two students
+// both wanting the same gears have to split one shared pool, not two.
+export function usedQuantitiesByProduct(systems, excludeSystemId) {
+  const used = {}
+  for (const system of systems) {
+    if (system.id === excludeSystemId) continue
+    for (const need of system.needs || []) {
+      used[need.productId] = (used[need.productId] || 0) + (Number(need.quantity) || 0)
+    }
+  }
+  return used
+}
+
+// How much of a product is still free to claim - what's in stock minus
+// what every OTHER system has already claimed (see usedQuantitiesByProduct
+// above). Never negative even if stock has since dropped below what's
+// already claimed elsewhere.
+export function availableForProduct(product, usedQuantities) {
+  const used = usedQuantities[product.id] || 0
+  return Math.max((product.countInInventory || 0) - used, 0)
+}
+
 // Free-text search across every field a search box could plausibly mean by
 // "this product" - not just the name. customData is deliberately left out:
 // its fields vary per product type, so there's no fixed set to search.
@@ -376,6 +407,22 @@ export function remapStudentDivisions(student, structure, renames = { divisions:
     Object.keys(student.subdivisions).length === Object.keys(subdivisions).length &&
     Object.entries(subdivisions).every(([d, subs]) => sameList(subs, student.subdivisions[d] || []))
   return unchanged ? null : { divisions, subdivisions }
+}
+
+// The same active/autoInactive normalization useStudents (firestore-hooks)
+// applies to every student in one collection-wide pass, but for just one -
+// used by the student-facing My Profile page, which only ever needs its
+// own status and already has its own attendance records fetched for the
+// history table, so there's no need to pull every student's attendance the
+// way the admin hook does. `structure` is { divisions,
+// subdivisionsByDivision, minAttendancePercent }.
+export function normalizeStudentForView(raw, structure, attendanceRecords) {
+  const base = normalizeStudent(raw)
+  const student = { ...base, ...(remapStudentDivisions(base, structure) || {}) }
+  const minPercent = structure.minAttendancePercent || 0
+  const percent = minPercent > 0 ? summarizeAttendance(attendanceRecords).percent : null
+  const autoInactive = percent !== null && percent < minPercent
+  return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
 }
 
 export function trainingAppliesToStudent(training, student) {

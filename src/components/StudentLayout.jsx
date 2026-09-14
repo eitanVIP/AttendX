@@ -7,6 +7,7 @@ const links = [
   { to: '/log-hours', label: 'Community Hours' },
   { to: '/request-order', label: 'Request Order' },
   { to: '/my-systems', label: 'My Systems' },
+  { to: '/my-profile', label: 'My Profile' },
 ]
 
 // The student equivalent of Layout.jsx (the admin shell) - same header/

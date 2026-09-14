@@ -59,6 +59,9 @@ export function StudentAuthProvider({ children }) {
       currencyCodes: Object.keys(productSettings.currencyRates || DEFAULT_CURRENCY_RATES),
       communityTypes: communitySettings.types || [],
       hoursTarget: communitySettings.hoursTarget || 0,
+      divisions: productSettings.divisions || [],
+      subdivisionsByDivision: productSettings.subdivisionsByDivision || {},
+      minAttendancePercent: productSettings.minAttendancePercent || 0,
     })
   }
 
