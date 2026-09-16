@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import FormPanel from './FormPanel'
 import StickyTableScroll from './StickyTableScroll'
+import StreakBadge from './StreakBadge'
 import {
   activityLabel,
   describeStudentDivisions,
+  effectiveStreak,
   groupByScope,
+  streakResetHours,
   studentCommunityHours,
   studentHasCert,
   studentTrainingStats,
@@ -13,6 +17,19 @@ import {
 } from '../lib/calc'
 
 const percent = (value) => (value === null ? '—' : `${value}%`)
+
+// "Resets in 3 days" / "Resets in 4 hours" under the streak badge - null
+// (nothing rendered) once there's no active streak to count down, or while
+// it's frozen (see streakResetHours in calc.js).
+function describeStreakReset(hours) {
+  if (hours === null) return null
+  if (hours >= 24) {
+    const days = Math.ceil(hours / 24)
+    return `Resets in ${days} day${days === 1 ? '' : 's'}`
+  }
+  const wholeHours = Math.max(1, Math.ceil(hours))
+  return `Resets in ${wholeHours} hour${wholeHours === 1 ? '' : 's'}`
+}
 
 // One student's full profile: attendance stats/history, community hours
 // log, and certifications/trainings grouped by division/subdivision -
@@ -35,9 +52,16 @@ export default function StudentProfileView({
   communitySettings,
   divisions,
   subdivisionsByDivision,
+  streakResetDays,
   onDeleteLog,
+  onUpdateStreak,
   backLink,
 }) {
+  const [streakEditOpen, setStreakEditOpen] = useState(false)
+  const [streakValue, setStreakValue] = useState('')
+  const streak = effectiveStreak(student, streakResetDays)
+  const streakResetMessage = describeStreakReset(streakResetHours(student, streakResetDays))
+
   const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
 
   const summary = useMemo(() => summarizeAttendance(attendanceRecords), [attendanceRecords])
@@ -144,6 +168,34 @@ export default function StudentProfileView({
             {trainingStats.completed}/{trainingStats.total}
           </span>
           <span className="muted">{percent(trainingStats.percent)}</span>
+        </div>
+        <div className="card stat-card">
+          <span className="stat-label">Training streak</span>
+          <StreakBadge streak={streak} frozen={!!student.trainingStreakFrozen} />
+          {streak > 0 && (
+            <span className="muted">{student.trainingStreakFrozen ? "Frozen - won't reset" : streakResetMessage}</span>
+          )}
+          {onUpdateStreak && (
+            <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 2 }}>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setStreakValue(String(streak))
+                  setStreakEditOpen(true)
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => onUpdateStreak({ trainingStreakFrozen: !student.trainingStreakFrozen })}
+              >
+                {student.trainingStreakFrozen ? 'Unfreeze' : 'Freeze'}
+              </button>
+            </div>
+          )}
         </div>
         {communitySettings.hoursTarget > 0 && (
           <div className="card stat-card">
@@ -277,6 +329,41 @@ export default function StudentProfileView({
           )}
         </div>
       ))}
+
+      {onUpdateStreak && (
+        <FormPanel
+          open={streakEditOpen}
+          onClose={() => setStreakEditOpen(false)}
+          onSubmit={(e) => {
+            e.preventDefault()
+            onUpdateStreak({ trainingStreak: Math.max(0, Math.round(Number(streakValue)) || 0) })
+            setStreakEditOpen(false)
+          }}
+        >
+          <h2>Edit training streak</h2>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr' }}>
+            <label>
+              Streak
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                step="1"
+                value={streakValue}
+                onChange={(e) => setStreakValue(e.target.value)}
+                autoFocus
+                required
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="secondary" onClick={() => setStreakEditOpen(false)}>
+              Cancel
+            </button>
+            <button type="submit">Save</button>
+          </div>
+        </FormPanel>
+      )}
     </div>
   )
 }

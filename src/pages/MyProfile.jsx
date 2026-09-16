@@ -81,6 +81,7 @@ export default function MyProfile() {
       communitySettings={{ hoursTarget: verified.hoursTarget, types: verified.communityTypes }}
       divisions={verified.divisions}
       subdivisionsByDivision={verified.subdivisionsByDivision}
+      streakResetDays={verified.streakResetDays}
     />
   )
 }

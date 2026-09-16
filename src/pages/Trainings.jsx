@@ -225,6 +225,7 @@ export default function Trainings() {
           students={group.columnStudents}
           teamId={team.id}
           allStudents={students}
+          streakResetDays={team.streakResetDays}
           onEdit={startEdit}
           onDelete={handleDelete}
           onMove={(index, direction) => move(group.trainings, index, direction)}
@@ -251,7 +252,7 @@ function scrollToRevealNext(checkbox) {
   }
 }
 
-function TrainingGroupTable({ title, trainings, students, teamId, allStudents, onEdit, onDelete, onMove, onMoveTo }) {
+function TrainingGroupTable({ title, trainings, students, teamId, allStudents, streakResetDays, onEdit, onDelete, onMove, onMoveTo }) {
   const tableRef = useRef(null)
   useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
   const today = todayISO()
@@ -296,7 +297,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, o
                             type="checkbox"
                             checked={!!checked}
                             onChange={(e) => {
-                              setTrainingCompletion(teamId, t.id, s.id, e.target.checked)
+                              setTrainingCompletion(teamId, t.id, s, e.target.checked, streakResetDays)
                               scrollToRevealNext(e.target)
                             }}
                           />

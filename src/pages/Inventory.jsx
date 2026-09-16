@@ -4,7 +4,7 @@ import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
 import { useProducts } from '../lib/firestore-hooks'
-import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, boughtFlagChanges, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
+import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { addProduct, deleteProduct, importProducts, updateProduct } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
@@ -65,13 +65,7 @@ export default function Inventory() {
       if (dup && !confirm(`A product named "${dup.name}" already exists. Add this one anyway?`)) return
     }
     if (editingId) {
-      // A stock/wanted edit made here can just as easily satisfy (or
-      // un-satisfy) a product's to-buy as one made from Orders - the
-      // Bought table on Orders reflects this same products collection, so
-      // the same flag needs updating from both places (see calc.js).
-      const oldProduct = products.find((p) => p.id === editingId)
-      const boughtChanges = oldProduct ? boughtFlagChanges(oldProduct, payload, productTypes) : {}
-      updateProduct(team.id, editingId, { ...payload, ...boughtChanges })
+      updateProduct(team.id, editingId, payload)
     } else {
       // SKU and link are per-item, not something the next product likely
       // shares - only the rest of the form (category, price, currency,

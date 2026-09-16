@@ -4,7 +4,7 @@ import FormPanel from '../components/FormPanel'
 import StickyTableScroll from '../components/StickyTableScroll'
 import NeedsTable from '../components/NeedsTable'
 import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
-import { DEFAULT_SYSTEM, boughtFlagChanges, usedQuantitiesByProduct } from '../lib/calc'
+import { DEFAULT_SYSTEM, usedQuantitiesByProduct } from '../lib/calc'
 import { addSystem, deleteSystem, updateProduct, updateSystem } from '../lib/actions'
 
 export default function Systems() {
@@ -12,7 +12,6 @@ export default function Systems() {
   const { data: students } = useStudents(team)
   const { data: products } = useProducts(team?.id)
   const { data: systems, loading } = useSystems(team?.id)
-  const productTypes = team?.productTypes || []
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_SYSTEM)
@@ -66,11 +65,7 @@ export default function Systems() {
   // wantedCount directly, the same field Orders' to-buy math reads, rather
   // than going through orderRequests for someone else to review.
   async function handleRequestOrder(product, shortfall) {
-    const updated = { ...product, wantedCount: (product.wantedCount || 0) + shortfall }
-    await updateProduct(team.id, product.id, {
-      wantedCount: updated.wantedCount,
-      ...boughtFlagChanges(product, updated, productTypes),
-    })
+    await updateProduct(team.id, product.id, { wantedCount: (product.wantedCount || 0) + shortfall })
   }
 
   if (loading) return <div className="page-loading">Loading systems…</div>

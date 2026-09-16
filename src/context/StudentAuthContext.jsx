@@ -3,6 +3,7 @@ import { signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth'
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { communityAuth, communityDb } from '../firebase'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
+import { DEFAULT_STREAK_RESET_DAYS } from '../lib/calc'
 
 const StudentAuthContext = createContext(null)
 
@@ -62,6 +63,7 @@ export function StudentAuthProvider({ children }) {
       divisions: productSettings.divisions || [],
       subdivisionsByDivision: productSettings.subdivisionsByDivision || {},
       minAttendancePercent: productSettings.minAttendancePercent || 0,
+      streakResetDays: productSettings.streakResetDays || DEFAULT_STREAK_RESET_DAYS,
     })
   }
 

@@ -226,12 +226,6 @@ export const DEFAULT_PRODUCT = {
   link: '',
   notes: '',
   customData: {},
-  // Whether this product currently belongs in Orders' Bought table - set
-  // the moment an edit brings its to-buy down to exactly 0 (see
-  // boughtFlagChanges below), not just because it happens to be at 0 right
-  // now, and cleared either by an edit that makes it needed again or by an
-  // admin dismissing it from that table.
-  boughtFlag: false,
 }
 
 export function normalizeProduct(raw) {
@@ -285,22 +279,6 @@ export function computeToBuy(product, productTypes) {
   return result.value === null ? result : { ...result, value: Math.ceil(result.value) }
 }
 
-// The `boughtFlag` fields to merge into an update's payload, computed by
-// comparing to-buy before and after the edit being made (an error counts as
-// "needed", same as the needsBuying/bought split in Orders.jsx). Bought
-// only wants products at the moment they're actually finished - not every
-// product that merely happens to need nothing - so this only touches the
-// flag on an actual crossing: {} means to-buy stayed on the same side of
-// zero across the edit, so whatever dismissal state already exists is left
-// alone.
-export function boughtFlagChanges(before, after, productTypes) {
-  const wasNeeded = computeToBuy(before, productTypes).value !== 0
-  const isNeeded = computeToBuy(after, productTypes).value !== 0
-  if (wasNeeded && !isNeeded) return { boughtFlag: true }
-  if (!wasNeeded && isNeeded) return { boughtFlag: false }
-  return {}
-}
-
 // `convertedPrice` is the price already converted to the team's preferred
 // currency (what the table actually shows) - `price` stays the product's
 // own raw stored value in both formulas, for consistency with the to-buy
@@ -309,6 +287,84 @@ export function computeTotalPrice(product, productTypes, convertedPrice, toBuy) 
   const formula = productType(product, productTypes)?.totalPriceFormula
   if (!formula) return { value: convertedPrice !== null && toBuy !== null ? convertedPrice * toBuy : null, error: null }
   return evaluateFormula(formula, formulaScope(product, { tobuy: toBuy ?? NaN, convertedprice: convertedPrice ?? NaN }))
+}
+
+// A logged purchase (see logPurchase in actions.js) snapshots the product's
+// name/category/price/currency onto its own doc rather than pointing at the
+// product live - a purchase is a historical fact ("this is what we paid on
+// this date"), so it shouldn't silently change if the product is later
+// renamed, recategorized, repriced, or deleted outright.
+export const DEFAULT_PURCHASE = { productId: '', productName: '', category: '', quantity: 0, unitPrice: 0, currency: 'NIS', date: '', dismissed: false }
+
+// Every logged purchase's cost, in the team's preferred currency, bucketed
+// by the category it was bought under (an empty/missing one groups as '' -
+// callers label that "Uncategorized"). Dismissed purchases still count -
+// dismissing only hides a row from Orders' Bought table (see
+// dismissPurchase in actions.js), it doesn't undo the money already spent.
+export function spentByCategory(purchases, rates, preferred) {
+  const totals = {}
+  for (const p of purchases) {
+    const converted = convertPrice(p.unitPrice, p.currency, preferred, rates) ?? 0
+    const key = p.category || ''
+    totals[key] = (totals[key] || 0) + converted * (p.quantity || 0)
+  }
+  return totals
+}
+
+export function totalSpent(purchases, rates, preferred) {
+  return Object.values(spentByCategory(purchases, rates, preferred)).reduce((a, b) => a + b, 0)
+}
+
+// Everything still left to buy across the whole catalogue, added up in the
+// team's preferred currency - the same per-product to-buy math Orders and
+// Inventory already show (computeToBuy/computeTotalPrice), just totalled.
+// An individual product's broken formula (total.value === null) is left out
+// of the sum rather than poisoning it - Orders/Inventory already surface
+// that error on the product's own row.
+export function totalToBuyCost(products, productTypes, rates, preferred) {
+  return products.reduce((sum, p) => {
+    const converted = convertPrice(p.price, p.currency, preferred, rates)
+    const toBuy = computeToBuy(p, productTypes)
+    const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
+    return sum + (total.value || 0)
+  }, 0)
+}
+
+export function totalBudget(categoryBudgets) {
+  return Object.values(categoryBudgets || {}).reduce((sum, b) => sum + (Number(b) || 0), 0)
+}
+
+// The dashboard's "budget remaining" pie: every budgeted category gets an
+// equal-sized wedge of the circle regardless of how big its own budget is
+// (so a small category fully spent looks just as significant as a large
+// one), sized down by however much of ITS OWN budget is left - the rest of
+// each wedge (the spent-away part) isn't drawn per-category at all, it's
+// folded into one shared grey slice that grows toward the whole pie as
+// categories get spent through, however many of them there are. A category
+// spent past 100% of its budget (allowed - budgets aren't hard limits)
+// contributes 0 remaining and its full wedge to grey, never negative.
+//
+// `percent` is that wedge's actual size in the shared pie (out of 100
+// across every category); `remainingPercent` is the same category's own
+// remaining fraction out of its OWN budget (out of 100 on its own) - the
+// number worth showing next to the wedge, since "22%" of a pie carved into
+// N equal wedges reads as a fraction of the whole team's budget, not of
+// that one category's, and callers that want the wedge's own two-slice
+// remaining/spent split (see PieChart) can build it directly from
+// `remainingPercent` without the cross-category weighting.
+export function budgetRemainingSlices(categoryBudgets, spending) {
+  const entries = Object.entries(categoryBudgets || {}).filter(([, budget]) => budget > 0)
+  if (entries.length === 0) return { slices: [], spentPercent: 0 }
+  const weight = 100 / entries.length
+  let spentPercent = 0
+  const slices = entries.map(([category, budget]) => {
+    const spent = spending[category] || 0
+    const spentFraction = Math.min(1, Math.max(0, spent / budget))
+    const percent = weight * (1 - spentFraction)
+    spentPercent += weight * spentFraction
+    return { category, percent, remainingPercent: (1 - spentFraction) * 100, budget, spent }
+  })
+  return { slices, spentPercent }
 }
 
 // Trim/case/space-insensitive, so "NEO Motor" and "neo   motor" are caught
@@ -444,6 +500,52 @@ export function normalizeStudentForView(raw, structure, attendanceRecords) {
   const percent = minPercent > 0 ? summarizeAttendance(attendanceRecords).percent : null
   const autoInactive = percent !== null && percent < minPercent
   return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
+}
+
+// Falls back to a week when a team has no streakResetDays of its own yet
+// (older teams, and the student-side settings mirror before it's re-synced -
+// see PRODUCT_SETTINGS_FIELDS in actions.js).
+export const DEFAULT_STREAK_RESET_DAYS = 7
+
+// Training streak: incremented once per completed training (see
+// setTrainingCompletion in actions.js) and shown as 0 once `resetDays` have
+// passed since the last one (an admin-configurable team setting - see
+// Settings.jsx) - computed here at render time from the stored count +
+// timestamp rather than reset by a scheduled job, since the free Firestore
+// plan has no Cloud Functions to run one. An admin-frozen streak
+// (trainingStreakFrozen) ignores the gap entirely, and an admin can also
+// just overwrite the stored count directly (see updateStudentStreak).
+export function effectiveStreak(student, resetDays = DEFAULT_STREAK_RESET_DAYS) {
+  const streak = student.trainingStreak || 0
+  if (streak <= 0) return 0
+  if (student.trainingStreakFrozen) return streak
+  const last = student.trainingStreakUpdatedAt
+  if (!last) return streak
+  const days = (Date.now() - new Date(last).getTime()) / 86400000
+  return days <= resetDays ? streak : 0
+}
+
+// Hours left before an active streak resets to 0 - null when there's
+// nothing to count down (no streak yet, or a frozen one that never
+// resets). Used to show "resets in ..." under the streak badge.
+export function streakResetHours(student, resetDays = DEFAULT_STREAK_RESET_DAYS) {
+  if (student.trainingStreakFrozen) return null
+  if (effectiveStreak(student, resetDays) <= 0) return null
+  const elapsedHours = (Date.now() - new Date(student.trainingStreakUpdatedAt).getTime()) / 3600000
+  return Math.max(0, resetDays * 24 - elapsedHours)
+}
+
+// Which visual tier a streak falls into (see StreakBadge) - ramps up fast
+// since even a handful of completed trainings in a row is a real feat, and
+// 10 (about the practical ceiling given how often trainings actually come
+// up) gets the showiest treatment there is.
+export function streakTier(streak) {
+  if (streak >= 10) return 'legend'
+  if (streak >= 7) return 'inferno'
+  if (streak >= 5) return 'blaze'
+  if (streak >= 2) return 'flame'
+  if (streak >= 1) return 'spark'
+  return 'none'
 }
 
 export function trainingAppliesToStudent(training, student) {

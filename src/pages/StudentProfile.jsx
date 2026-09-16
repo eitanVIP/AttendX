@@ -9,7 +9,7 @@ import {
   useStudents,
   useTrainings,
 } from '../lib/firestore-hooks'
-import { deleteCommunityLog } from '../lib/actions'
+import { deleteCommunityLog, updateStudentStreak } from '../lib/actions'
 
 // The admin's own view of one student - full access (can delete a
 // mis-logged community-hours entry), fetched through the normal admin
@@ -32,6 +32,10 @@ export default function StudentProfile() {
     await deleteCommunityLog(team.id, log.id)
   }
 
+  async function handleUpdateStreak(changes) {
+    await updateStudentStreak(team.id, student.id, changes)
+  }
+
   if (!student) return <div className="page-loading">Loading student…</div>
 
   return (
@@ -45,7 +49,9 @@ export default function StudentProfile() {
       communitySettings={communitySettings}
       divisions={team?.divisions || []}
       subdivisionsByDivision={team?.subdivisionsByDivision || {}}
+      streakResetDays={team?.streakResetDays}
       onDeleteLog={handleDeleteLog}
+      onUpdateStreak={handleUpdateStreak}
       backLink={{ to: '/students', label: 'Students' }}
     />
   )

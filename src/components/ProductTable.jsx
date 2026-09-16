@@ -19,7 +19,6 @@ export default function ProductTable({
   onDelete,
   onAccept,
   onDecline,
-  onDismiss,
   showCurrency = true,
   showInStock = true,
   showWanted = true,
@@ -154,11 +153,6 @@ export default function ProductTable({
                           <button className="link-btn danger" onClick={() => onDelete(p.id)}>
                             Delete
                           </button>
-                          {onDismiss && (
-                            <button className="link-btn" onClick={() => onDismiss(p.id)}>
-                              Dismiss
-                            </button>
-                          )}
                         </>
                       )}
                     </div>

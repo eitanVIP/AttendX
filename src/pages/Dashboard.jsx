@@ -1,24 +1,43 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
+import PieChart from '../components/PieChart'
 import StickyTableScroll from '../components/StickyTableScroll'
+import StreakBadge from '../components/StreakBadge'
 import {
   useAllAttendance,
   useCommunityLogs,
   useCommunitySettings,
   useEvents,
   useNow,
+  useProducts,
+  usePurchases,
   useStudents,
   useTrainings,
 } from '../lib/firestore-hooks'
 import {
+  NO_PRODUCT_TYPES,
+  budgetRemainingSlices,
   certProgress,
+  effectiveStreak,
   eventCountdown,
+  spentByCategory,
   studentCommunityHours,
   summarizeAttendance,
+  totalBudget,
+  totalSpent,
+  totalToBuyCost,
   trainingCompletionByGrade,
 } from '../lib/calc'
+import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
+
+// Cycled by each category's position in the team's own category order, so
+// a given category keeps the same colour across both pie charts (and across
+// reloads) instead of it depending on iteration order.
+const PIE_COLORS = ['#2563eb', '#f97316', '#16a34a', '#dc2626', '#9333ea', '#0891b2', '#ca8a04', '#db2777']
+const UNCATEGORIZED_COLOR = '#6b7280'
+const TOP_STREAKS_LIMIT = 10
 
 export default function Dashboard() {
   const { team } = useAuth()
@@ -28,6 +47,14 @@ export default function Dashboard() {
   const { data: communityLogs, loading: logsLoading } = useCommunityLogs(team?.id)
   const { settings: communitySettings, loading: settingsLoading } = useCommunitySettings(team?.id)
   const { data: events } = useEvents(team?.id)
+  const { data: products, loading: productsLoading } = useProducts(team?.id)
+  const { data: purchases, loading: purchasesLoading } = usePurchases(team?.id)
+  const [attendanceMetric, setAttendanceMetric] = useState('percent')
+
+  const productTypes = team?.productTypes || NO_PRODUCT_TYPES
+  const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
+  const preferred = team?.preferredCurrency || 'NIS'
+  const categories = team?.categories || []
 
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
   const certifications = useMemo(
@@ -55,14 +82,20 @@ export default function Dashboard() {
   }, [attendance, students])
 
   // Everyone, inactive included (dimmed) - the students with the lowest
-  // attendance are exactly the ones this chart is for.
-  const attendanceBars = useMemo(
-    () =>
-      students
-        .map((s) => ({ student: s, percent: attendanceByStudent[s.id]?.percent ?? null }))
-        .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)),
-    [students, attendanceByStudent]
-  )
+  // attendance are exactly the ones this chart is for. `count` is sessions
+  // actually attended (present + late, the same numerator attendancePercent
+  // uses) rather than a percentage - a toggle in the chart itself (see
+  // attendanceMetric) picks which one sorts the list and sizes the bars.
+  const attendanceBars = useMemo(() => {
+    const rows = students.map((s) => {
+      const summary = attendanceByStudent[s.id]
+      return { student: s, percent: summary?.percent ?? null, count: summary ? summary.present + summary.late : 0 }
+    })
+    return [...rows].sort((a, b) =>
+      attendanceMetric === 'count' ? b.count - a.count : (b.percent ?? -1) - (a.percent ?? -1)
+    )
+  }, [students, attendanceByStudent, attendanceMetric])
+  const maxAttendanceCount = Math.max(1, ...attendanceBars.map((b) => b.count))
 
   const divisionStats = useMemo(() => {
     return (team?.divisions || []).map((d) => {
@@ -86,7 +119,88 @@ export default function Dashboard() {
     return activeStudents.filter((s) => hoursByStudent[s.id] >= communitySettings.hoursTarget).length
   }, [activeStudents, hoursByStudent, communitySettings.hoursTarget])
 
-  const loading = studentsLoading || trainingsLoading || attLoading || logsLoading || settingsLoading
+  // Budget: everything below is in the team's preferred currency, converted
+  // from whatever each product/purchase was actually priced in - see
+  // spentByCategory/totalToBuyCost in calc.js.
+  const spending = useMemo(() => spentByCategory(purchases, rates, preferred), [purchases, rates, preferred])
+  const budget = useMemo(() => totalBudget(team?.categoryBudgets), [team?.categoryBudgets])
+  const spent = useMemo(() => totalSpent(purchases, rates, preferred), [purchases, rates, preferred])
+  const toBuyCost = useMemo(
+    () => totalToBuyCost(products, productTypes, rates, preferred),
+    [products, productTypes, rates, preferred]
+  )
+  const projectedSpent = spent + toBuyCost
+  const spentPercentOfBudget = budget > 0 ? Math.round((spent / budget) * 100) : null
+  const projectedPercentOfBudget = budget > 0 ? Math.round((projectedSpent / budget) * 100) : null
+
+  const categoryColor = (name) => {
+    if (!name) return UNCATEGORIZED_COLOR
+    const i = categories.indexOf(name)
+    return PIE_COLORS[(i === -1 ? 0 : i) % PIE_COLORS.length]
+  }
+
+  // Raw per-category numbers (see budgetRemainingSlices in calc.js) - the
+  // combined chart below weights every category equally, but each
+  // category's OWN two-slice remaining/spent pie (further down) needs its
+  // real remainingPercent, not that shared weighting.
+  const categoryBudgetSlices = useMemo(
+    () => budgetRemainingSlices(team?.categoryBudgets, spending),
+    [team?.categoryBudgets, spending]
+  )
+
+  const remainingSlices = useMemo(() => {
+    return [
+      ...categoryBudgetSlices.slices.map((s) => ({
+        label: s.category,
+        percent: s.percent,
+        displayPercent: s.remainingPercent,
+        color: categoryColor(s.category),
+      })),
+      { label: 'Spent', percent: categoryBudgetSlices.spentPercent, color: 'var(--muted)' },
+    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryBudgetSlices, categories])
+
+  const spentSlices = useMemo(() => {
+    const total = Object.values(spending).reduce((a, b) => a + b, 0)
+    if (total <= 0) return []
+    return Object.entries(spending)
+      .filter(([, amount]) => amount > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, amount]) => ({
+        label: category || 'Uncategorized',
+        percent: (amount / total) * 100,
+        color: categoryColor(category),
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spending, categories])
+
+  // One small two-slice pie per budgeted category - unlike the combined
+  // chart above, each of these is scaled against just that category's own
+  // budget, not weighted against every other category's.
+  const perCategorySlices = useMemo(
+    () =>
+      categoryBudgetSlices.slices.map((s) => ({
+        category: s.category,
+        slices: [
+          { label: 'Left', percent: s.remainingPercent, color: categoryColor(s.category) },
+          { label: 'Spent', percent: 100 - s.remainingPercent, color: 'var(--muted)' },
+        ],
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categoryBudgetSlices, categories]
+  )
+
+  const topStreaks = useMemo(() => {
+    return students
+      .map((s) => ({ student: s, streak: effectiveStreak(s, team?.streakResetDays) }))
+      .filter((r) => r.streak > 0)
+      .sort((a, b) => b.streak - a.streak)
+      .slice(0, TOP_STREAKS_LIMIT)
+  }, [students, team?.streakResetDays])
+
+  const loading =
+    studentsLoading || trainingsLoading || attLoading || logsLoading || settingsLoading || productsLoading || purchasesLoading
   if (loading) return <div className="page-loading">Loading dashboard…</div>
 
   return (
@@ -124,9 +238,93 @@ export default function Dashboard() {
         )}
       </div>
 
+      <h2>Budget</h2>
+      <p className="muted" style={{ marginTop: -12 }}>
+        Budgets (set per category in Settings) aren't hard limits - spending past one is allowed and
+        just shows up here.
+      </p>
+      <div className="stat-cards">
+        <div className="card stat-card">
+          <span className="stat-label">Total budget</span>
+          <span className="stat-value">
+            {budget.toFixed(0)} {preferred}
+          </span>
+          <span className="muted">
+            across {Object.keys(team?.categoryBudgets || {}).length} budgeted categor
+            {Object.keys(team?.categoryBudgets || {}).length === 1 ? 'y' : 'ies'}
+          </span>
+        </div>
+        <div className="card stat-card">
+          <span className="stat-label">Total spent</span>
+          <span className="stat-value">
+            {spent.toFixed(0)}
+            <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+          </span>
+          <span className="muted">{spentPercentOfBudget === null ? 'No budget set yet' : `${spentPercentOfBudget}% of budget`}</span>
+        </div>
+        <div className="card stat-card">
+          <span className="stat-label">Projected spent</span>
+          <span className="stat-value">
+            {projectedSpent.toFixed(0)}
+            <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+          </span>
+          <span className="muted">
+            {projectedPercentOfBudget === null ? 'No budget set yet' : `${projectedPercentOfBudget}% of budget`}
+          </span>
+          <span className="muted">
+            {spent.toFixed(0)} spent + {toBuyCost.toFixed(0)} still to buy
+          </span>
+        </div>
+      </div>
+
       <div className="dashboard-columns">
         <div className="dashboard-col">
-          <h2>By division</h2>
+          <h3>Budget remaining by category</h3>
+          <PieChart slices={remainingSlices} />
+        </div>
+        <div className="dashboard-col">
+          <h3>Spent by category</h3>
+          <PieChart slices={spentSlices} />
+        </div>
+      </div>
+
+      {perCategorySlices.length > 0 && (
+        <>
+          <h3>By category</h3>
+          <div className="pie-chart-grid">
+            {perCategorySlices.map(({ category, slices }) => (
+              <div key={category}>
+                <p className="muted" style={{ margin: '0 0 4px' }}>
+                  {category}
+                </p>
+                <PieChart slices={slices} size={110} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <h2>Top training streaks</h2>
+      {topStreaks.length === 0 ? (
+        <p className="muted">No active streaks yet.</p>
+      ) : (
+        <ol className="streak-board">
+          {topStreaks.map(({ student, streak }, i) => (
+            <li key={student.id}>
+              <Link to={`/students/${student.id}`} className="streak-board-row">
+                <span className="streak-board-rank">#{i + 1}</span>
+                <span className="streak-board-name">{student.fullName}</span>
+                <StreakBadge streak={streak} frozen={!!student.trainingStreakFrozen} />
+              </Link>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <h2>Training &amp; attendance</h2>
+      <div className="dashboard-columns">
+        <div className="dashboard-col">
+          <h3>By division</h3>
           <StickyTableScroll>
             <table className="data-table">
               <thead>
@@ -155,9 +353,25 @@ export default function Dashboard() {
             </table>
           </StickyTableScroll>
 
-          <h2>Attendance by student</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>Attendance by student</h3>
+            <div className="filter-row" style={{ margin: 0 }}>
+              <button
+                className={attendanceMetric === 'percent' ? 'chip active' : 'chip'}
+                onClick={() => setAttendanceMetric('percent')}
+              >
+                %
+              </button>
+              <button
+                className={attendanceMetric === 'count' ? 'chip active' : 'chip'}
+                onClick={() => setAttendanceMetric('count')}
+              >
+                Times attended
+              </button>
+            </div>
+          </div>
           <div className="card bar-chart">
-            {attendanceBars.map(({ student, percent }) => (
+            {attendanceBars.map(({ student, percent, count }) => (
               <Link
                 to={`/students/${student.id}`}
                 key={student.id}
@@ -166,15 +380,25 @@ export default function Dashboard() {
               >
                 <span className="bar-row-name">{student.fullName}</span>
                 <span className="bar-row-track">
-                  <span className="bar-row-fill" style={{ width: `${percent ?? 0}%` }} />
+                  <span
+                    className="bar-row-fill"
+                    style={{
+                      width:
+                        attendanceMetric === 'count'
+                          ? `${(count / maxAttendanceCount) * 100}%`
+                          : `${percent ?? 0}%`,
+                    }}
+                  />
                 </span>
-                <span className="bar-row-value">{percent === null ? '—' : `${percent}%`}</span>
+                <span className="bar-row-value">
+                  {attendanceMetric === 'count' ? count : percent === null ? '—' : `${percent}%`}
+                </span>
               </Link>
             ))}
             {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
           </div>
 
-          <h2>Training completion by grade</h2>
+          <h3>Training completion by grade</h3>
           <div className="card bar-chart grade-chart">
             {completionByGrade.map(({ division, rows }) => (
               <div key={division} className="grade-chart-block">
@@ -199,7 +423,7 @@ export default function Dashboard() {
         </div>
 
         <div className="dashboard-col">
-          <h2>Certifications</h2>
+          <h3>Certifications</h3>
           <StickyTableScroll>
             <table className="data-table">
               <thead>

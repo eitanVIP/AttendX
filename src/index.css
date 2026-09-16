@@ -693,6 +693,162 @@ body:has(dialog.modal[open]) {
   color: var(--muted);
 }
 
+/* Training streak badge (StreakBadge) - escalating flair the longer a
+   streak runs: plain text at first, a warm glow in the middle tiers, and a
+   glowing, sparkling pill once it hits legend (10+) - a real feat given how
+   rarely trainings actually come up. */
+.streak-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-h);
+  line-height: 1.2;
+}
+
+.streak-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.streak-frozen {
+  font-size: 16px;
+  margin-left: 2px;
+}
+
+/* flame (2) through inferno (7) step up together on every axis - size,
+   colour heat, glow, and how much of a "chip" has formed around the text -
+   so the run to legend (10) reads as one steady climb rather than a flat
+   stretch that suddenly jumps at the very end. */
+.streak-flame .streak-count {
+  color: #f97316;
+}
+
+.streak-blaze {
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.1);
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.3);
+}
+
+.streak-blaze .streak-count {
+  font-size: 28px;
+  color: #f2600c;
+}
+
+.streak-blaze .streak-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 0 5px rgba(249, 115, 22, 0.65));
+}
+
+.streak-inferno {
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.14);
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.4);
+}
+
+.streak-inferno .streak-count {
+  font-size: 30px;
+  color: #dc2626;
+}
+
+.streak-inferno .streak-icon {
+  font-size: 26px;
+  filter: drop-shadow(0 0 7px rgba(220, 38, 38, 0.75));
+  animation: streak-flicker 1.6s ease-in-out infinite;
+}
+
+/* Legend: a solid glowing pill rather than plain text - the gradient moves
+   across the fill itself (not just clipped text) so it reads as a genuine
+   badge of honour, with a blurred copy of the same gradient behind it for
+   the glow and a couple of twinkling sparkles riding along the corners. */
+.streak-legend {
+  padding: 5px 14px 5px 10px;
+  border-radius: 999px;
+  color: #fff5e6;
+  background: linear-gradient(120deg, #f97316, #eab308, #ec4899, #a855f7, #f97316);
+  background-size: 300% auto;
+  animation: streak-shimmer 4s linear infinite;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.streak-legend::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  background-size: inherit;
+  animation: inherit;
+  filter: blur(10px) saturate(1.4);
+  opacity: 0.75;
+}
+
+.streak-legend .streak-icon {
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.85));
+  animation: streak-flicker 1.2s ease-in-out infinite;
+}
+
+.streak-sparkle {
+  position: absolute;
+  font-size: 13px;
+  animation: streak-twinkle 2.2s ease-in-out infinite;
+}
+
+.streak-sparkle-1 {
+  top: -9px;
+  left: 6px;
+  animation-delay: 0s;
+}
+
+.streak-sparkle-2 {
+  bottom: -8px;
+  right: 2px;
+  animation-delay: 1.1s;
+}
+
+@keyframes streak-flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.15) rotate(-4deg);
+  }
+}
+
+@keyframes streak-shimmer {
+  to {
+    background-position: 300% center;
+  }
+}
+
+@keyframes streak-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1) rotate(20deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streak-inferno .streak-icon,
+  .streak-legend,
+  .streak-legend::before,
+  .streak-legend .streak-icon,
+  .streak-sparkle {
+    animation: none;
+  }
+}
+
 /* Event countdowns: the nearest event as a hero card, the rest as a row of
    smaller ones beneath it. */
 .events {
@@ -828,6 +984,99 @@ body:has(dialog.modal[open]) {
   gap: 28px;
 }
 
+/* PieChart component - a conic-gradient circle plus a legend list next to
+   it, wrapping to stack on narrow screens instead of squeezing the circle. */
+.pie-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 8px 0 20px;
+}
+
+.pie-chart {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pie-chart-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pie-chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pie-chart-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* One small pie per budgeted category (Dashboard's "By category") - each
+   card sizes to its own content rather than stretching, so the row just
+   wraps once it runs out of width instead of leaving the pies far apart. */
+.pie-chart-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 8px 0 20px;
+}
+
+.pie-chart-grid .pie-chart-row {
+  margin: 0;
+  gap: 10px;
+}
+
+/* Top training streaks scoreboard */
+.streak-board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.streak-board-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.streak-board-row:hover {
+  background: var(--accent-faint);
+}
+
+.streak-board-rank {
+  width: 22px;
+  flex-shrink: 0;
+  text-align: center;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.streak-board-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Grid items default to min-width: auto, which refuses to shrink below the
    width of a wide child (like the 480px-min-width data tables) - that's
    what was pushing the whole page wider than the viewport on phones. */
@@ -836,12 +1085,13 @@ body:has(dialog.modal[open]) {
 }
 
 /* CSS Grid gaps don't collapse with child margins the way block layout
-   does, so without this the h2's own top margin stacked on top of the grid
-   gap once the columns stack on mobile, making that gap much larger than
-   the (collapsed) gap between a heading and its table elsewhere on the
+   does, so without this the heading's own top margin stacked on top of the
+   grid gap once the columns stack on mobile, making that gap much larger
+   than the (collapsed) gap between a heading and its table elsewhere on the
    page. Zeroing the outer margins here makes the grid gap the single
    source of truth for spacing, so it stays consistent at every width. */
-.dashboard-col > h2:first-child {
+.dashboard-col > h2:first-child,
+.dashboard-col > h3:first-child {
   margin-top: 0;
 }
 
@@ -1550,6 +1800,17 @@ th.col-inactive {
   .matrix-name-col,
   .matrix-name-col strong {
     font-size: 12px;
+  }
+
+  /* Freezing the progress/actions columns too leaves almost no room for the
+     per-student checkbox columns on a narrow phone screen - only the name
+     column stays pinned here; the rest scrolls past normally, same as any
+     other table. */
+  .matrix-progress-col,
+  .matrix-actions-col {
+    position: static;
+    box-shadow: none;
+    border-bottom-color: var(--border);
   }
 
   .page-header {

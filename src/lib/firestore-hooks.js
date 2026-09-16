@@ -110,6 +110,15 @@ export function useOrderRequests(teamId) {
   return { ...result, data }
 }
 
+// Logged purchases (see logPurchase in actions.js) - newest first, so
+// Orders' Bought table and the dashboard's budget section both see the
+// latest one at the top without sorting it themselves.
+export function usePurchases(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'purchases'] : null)
+  const data = useMemo(() => [...result.data].sort((a, b) => byDate(b, a)), [result.data])
+  return { ...result, data }
+}
+
 // Admin view of every student's systems (see DEFAULT_SYSTEM in calc.js) -
 // `needs` defaults to [] for a doc somehow missing it, same defensive
 // normalization normalizeProduct does for products.

@@ -8,12 +8,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   setDoc,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
-import { normalizeStudent, remapStudentDivisions } from './calc'
+import { DEFAULT_STREAK_RESET_DAYS, effectiveStreak, normalizeStudent, remapStudentDivisions, todayISO } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 
 // Mirrors just what the student area needs to read - the request-a-product
@@ -32,6 +33,7 @@ const PRODUCT_SETTINGS_FIELDS = [
   'divisions',
   'subdivisionsByDivision',
   'minAttendancePercent',
+  'streakResetDays',
 ]
 
 function productSettingsMirror(changes) {
@@ -62,6 +64,7 @@ export async function ensureProductSettingsMirror(team) {
       divisions: team.divisions || [],
       subdivisionsByDivision: team.subdivisionsByDivision || {},
       minAttendancePercent: team.minAttendancePercent || 0,
+      streakResetDays: team.streakResetDays || DEFAULT_STREAK_RESET_DAYS,
     },
     { merge: true }
   )
@@ -82,10 +85,14 @@ export function updateTeam(teamId, changes) {
 // name, for rows that survived under a different name) - a product whose
 // category isn't in the new list AND isn't a rename's old name simply had
 // that category removed outright, so it's cleared rather than looked up.
-export async function updateCategories(teamId, categories, renames) {
+// `categoryBudgets` is already keyed by the new names (Settings computes it
+// from the same rows `categories` comes from) - it's just written as-is,
+// alongside `categories`, on the team doc only (the dashboard budget
+// section is admin-only, so it has no need for the student-facing mirror).
+export async function updateCategories(teamId, categories, renames, categoryBudgets) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
     (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
   ]
   for (const d of snap.docs) {
@@ -277,10 +284,37 @@ export function deleteTraining(teamId, trainingId) {
   return deleteDoc(doc(db, 'teams', teamId, 'trainings', trainingId))
 }
 
-export function setTrainingCompletion(teamId, trainingId, studentId, completed) {
-  return updateDoc(doc(db, 'teams', teamId, 'trainings', trainingId), {
-    completedStudentIds: completed ? arrayUnion(studentId) : arrayRemove(studentId),
-  })
+// Checking a training off also advances the student's training streak (see
+// effectiveStreak in calc.js). Takes the whole student (rather than just an
+// id) since the caller already has it live from useStudents - reading it
+// fresh here would mean a transaction, and Firestore transactions skip the
+// local-cache optimistic echo plain updateDoc gets, which would make the
+// checkbox itself feel laggy. Unchecking never touches the streak: there's
+// no clean way to "undo" a day already earned, and nothing asks for one.
+export function setTrainingCompletion(teamId, trainingId, student, completed, resetDays = DEFAULT_STREAK_RESET_DAYS) {
+  const trainingRef = doc(db, 'teams', teamId, 'trainings', trainingId)
+  const writes = [updateDoc(trainingRef, { completedStudentIds: completed ? arrayUnion(student.id) : arrayRemove(student.id) })]
+  if (completed) {
+    writes.push(
+      updateDoc(doc(db, 'teams', teamId, 'students', student.id), {
+        trainingStreak: effectiveStreak(student, resetDays) + 1,
+        trainingStreakUpdatedAt: new Date().toISOString(),
+      })
+    )
+  }
+  return Promise.all(writes)
+}
+
+// Admin-only edit to a student's streak - either the count itself or the
+// frozen flag (see the streak controls in StudentProfileView). Setting the
+// count directly, or unfreezing, both refresh the timestamp so the new
+// value isn't immediately wiped out by a stale gap the next time it's read.
+export function updateStudentStreak(teamId, studentId, changes) {
+  const payload = { ...changes }
+  if ('trainingStreak' in payload || payload.trainingStreakFrozen === false) {
+    payload.trainingStreakUpdatedAt = new Date().toISOString()
+  }
+  return updateDoc(doc(db, 'teams', teamId, 'students', studentId), payload)
 }
 
 export function addSession(teamId, session) {
@@ -362,14 +396,51 @@ export function declineOrderRequest(teamId, requestId) {
   return deleteDoc(doc(db, 'teams', teamId, 'orderRequests', requestId))
 }
 
-// Hides one product from Orders' Bought table without touching anything
-// else about it - the product itself, and its to-buy math, are unaffected.
-export function dismissBought(teamId, productId) {
-  return updateDoc(doc(db, 'teams', teamId, 'products', productId), { boughtFlag: false })
+// Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
+// product by however many were bought and drops a dated record of it - the
+// record snapshots the product's current name/category/price/currency
+// rather than pointing at the product live (see DEFAULT_PURCHASE in
+// calc.js), so it stays an accurate historical fact - and what the
+// dashboard's budget section sums up as "spent" - even if the product is
+// later renamed, recategorized, repriced, or deleted.
+export function logPurchase(teamId, product, quantity) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'teams', teamId, 'products', product.id), {
+    countInInventory: (product.countInInventory || 0) + quantity,
+  })
+  batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+    productId: product.id,
+    productName: product.name,
+    category: product.category || '',
+    quantity,
+    unitPrice: product.price || 0,
+    currency: product.currency || 'NIS',
+    date: todayISO(),
+    dismissed: false,
+  })
+  return batch.commit()
 }
 
-export function dismissAllBought(teamId, productIds) {
-  return commitAll(productIds.map((id) => (batch) => batch.update(doc(db, 'teams', teamId, 'products', id), { boughtFlag: false })))
+// Hides one purchase from Orders' Bought table without touching anything
+// else about it - the stock it added and the money it counts toward the
+// dashboard's "spent" total are unaffected. Contrast with revertPurchase
+// below, which actually undoes it.
+export function dismissPurchase(teamId, purchaseId) {
+  return updateDoc(doc(db, 'teams', teamId, 'purchases', purchaseId), { dismissed: true })
+}
+
+// Fully undoes a logged purchase: deletes the record (so it stops counting
+// toward spend) and gives back the stock it added. Uses increment rather
+// than reading the product's current count first - the count may well have
+// moved since the purchase (further purchases, a manual edit), and this
+// only ever needs to remove exactly what THIS purchase itself added.
+export function revertPurchase(teamId, purchase) {
+  const batch = writeBatch(db)
+  batch.delete(doc(db, 'teams', teamId, 'purchases', purchase.id))
+  batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
+    countInInventory: increment(-purchase.quantity),
+  })
+  return batch.commit()
 }
 
 // Admin-side CRUD for systems (see DEFAULT_SYSTEM in calc.js) - students

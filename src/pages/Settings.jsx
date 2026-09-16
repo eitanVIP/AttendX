@@ -6,7 +6,7 @@ import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import StickyTableScroll from '../components/StickyTableScroll'
 import { DEFAULT_ACCENT } from '../lib/theme'
 import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
-import { movedTo, todayISO } from '../lib/calc'
+import { DEFAULT_STREAK_RESET_DAYS, movedTo, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import {
@@ -50,6 +50,7 @@ export default function Settings() {
   const [name, setName] = useState(team?.name || '')
   const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
   const [minAttendance, setMinAttendance] = useState(String(team?.minAttendancePercent || 0))
+  const [streakResetDays, setStreakResetDays] = useState(String(team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS))
   const [rows, setRows] = useState(teamToDivisionRows(team))
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -60,6 +61,7 @@ export default function Settings() {
     setName(team?.name || '')
     setColorPrimary(team?.colorPrimary || DEFAULT_ACCENT)
     setMinAttendance(String(team?.minAttendancePercent || 0))
+    setStreakResetDays(String(team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS))
     setRows(teamToDivisionRows(team))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id])
@@ -145,9 +147,10 @@ export default function Settings() {
       if (Object.keys(subRenames).length) renames.subdivisions[r.original ?? r.name] = subRenames
     }
     const minAttendancePercent = Math.min(100, Math.max(0, Math.round(Number(minAttendance) || 0)))
+    const streakResetDaysValue = Math.max(1, Math.round(Number(streakResetDays) || DEFAULT_STREAK_RESET_DAYS))
     await updateTeamStructure(
       team.id,
-      { name, colorPrimary, minAttendancePercent, divisions, subdivisionsByDivision },
+      { name, colorPrimary, minAttendancePercent, streakResetDays: streakResetDaysValue, divisions, subdivisionsByDivision },
       renames
     )
     // Re-baseline so a second rename in the same visit is computed against
@@ -190,6 +193,20 @@ export default function Settings() {
                 Students whose attendance falls under this are treated as inactive everywhere, even if
                 marked active by hand, and come back on their own once it recovers. 0 turns this off.
                 Marking someone inactive by hand always sticks.
+              </p>
+              <label>
+                Training streak resets after (days)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={streakResetDays}
+                  onChange={(e) => setStreakResetDays(e.target.value)}
+                />
+              </label>
+              <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
+                A student's training streak (see their profile) resets to 0 once this many days pass
+                without them completing a training.
               </p>
             </div>
 
@@ -406,7 +423,12 @@ function EventsSection({ teamId }) {
 }
 
 function teamToCategoryRows(team) {
-  return (team?.categories || []).map((name, i) => ({ key: `${name}-${i}`, original: name, name }))
+  return (team?.categories || []).map((name, i) => ({
+    key: `${name}-${i}`,
+    original: name,
+    name,
+    budget: String(team?.categoryBudgets?.[name] || ''),
+  }))
 }
 
 // Mirrors the flat community-types editor below, not the nested division
@@ -426,12 +448,16 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '' }])
     setInput('')
   }
 
   function renameCategory(key, value) {
     setRows(rows.map((r) => (r.key === key ? { ...r, name: value } : r)))
+  }
+
+  function setBudget(key, value) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, budget: value } : r)))
   }
 
   function removeCategory(key) {
@@ -459,8 +485,15 @@ function CategoriesSection({ team }) {
     for (const r of cleanRows) {
       if (r.original && r.original !== r.name) renames[r.original] = r.name
     }
-    await updateCategories(team.id, categories, renames)
-    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name })))
+    // A blank or zero budget just means "no budget set" - left out of the
+    // map entirely rather than stored as 0, so the dashboard's budget
+    // section (and the "N budgeted categories" pie weighting) only ever
+    // sees categories an admin actually gave a number to.
+    const categoryBudgets = Object.fromEntries(
+      cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
+    )
+    await updateCategories(team.id, categories, renames, categoryBudgets)
+    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name, budget: String(categoryBudgets[name] || '') })))
     setSaving(false)
     setSaved(true)
   }
@@ -471,9 +504,10 @@ function CategoriesSection({ team }) {
       <p className="muted" style={{ marginBottom: 12 }}>
         The categories offered when adding a product in Inventory or Orders. Edit a name in place,
         or remove it with Remove - changes save when you click Save below, and reach every product
-        already using that category.
+        already using that category. Budget is optional and isn't a hard limit - it's just what the
+        dashboard's budget section compares spending against; leave it blank for "no budget".
       </p>
-      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.length === 0 && <span className="muted">None yet</span>}
           {rows.map((r, i) => (
@@ -492,6 +526,16 @@ function CategoriesSection({ team }) {
                 value={r.name}
                 onChange={(e) => renameCategory(r.key, e.target.value)}
                 style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+              />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.budget}
+                onChange={(e) => setBudget(r.key, e.target.value)}
+                placeholder="Budget"
+                title="Budget"
+                style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
               />
               <button
                 type="button"

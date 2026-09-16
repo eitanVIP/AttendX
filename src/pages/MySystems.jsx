@@ -79,7 +79,7 @@ export default function MySystems() {
   // duplicate-name prompt on Orders and fold the shortfall into its real
   // wantedCount instead of creating a second product.
   async function handleRequestOrder(product, shortfall) {
-    const { id: _id, boughtFlag: _boughtFlag, ...rest } = product
+    const { id: _id, ...rest } = product
     await addDoc(collection(communityDb, 'teams', verified.teamId, 'orderRequests'), {
       ...rest,
       countInInventory: 0,

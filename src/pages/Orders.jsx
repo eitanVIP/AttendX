@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import FormPanel from '../components/FormPanel'
 import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
-import { useOrderRequests, useProducts } from '../lib/firestore-hooks'
+import StickyTableScroll from '../components/StickyTableScroll'
+import { usePurchases, useOrderRequests, useProducts } from '../lib/firestore-hooks'
 import {
   DEFAULT_PRODUCT,
   NO_PRODUCT_TYPES,
-  boughtFlagChanges,
   computeToBuy,
   computeTotalPrice,
   findDuplicateProduct,
@@ -19,9 +20,10 @@ import {
   addProduct,
   declineOrderRequest,
   deleteProduct,
-  dismissAllBought,
-  dismissBought,
+  dismissPurchase,
+  logPurchase,
   mergeOrderRequestIntoProduct,
+  revertPurchase,
   updateProduct,
 } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
@@ -31,11 +33,15 @@ export default function Orders() {
   const { team } = useAuth()
   const { data: products, loading } = useProducts(team?.id)
   const { data: requests } = useOrderRequests(team?.id)
+  const { data: purchases } = usePurchases(team?.id)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_PRODUCT)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [showBoughtForm, setShowBoughtForm] = useState(false)
+  const [boughtProductId, setBoughtProductId] = useState('')
+  const [boughtQuantity, setBoughtQuantity] = useState('1')
 
   const categories = team?.categories || []
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
@@ -59,14 +65,16 @@ export default function Orders() {
     () => filtered.filter((p) => computeToBuy(p, productTypes).value !== 0),
     [filtered, productTypes]
   )
-  // Bought isn't "everything currently at 0 to buy" - that's most of a
-  // team's whole catalog forever - it's products an edit just brought down
-  // to 0 (boughtFlag, set in handleSubmit/handleAccept below via
-  // boughtFlagChanges) and that are in fact still at 0 right now, until
-  // dismissed or needed again.
-  const bought = useMemo(
-    () => filtered.filter((p) => p.boughtFlag && computeToBuy(p, productTypes).value === 0),
-    [filtered, productTypes]
+  // Manually logged (see the "+ Log a purchase" button below), not derived
+  // from to-buy hitting 0 - an admin picks the product and quantity actually
+  // bought, which is what makes each entry countable toward the dashboard's
+  // budget spend regardless of what to-buy does afterward.
+  const visiblePurchases = useMemo(
+    () =>
+      purchases
+        .filter((p) => !p.dismissed)
+        .filter((p) => !categoryFilter || p.category === categoryFilter),
+    [purchases, categoryFilter]
   )
   const filteredRequests = useMemo(
     () =>
@@ -105,9 +113,7 @@ export default function Orders() {
       if (dup && !confirm(`A product named "${dup.name}" already exists. Add this one anyway?`)) return
     }
     if (editingId) {
-      const oldProduct = products.find((p) => p.id === editingId)
-      const boughtChanges = oldProduct ? boughtFlagChanges(oldProduct, payload, productTypes) : {}
-      updateProduct(team.id, editingId, { ...payload, ...boughtChanges })
+      updateProduct(team.id, editingId, payload)
     } else {
       // SKU and link are per-item, not something the next product likely
       // shares - only the rest of the form (category, price, currency,
@@ -137,8 +143,7 @@ export default function Orders() {
         `A product named "${dup.name}" already exists. OK adds this request's wanted count to it instead of creating a separate product. Cancel adds it as a separate product.`
       )
       if (merge) {
-        const merged = { ...dup, wantedCount: (dup.wantedCount || 0) + (request.wantedCount || 0) }
-        await mergeOrderRequestIntoProduct(team.id, request, dup, boughtFlagChanges(dup, merged, productTypes))
+        await mergeOrderRequestIntoProduct(team.id, request, dup)
         return
       }
     }
@@ -150,20 +155,32 @@ export default function Orders() {
     await declineOrderRequest(team.id, id)
   }
 
-  async function handleDismiss(id) {
-    await dismissBought(team.id, id)
+  function openBoughtForm() {
+    setBoughtProductId('')
+    setBoughtQuantity('1')
+    setShowBoughtForm(true)
   }
 
-  async function handleDismissAll() {
-    await dismissAllBought(
-      team.id,
-      bought.map((p) => p.id)
-    )
+  function handleLogPurchase(e) {
+    e.preventDefault()
+    const product = products.find((p) => p.id === boughtProductId)
+    const quantity = Math.max(0, Math.round(Number(boughtQuantity) || 0))
+    if (!product || quantity <= 0) return
+    logPurchase(team.id, product, quantity)
+    setShowBoughtForm(false)
   }
 
-  // `filtered` is the union of the two tables below (needsBuying + bought),
-  // so exporting it covers everything currently visible on the page in one
-  // file, with the same columns ProductTable shows here.
+  async function handleDismissPurchase(id) {
+    await dismissPurchase(team.id, id)
+  }
+
+  async function handleRevertPurchase(purchase) {
+    if (!confirm(`Revert this purchase? ${purchase.quantity} × ${purchase.productName} will come back out of stock.`)) return
+    await revertPurchase(team.id, purchase)
+  }
+
+  // `filtered` is what's currently on screen in the main table, so exporting
+  // it covers that with the same columns ProductTable shows here.
   function handleExport() {
     const headers = ['Name', 'SKU', 'Category', 'Price', 'Supplier', 'To buy', 'Total']
     const rows = filtered.map((p) => {
@@ -236,28 +253,96 @@ export default function Orders() {
 
       <div className="page-header">
         <h2>Bought</h2>
-        {bought.length > 0 && (
-          <button type="button" className="secondary" onClick={handleDismissAll}>
-            Dismiss all
-          </button>
-        )}
+        <button type="button" className="secondary" onClick={openBoughtForm}>
+          + Log a purchase
+        </button>
       </div>
       <p className="muted" style={{ marginTop: -8 }}>
-        Products an edit just brought down to 0 left to buy - dismiss one once it's actually been bought.
+        Logged by hand - each one restocks the product and counts toward its category's spend on the
+        dashboard. Dismiss just hides a row here; revert undoes it entirely.
       </p>
-      <ProductTable
-        products={bought}
-        team={team}
-        onEdit={startEdit}
-        onDelete={handleDelete}
-        onDismiss={handleDismiss}
-        showCurrency={false}
-        showInStock={false}
-        showWanted={false}
-        showToBuy
-        showTotal
-        emptyMessage="Nothing here yet."
-      />
+      <StickyTableScroll>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Product</th>
+              <th>Category</th>
+              <th>Quantity</th>
+              <th>Cost</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {visiblePurchases.map((p) => {
+              const converted = convertPrice(p.unitPrice, p.currency, preferred, rates)
+              const cost = converted !== null ? converted * p.quantity : null
+              return (
+                <tr key={p.id}>
+                  <td>{p.date}</td>
+                  <td>{p.productName}</td>
+                  <td className="muted">{p.category || 'Uncategorized'}</td>
+                  <td>{p.quantity}</td>
+                  <td>{cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button className="link-btn" onClick={() => handleDismissPurchase(p.id)}>
+                        Dismiss
+                      </button>
+                      <button className="link-btn danger" onClick={() => handleRevertPurchase(p)}>
+                        Revert
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {visiblePurchases.length === 0 && (
+              <tr>
+                <td colSpan={6} className="empty-cell">
+                  Nothing here yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </StickyTableScroll>
+
+      <FormPanel open={showBoughtForm} onClose={() => setShowBoughtForm(false)} onSubmit={handleLogPurchase}>
+        <h2>Log a purchase</h2>
+        <div className="form-grid">
+          <label className="span-2">
+            Product
+            <select value={boughtProductId} onChange={(e) => setBoughtProductId(e.target.value)} required>
+              <option value="" disabled>
+                Choose…
+              </option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Quantity bought
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={boughtQuantity}
+              onChange={(e) => setBoughtQuantity(e.target.value)}
+              required
+            />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowBoughtForm(false)}>
+            Cancel
+          </button>
+          <button type="submit">Log purchase</button>
+        </div>
+      </FormPanel>
 
       <h2>Student requests</h2>
       <p className="muted" style={{ marginTop: -8 }}>
