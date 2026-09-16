@@ -55,9 +55,9 @@ export default function Systems() {
     setShowForm(false)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(system) {
     if (!confirm('Delete this system?')) return
-    await deleteSystem(team.id, id)
+    await deleteSystem(team.id, system)
   }
 
   // Unlike the student side (MySystems), an admin already has full write
@@ -148,7 +148,7 @@ export default function Systems() {
                     <button className="link-btn" onClick={() => startEdit(system)}>
                       Edit
                     </button>
-                    <button className="link-btn danger" onClick={() => handleDelete(system.id)}>
+                    <button className="link-btn danger" onClick={() => handleDelete(system)}>
                       Delete
                     </button>
                   </div>

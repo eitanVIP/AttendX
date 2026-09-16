@@ -89,9 +89,9 @@ export default function Students() {
     setShowForm(false)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(student) {
     if (!confirm('Remove this student? This does not delete their past attendance records.')) return
-    await deleteStudent(team.id, id)
+    await deleteStudent(team.id, student)
   }
 
   // Swaps with the neighbour in the *visible* list, so moving works the
@@ -256,7 +256,7 @@ export default function Students() {
                   <button className="link-btn" onClick={() => startEdit(s)}>
                     Edit
                   </button>
-                  <button className="link-btn danger" onClick={() => handleDelete(s.id)}>
+                  <button className="link-btn danger" onClick={() => handleDelete(s)}>
                     Delete
                   </button>
                 </div>

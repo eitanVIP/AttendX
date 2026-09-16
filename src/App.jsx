@@ -16,11 +16,13 @@ import Inventory from './pages/Inventory'
 import Orders from './pages/Orders'
 import Systems from './pages/Systems'
 import Settings from './pages/Settings'
+import SystemLog from './pages/SystemLog'
 import StudentLogin from './pages/StudentLogin'
 import CommunityHours from './pages/CommunityHours'
 import RequestOrder from './pages/RequestOrder'
 import MySystems from './pages/MySystems'
 import MyProfile from './pages/MyProfile'
+import Streaks from './pages/Streaks'
 import QuotaExceeded from './pages/QuotaExceeded'
 import { useQuotaExceeded } from './lib/quotaStatus'
 
@@ -55,6 +57,7 @@ export default function App() {
                 <Route path="/request-order" element={<RequestOrder />} />
                 <Route path="/my-systems" element={<MySystems />} />
                 <Route path="/my-profile" element={<MyProfile />} />
+                <Route path="/streaks" element={<Streaks />} />
               </Route>
               <Route
                 element={
@@ -73,6 +76,7 @@ export default function App() {
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/systems" element={<Systems />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/log" element={<SystemLog />} />
               </Route>
             </Routes>
           </QuotaGate>

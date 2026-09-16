@@ -17,14 +17,8 @@ import {
 import { addTraining, deleteTraining, reorderDocs, setTrainingCompletion, updateTraining } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const CATEGORIES = [
-  { id: 'team', label: 'Team training' },
-  { id: 'general', label: 'General training' },
-]
-
 const emptyForm = {
   name: '',
-  category: 'team',
   scopeDivision: '',
   scopeSubdivision: '',
   targetDate: '',
@@ -75,7 +69,6 @@ export default function Trainings() {
     e.preventDefault()
     const payload = {
       name: form.name,
-      category: form.category,
       scopeDivision: form.scopeDivision || null,
       scopeSubdivision: form.scopeSubdivision || null,
       targetDate: form.targetDate || null,
@@ -84,7 +77,7 @@ export default function Trainings() {
       updateTraining(team.id, editingId, payload)
     } else {
       rememberForm('trainings', form, 'name')
-      addTraining(team.id, { ...payload, targetCount: null })
+      addTraining(team.id, { ...payload, category: 'training', targetCount: null })
     }
     setShowForm(false)
   }
@@ -92,7 +85,6 @@ export default function Trainings() {
   function startEdit(training) {
     setForm({
       name: training.name,
-      category: training.category,
       scopeDivision: training.scopeDivision || '',
       scopeSubdivision: training.scopeSubdivision || '',
       targetDate: training.targetDate || '',
@@ -101,9 +93,9 @@ export default function Trainings() {
     setShowForm(true)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(training) {
     if (!confirm('Delete this training?')) return
-    await deleteTraining(team.id, id)
+    await deleteTraining(team.id, training)
   }
 
   // Swaps with the neighbour within the group's rows; the whole trainings
@@ -160,16 +152,6 @@ export default function Trainings() {
           <label className="span-2">
             Name
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          </label>
-          <label>
-            Category
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              {CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
           </label>
           <label>
             Target date
@@ -297,7 +279,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, s
                             type="checkbox"
                             checked={!!checked}
                             onChange={(e) => {
-                              setTrainingCompletion(teamId, t.id, s, e.target.checked, streakResetDays)
+                              setTrainingCompletion(teamId, t, s, e.target.checked, streakResetDays)
                               scrollToRevealNext(e.target)
                             }}
                           />
@@ -327,7 +309,7 @@ function TrainingGroupTable({ title, trainings, students, teamId, allStudents, s
                       <button className="link-btn" onClick={() => onEdit(t)}>
                         Edit
                       </button>
-                      <button className="link-btn danger" onClick={() => onDelete(t.id)}>
+                      <button className="link-btn danger" onClick={() => onDelete(t)}>
                         Delete
                       </button>
                     </div>

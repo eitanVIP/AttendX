@@ -49,9 +49,6 @@ export default function Inventory() {
     setShowForm(true)
   }
 
-  // Adding here only asks for the count actually on the shelf - the
-  // product still shows up on Orders too, at 0 wanted, since it's the same
-  // doc (see normalizeProduct in calc.js).
   function handleSubmit(e) {
     e.preventDefault()
     const payload = {
@@ -76,9 +73,9 @@ export default function Inventory() {
     setShowForm(false)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(product) {
     if (!confirm('Remove this product? It disappears from both Inventory and Orders.')) return
-    await deleteProduct(team.id, id)
+    await deleteProduct(team.id, product)
   }
 
   // Matches the columns ProductTable actually shows here (no To buy/Total on
@@ -184,8 +181,6 @@ export default function Inventory() {
         form={form}
         setForm={setForm}
         editing={!!editingId}
-        countField="countInInventory"
-        countLabel="Count in inventory"
         categories={categories}
         currencyCodes={currencyCodes}
         productTypes={productTypes}

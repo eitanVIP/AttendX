@@ -97,9 +97,6 @@ export default function Orders() {
     setShowForm(true)
   }
 
-  // Adding here only asks for how many are wanted - the product still shows
-  // up on Inventory too, at 0 in stock, since it's the same doc (see
-  // normalizeProduct in calc.js).
   function handleSubmit(e) {
     e.preventDefault()
     const payload = {
@@ -124,9 +121,9 @@ export default function Orders() {
     setShowForm(false)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(product) {
     if (!confirm('Remove this product? It disappears from both Inventory and Orders.')) return
-    await deleteProduct(team.id, id)
+    await deleteProduct(team.id, product)
   }
 
   // Accepting turns the request into a real product (so it shows up on both
@@ -150,9 +147,9 @@ export default function Orders() {
     await acceptOrderRequest(team.id, request)
   }
 
-  async function handleDecline(id) {
+  async function handleDecline(request) {
     if (!confirm('Decline this request? It will be removed.')) return
-    await declineOrderRequest(team.id, id)
+    await declineOrderRequest(team.id, request)
   }
 
   function openBoughtForm() {
@@ -170,8 +167,8 @@ export default function Orders() {
     setShowBoughtForm(false)
   }
 
-  async function handleDismissPurchase(id) {
-    await dismissPurchase(team.id, id)
+  async function handleDismissPurchase(purchase) {
+    await dismissPurchase(team.id, purchase)
   }
 
   async function handleRevertPurchase(purchase) {
@@ -232,8 +229,6 @@ export default function Orders() {
         form={form}
         setForm={setForm}
         editing={!!editingId}
-        countField="wantedCount"
-        countLabel="Wanted count"
         categories={categories}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
@@ -286,7 +281,7 @@ export default function Orders() {
                   <td>{cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="link-btn" onClick={() => handleDismissPurchase(p.id)}>
+                      <button className="link-btn" onClick={() => handleDismissPurchase(p)}>
                         Dismiss
                       </button>
                       <button className="link-btn danger" onClick={() => handleRevertPurchase(p)}>

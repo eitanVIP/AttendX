@@ -507,6 +507,11 @@ export function normalizeStudentForView(raw, structure, attendanceRecords) {
 // see PRODUCT_SETTINGS_FIELDS in actions.js).
 export const DEFAULT_STREAK_RESET_DAYS = 7
 
+// How long a team's system-log entries (see logChange in actions.js) stick
+// around before purgeOldLogEntries clears them - a team's own
+// logRetentionDays setting overrides this.
+export const DEFAULT_LOG_RETENTION_DAYS = 30
+
 // Training streak: incremented once per completed training (see
 // setTrainingCompletion in actions.js) and shown as 0 once `resetDays` have
 // passed since the last one (an admin-configurable team setting - see
@@ -533,6 +538,39 @@ export function streakResetHours(student, resetDays = DEFAULT_STREAK_RESET_DAYS)
   if (effectiveStreak(student, resetDays) <= 0) return null
   const elapsedHours = (Date.now() - new Date(student.trainingStreakUpdatedAt).getTime()) / 3600000
   return Math.max(0, resetDays * 24 - elapsedHours)
+}
+
+// Each entry in student.streakContributions is either:
+//   { id, type: 'training', trainingId, trainingName, at }  - one completed
+//     training that added 1 to the streak (see setTrainingCompletion in
+//     actions.js)
+//   { id, type: 'manual', value, by, byEmail, at }  - an admin directly
+//     setting the streak to `value` (see updateStudentStreak), which
+//     collapses the list down to just this one entry - later real
+//     completions build back up from `value`, not from wherever the
+//     organic streak had been before the override.
+// Kept in parallel with the plain trainingStreak number specifically so a
+// later removal (a training deleted, or unchecked for this student) can
+// find exactly which entry to take back out - see streakAfterRemoving.
+export const DEFAULT_STREAK_CONTRIBUTIONS = []
+
+export function findStreakContribution(student, predicate) {
+  return (student.streakContributions || []).find(predicate) || null
+}
+
+// The streak count/contribution list implied once `target` is taken back
+// out - recomputed from what's left rather than just decremented by one, so
+// it comes out right regardless of whether `target` was the most recent
+// contribution or one from the middle of the chain. A manual entry (there's
+// at most one, always first) seeds the count; every training entry after it
+// adds 1. `lastAt` is the new most-recent entry's timestamp (or null once
+// the list is empty), for the caller to keep trainingStreakUpdatedAt - and
+// so the reset countdown - honest.
+export function streakAfterRemoving(student, target) {
+  const remaining = (student.streakContributions || []).filter((c) => c.id !== target.id)
+  const streak = remaining.reduce((n, c) => (c.type === 'manual' ? c.value : n + 1), 0)
+  const last = remaining[remaining.length - 1] || null
+  return { streak, contributions: remaining, lastAt: last?.at ?? null }
 }
 
 // Which visual tier a streak falls into (see StreakBadge) - ramps up fast

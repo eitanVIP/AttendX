@@ -141,7 +141,7 @@ export default function ProductTable({
                           <button className="link-btn" onClick={() => onAccept(p)}>
                             Accept
                           </button>
-                          <button className="link-btn danger" onClick={() => onDecline(p.id)}>
+                          <button className="link-btn danger" onClick={() => onDecline(p)}>
                             Decline
                           </button>
                         </>
@@ -150,7 +150,7 @@ export default function ProductTable({
                           <button className="link-btn" onClick={() => onEdit(p)}>
                             Edit
                           </button>
-                          <button className="link-btn danger" onClick={() => onDelete(p.id)}>
+                          <button className="link-btn danger" onClick={() => onDelete(p)}>
                             Delete
                           </button>
                         </>

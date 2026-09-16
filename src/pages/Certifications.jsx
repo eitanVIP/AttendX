@@ -324,7 +324,7 @@ function CertCard({
 
   async function handleDelete() {
     if (!confirm('Delete this certification?')) return
-    await deleteTraining(teamId, cert.id)
+    await deleteTraining(teamId, cert)
   }
 
   if (mode === 'edit') {

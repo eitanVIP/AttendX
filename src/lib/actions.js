@@ -9,13 +9,52 @@ import {
   getDoc,
   getDocs,
   increment,
+  query,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore'
-import { db } from '../firebase'
-import { DEFAULT_STREAK_RESET_DAYS, effectiveStreak, normalizeStudent, remapStudentDivisions, todayISO } from './calc'
+import { auth, db } from '../firebase'
+import {
+  DEFAULT_STREAK_RESET_DAYS,
+  effectiveStreak,
+  findStreakContribution,
+  normalizeStudent,
+  remapStudentDivisions,
+  streakAfterRemoving,
+  todayISO,
+} from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
+
+// --- System log ---------------------------------------------------------
+// Every meaningful write below ends with one of these, so Settings' System
+// Log page can show a full audit trail (who changed what, when) without
+// needing Cloud Functions to intercept writes - the client just logs each
+// edit itself, right alongside the edit it's describing. `at` is a plain
+// ISO string (not serverTimestamp()) for the same reason the streak
+// timestamps are: the log has to read correctly from the same optimistic,
+// no-round-trip local cache every other write in this file gets, and a
+// server-computed value can't be known until the write round-trips.
+function logEntry(entity, action, summary) {
+  const user = auth.currentUser
+  return { at: new Date().toISOString(), uid: user?.uid || '', email: user?.email || '', entity, action, summary }
+}
+
+function logChange(teamId, entity, action, summary) {
+  return addDoc(collection(db, 'teams', teamId, 'log'), logEntry(entity, action, summary))
+}
+
+// Clears every log entry older than `retentionDays` - there's no Cloud
+// Function on this free plan to run this on a schedule, so it's triggered
+// instead the one place an admin is actually looking at the log: when the
+// System Log page itself mounts (see SystemLog.jsx).
+export async function purgeOldLogEntries(teamId, retentionDays) {
+  const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString()
+  const snap = await getDocs(query(collection(db, 'teams', teamId, 'log'), where('at', '<', cutoff)))
+  if (snap.empty) return
+  await commitAll(snap.docs.map((d) => (batch) => batch.delete(d.ref)))
+}
 
 // Mirrors just what the student area needs to read - the request-a-product
 // form's own fields, the team name shown in its header, and the division
@@ -72,7 +111,10 @@ export async function ensureProductSettingsMirror(team) {
 
 export function updateTeam(teamId, changes) {
   const mirror = productSettingsMirror(changes)
-  const writes = [updateDoc(doc(db, 'teams', teamId), changes)]
+  const writes = [
+    updateDoc(doc(db, 'teams', teamId), changes),
+    logChange(teamId, 'team', 'update', `Updated team settings (${Object.keys(changes).join(', ')})`),
+  ]
   if (Object.keys(mirror).length) {
     writes.push(setDoc(doc(db, 'teams', teamId, 'settings', 'products'), mirror, { merge: true }))
   }
@@ -94,6 +136,7 @@ export async function updateCategories(teamId, categories, renames, categoryBudg
   const writes = [
     (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
     (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
   for (const d of snap.docs) {
     const current = d.data().category || ''
@@ -135,7 +178,10 @@ export async function updateTeamStructure(teamId, changes, renames) {
   const structure = { divisions: changes.divisions, subdivisionsByDivision: changes.subdivisionsByDivision }
   const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
   const mirror = productSettingsMirror(changes)
-  const writes = [(batch) => batch.update(doc(db, 'teams', teamId), changes)]
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), changes),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('team', 'update', 'Updated team settings and divisions')),
+  ]
   if (Object.keys(mirror).length) {
     writes.push((batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), mirror, { merge: true }))
   }
@@ -188,6 +234,7 @@ export async function writeClonedContent(teamId, source) {
   }
   await commitAll(writes)
   if (source.communitySettings) await setCommunitySettings(teamId, source.communitySettings)
+  await logChange(teamId, 'team', 'create', 'Cloned content from another team')
 }
 
 // Wipes a team's trainings, certifications, events, and community-hours
@@ -207,6 +254,7 @@ export async function clearTeamContent(teamId) {
   ]
   await commitAll(writes)
   await setCommunitySettings(teamId, { hoursTarget: 0, types: [] })
+  await logChange(teamId, 'team', 'delete', 'Cleared trainings, certifications, and events ahead of a clone overwrite')
 }
 
 // Community-hours settings (target hours + the list of community types
@@ -214,27 +262,50 @@ export async function clearTeamContent(teamId) {
 // firestore.rules can let verified students read just this - not the admin
 // codes and other settings that live on teams/{teamId} itself.
 export function setCommunitySettings(teamId, changes) {
-  return setDoc(doc(db, 'teams', teamId, 'settings', 'community'), changes, { merge: true })
+  return Promise.all([
+    setDoc(doc(db, 'teams', teamId, 'settings', 'community'), changes, { merge: true }),
+    logChange(teamId, 'communitySettings', 'update', 'Updated community-hours settings'),
+  ])
 }
 
-export function deleteCommunityLog(teamId, logId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'communityLogs', logId))
+// Takes the whole log entry (not just its id) purely so the audit trail can
+// say what was deleted - the caller (StudentProfile.jsx) already has it in
+// hand from the table row, so this costs no extra read.
+export function deleteCommunityLog(teamId, log) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'communityLogs', log.id)),
+    logChange(teamId, 'communityLog', 'delete', `Deleted a community-hours entry (${log.hours}h, ${log.type}, ${log.date})`),
+  ])
 }
 
 export function addEvent(teamId, event) {
-  return addDoc(collection(db, 'teams', teamId, 'events'), event)
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'events'), event),
+    logChange(teamId, 'event', 'create', `Added event "${event.name}" (${event.date})`),
+  ])
 }
 
 export function updateEvent(teamId, eventId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'events', eventId), changes)
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'events', eventId), changes),
+    logChange(teamId, 'event', 'update', `Updated event "${changes.name || eventId}"`),
+  ])
 }
 
-export function deleteEvent(teamId, eventId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'events', eventId))
+// Takes the whole event (not just its id) - Settings.jsx already has it at
+// the call site, so the log can name it without an extra read.
+export function deleteEvent(teamId, event) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'events', event.id)),
+    logChange(teamId, 'event', 'delete', `Deleted event "${event.name}"`),
+  ])
 }
 
 export function addStudent(teamId, student) {
-  return addDoc(collection(db, 'teams', teamId, 'students'), { ...student, order: Date.now() })
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'students'), { ...student, order: Date.now() }),
+    logChange(teamId, 'student', 'create', `Added student "${student.fullName}"`),
+  ])
 }
 
 // Makes `order` equal each row's index in `orderedRows` (see sortByOrder in
@@ -248,6 +319,9 @@ export function reorderDocs(teamId, collectionName, orderedRows) {
     if (row.order === i) return
     writes.push((batch) => batch.update(doc(db, 'teams', teamId, collectionName, row.id), { order: i }))
   })
+  if (writes.length) {
+    writes.push((batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry(collectionName, 'update', `Reordered ${collectionName}`)))
+  }
   return commitAll(writes).catch((err) => {
     alert(`Couldn't save the new order: ${err.message}`)
     throw err
@@ -255,110 +329,245 @@ export function reorderDocs(teamId, collectionName, orderedRows) {
 }
 
 export function updateStudent(teamId, studentId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'students', studentId), {
-    ...changes,
-    // Clears the pre-multi-division fields off docs that still carry them
-    // (see normalizeStudent in calc.js); a no-op on docs that don't.
-    division: deleteField(),
-    subdivision: deleteField(),
-  })
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'students', studentId), {
+      ...changes,
+      // Clears the pre-multi-division fields off docs that still carry them
+      // (see normalizeStudent in calc.js); a no-op on docs that don't.
+      division: deleteField(),
+      subdivision: deleteField(),
+    }),
+    logChange(teamId, 'student', 'update', `Updated student "${changes.fullName || studentId}"`),
+  ])
 }
 
-export function deleteStudent(teamId, studentId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'students', studentId))
+// Takes the whole student (not just its id) - every call site already has
+// it in hand from the row it's deleting, so the log can name it without an
+// extra read.
+export function deleteStudent(teamId, student) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'students', student.id)),
+    logChange(teamId, 'student', 'delete', `Deleted student "${student.fullName}"`),
+  ])
 }
 
 export function addTraining(teamId, training) {
-  return addDoc(collection(db, 'teams', teamId, 'trainings'), {
-    completedStudentIds: [],
-    ...training,
-    order: Date.now(),
-  })
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'trainings'), {
+      completedStudentIds: [],
+      ...training,
+      order: Date.now(),
+    }),
+    logChange(teamId, 'training', 'create', `Added ${training.category === 'professional' ? 'certification' : 'training'} "${training.name}"`),
+  ])
 }
 
 export function updateTraining(teamId, trainingId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'trainings', trainingId), changes)
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'trainings', trainingId), changes),
+    logChange(teamId, 'training', 'update', `Updated training "${changes.name || trainingId}"`),
+  ])
 }
 
-export function deleteTraining(teamId, trainingId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'trainings', trainingId))
+// Takes the whole training (not an id) for two reasons: the log can name it
+// without an extra read, and every student's streak has to be checked for a
+// contribution pointing at it - deleting a training a student was credited
+// for reverts their streak by exactly that one completion (see
+// streakAfterRemoving in calc.js), same as unchecking it would (see
+// setTrainingCompletion below), just applied to everyone who had it at
+// once. Reads the whole roster because there's no query for "students whose
+// streakContributions array contains an entry with this trainingId" -
+// arrays of objects can't be queried that specifically - so this is the
+// same full-roster-scan pattern updateTeamStructure already uses to fix up
+// students on a structural change.
+export async function deleteTraining(teamId, training) {
+  const studentsSnap = await getDocs(collection(db, 'teams', teamId, 'students'))
+  const writes = [(batch) => batch.delete(doc(db, 'teams', teamId, 'trainings', training.id))]
+  for (const d of studentsSnap.docs) {
+    const student = { id: d.id, ...d.data() }
+    const contribution = findStreakContribution(student, (c) => c.type === 'training' && c.trainingId === training.id)
+    if (!contribution) continue
+    const { streak, lastAt } = streakAfterRemoving(student, contribution)
+    writes.push((batch) =>
+      batch.update(d.ref, {
+        streakContributions: arrayRemove(contribution),
+        trainingStreak: streak,
+        trainingStreakUpdatedAt: lastAt || deleteField(),
+      })
+    )
+  }
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('training', 'delete', `Deleted ${training.category === 'professional' ? 'certification' : 'training'} "${training.name}"`)
+    )
+  )
+  await commitAll(writes)
 }
 
 // Checking a training off also advances the student's training streak (see
-// effectiveStreak in calc.js). Takes the whole student (rather than just an
-// id) since the caller already has it live from useStudents - reading it
-// fresh here would mean a transaction, and Firestore transactions skip the
-// local-cache optimistic echo plain updateDoc gets, which would make the
-// checkbox itself feel laggy. Unchecking never touches the streak: there's
-// no clean way to "undo" a day already earned, and nothing asks for one.
-export function setTrainingCompletion(teamId, trainingId, student, completed, resetDays = DEFAULT_STREAK_RESET_DAYS) {
-  const trainingRef = doc(db, 'teams', teamId, 'trainings', trainingId)
+// effectiveStreak in calc.js) and records which training earned it (see
+// DEFAULT_STREAK_CONTRIBUTIONS in calc.js) - that's what lets the streak
+// badge on a profile be clicked open into a breakdown of what counted, and
+// what lets unchecking (below) or deleting the training (deleteTraining
+// above) find exactly the right entry to revert. Takes the whole training
+// and student (rather than just ids) since the caller already has both
+// live from useTrainings/useStudents - reading them fresh here would mean a
+// transaction, and Firestore transactions skip the local-cache optimistic
+// echo plain updateDoc gets, which would make the checkbox itself feel
+// laggy.
+export function setTrainingCompletion(teamId, training, student, completed, resetDays = DEFAULT_STREAK_RESET_DAYS) {
+  const trainingRef = doc(db, 'teams', teamId, 'trainings', training.id)
   const writes = [updateDoc(trainingRef, { completedStudentIds: completed ? arrayUnion(student.id) : arrayRemove(student.id) })]
   if (completed) {
+    const contribution = {
+      id: crypto.randomUUID(),
+      type: 'training',
+      trainingId: training.id,
+      trainingName: training.name,
+      at: new Date().toISOString(),
+    }
     writes.push(
       updateDoc(doc(db, 'teams', teamId, 'students', student.id), {
         trainingStreak: effectiveStreak(student, resetDays) + 1,
-        trainingStreakUpdatedAt: new Date().toISOString(),
+        trainingStreakUpdatedAt: contribution.at,
+        streakContributions: arrayUnion(contribution),
       })
     )
+    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Marked ${student.fullName} as completing "${training.name}"`))
+  } else {
+    // Only reverts the streak if this training is actually still one of
+    // this student's contributions - toggling a checkbox that's already in
+    // whatever state it's headed to (a stale click, a race between two
+    // admins) shouldn't silently eat another streak day it didn't earn.
+    const contribution = findStreakContribution(student, (c) => c.type === 'training' && c.trainingId === training.id)
+    if (contribution) {
+      const { streak, lastAt } = streakAfterRemoving(student, contribution)
+      writes.push(
+        updateDoc(doc(db, 'teams', teamId, 'students', student.id), {
+          streakContributions: arrayRemove(contribution),
+          trainingStreak: streak,
+          trainingStreakUpdatedAt: lastAt || deleteField(),
+        })
+      )
+    }
+    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Unmarked ${student.fullName}'s completion of "${training.name}"`))
   }
   return Promise.all(writes)
 }
 
 // Admin-only edit to a student's streak - either the count itself or the
 // frozen flag (see the streak controls in StudentProfileView). Setting the
-// count directly, or unfreezing, both refresh the timestamp so the new
-// value isn't immediately wiped out by a stale gap the next time it's read.
-export function updateStudentStreak(teamId, studentId, changes) {
+// count directly collapses streakContributions down to just one manual
+// entry recording who set it to what and when (see DEFAULT_STREAK_
+// CONTRIBUTIONS in calc.js) - later real completions build back up from
+// there, and the breakdown under the streak badge shows the override
+// instead of silently keeping old training entries an admin just
+// overwrote. Setting the count, or unfreezing, both refresh the timestamp
+// so the new value isn't immediately wiped out by a stale gap the next
+// time it's read. Takes the whole student (not just its id) so the manual
+// contribution and the log entry can both name them.
+export function updateStudentStreak(teamId, student, changes) {
   const payload = { ...changes }
-  if ('trainingStreak' in payload || payload.trainingStreakFrozen === false) {
+  const writes = []
+  if ('trainingStreak' in payload) {
+    const user = auth.currentUser
+    const contribution = {
+      id: crypto.randomUUID(),
+      type: 'manual',
+      value: payload.trainingStreak,
+      by: user?.uid || '',
+      byEmail: user?.email || '',
+      at: new Date().toISOString(),
+    }
+    payload.streakContributions = [contribution]
+    payload.trainingStreakUpdatedAt = contribution.at
+    writes.push(logChange(teamId, 'streak', 'update', `Set ${student.fullName}'s training streak to ${payload.trainingStreak}`))
+  } else if (payload.trainingStreakFrozen === false) {
     payload.trainingStreakUpdatedAt = new Date().toISOString()
+    writes.push(logChange(teamId, 'streak', 'update', `Unfroze ${student.fullName}'s training streak`))
+  } else if (payload.trainingStreakFrozen === true) {
+    writes.push(logChange(teamId, 'streak', 'update', `Froze ${student.fullName}'s training streak`))
   }
-  return updateDoc(doc(db, 'teams', teamId, 'students', studentId), payload)
+  writes.push(updateDoc(doc(db, 'teams', teamId, 'students', student.id), payload))
+  return Promise.all(writes)
 }
 
 export function addSession(teamId, session) {
-  return addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now() })
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now() }),
+    logChange(teamId, 'session', 'create', `Added session "${session.name}" (${session.date})`),
+  ])
 }
 
 export function updateSession(teamId, sessionId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'sessions', sessionId), changes)
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'sessions', sessionId), changes),
+    logChange(teamId, 'session', 'update', `Updated session "${changes.name || sessionId}"`),
+  ])
 }
 
-export function deleteSession(teamId, sessionId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'sessions', sessionId))
+// Takes the whole session (not just its id) - Sessions.jsx already has it
+// at the call site, so the log can name it without an extra read.
+export function deleteSession(teamId, session) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'sessions', session.id)),
+    logChange(teamId, 'session', 'delete', `Deleted session "${session.name}" (${session.date}) and its attendance`),
+  ])
 }
 
-export function setAttendance(teamId, sessionId, studentId, status) {
-  return setDoc(doc(db, 'teams', teamId, 'sessions', sessionId, 'attendance', studentId), {
-    status,
-    studentId,
-  })
+// Takes the whole session and student (not just ids) purely so the log can
+// name both without an extra read - Sessions.jsx already has them live from
+// useSessions/useStudents at the one call site.
+export function setAttendance(teamId, session, student, status) {
+  return Promise.all([
+    setDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id), { status, studentId: student.id }),
+    logChange(teamId, 'attendance', 'update', `Marked ${student.fullName} ${status} for "${session.name}"`),
+  ])
 }
 
-export function clearAttendance(teamId, sessionId, studentId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'sessions', sessionId, 'attendance', studentId))
+export function clearAttendance(teamId, session, student) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id)),
+    logChange(teamId, 'attendance', 'update', `Cleared ${student.fullName}'s attendance for "${session.name}"`),
+  ])
 }
 
 // Shared by Inventory and Orders - see normalizeProduct in calc.js.
 export function addProduct(teamId, product) {
-  return addDoc(collection(db, 'teams', teamId, 'products'), product)
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'products'), product),
+    logChange(teamId, 'product', 'create', `Added product "${product.name}"`),
+  ])
 }
 
 export function updateProduct(teamId, productId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'products', productId), changes)
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'products', productId), changes),
+    logChange(teamId, 'product', 'update', `Updated product "${changes.name || productId}"`),
+  ])
 }
 
-export function deleteProduct(teamId, productId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'products', productId))
+// Takes the whole product (not just its id) - Inventory.jsx/Orders.jsx
+// already have it at the call site, so the log can name it without an
+// extra read.
+export function deleteProduct(teamId, product) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'products', product.id)),
+    logChange(teamId, 'product', 'delete', `Deleted product "${product.name}"`),
+  ])
 }
 
 // Bulk add from Import CSV (see parseProductImport in csv.js, which is what
 // validates and builds `products` before this is ever called) - batched via
 // commitAll so a large import stays within Firestore's per-batch limits the
-// same way a big reorder does.
+// same way a big reorder does. Logged as one entry, not one per row.
 export function importProducts(teamId, products) {
-  return commitAll(products.map((product) => (batch) => batch.set(doc(collection(db, 'teams', teamId, 'products')), product)))
+  const writes = products.map((product) => (batch) => batch.set(doc(collection(db, 'teams', teamId, 'products')), product))
+  writes.push((batch) =>
+    batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('product', 'create', `Imported ${products.length} products`))
+  )
+  return commitAll(writes)
 }
 
 // Accepting a student's request turns it into a real product - which is all
@@ -372,6 +581,7 @@ export function acceptOrderRequest(teamId, request) {
   const batch = writeBatch(db)
   batch.set(doc(collection(db, 'teams', teamId, 'products')), product)
   batch.delete(doc(db, 'teams', teamId, 'orderRequests', id))
+  batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('orderRequest', 'update', `Accepted ${request.requestedBy}'s request for "${request.name}"`))
   return batch.commit()
 }
 
@@ -389,11 +599,20 @@ export function mergeOrderRequestIntoProduct(teamId, request, existingProduct, e
     ...extraChanges,
   })
   batch.delete(doc(db, 'teams', teamId, 'orderRequests', request.id))
+  batch.set(
+    doc(collection(db, 'teams', teamId, 'log')),
+    logEntry('orderRequest', 'update', `Merged ${request.requestedBy}'s request into existing product "${existingProduct.name}"`)
+  )
   return batch.commit()
 }
 
-export function declineOrderRequest(teamId, requestId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'orderRequests', requestId))
+// Takes the whole request (not just its id) - Orders.jsx already has it at
+// the call site, so the log can name it without an extra read.
+export function declineOrderRequest(teamId, request) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'orderRequests', request.id)),
+    logChange(teamId, 'orderRequest', 'delete', `Declined ${request.requestedBy}'s request for "${request.name}"`),
+  ])
 }
 
 // Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
@@ -418,15 +637,21 @@ export function logPurchase(teamId, product, quantity) {
     date: todayISO(),
     dismissed: false,
   })
+  batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('purchase', 'create', `Logged buying ${quantity} × "${product.name}"`))
   return batch.commit()
 }
 
 // Hides one purchase from Orders' Bought table without touching anything
 // else about it - the stock it added and the money it counts toward the
 // dashboard's "spent" total are unaffected. Contrast with revertPurchase
-// below, which actually undoes it.
-export function dismissPurchase(teamId, purchaseId) {
-  return updateDoc(doc(db, 'teams', teamId, 'purchases', purchaseId), { dismissed: true })
+// below, which actually undoes it. Takes the whole purchase (not just its
+// id) - Orders.jsx already has it at the call site, so the log can name it
+// without an extra read.
+export function dismissPurchase(teamId, purchase) {
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'purchases', purchase.id), { dismissed: true }),
+    logChange(teamId, 'purchase', 'update', `Dismissed the purchase of ${purchase.quantity} × "${purchase.productName}" from Bought`),
+  ])
 }
 
 // Fully undoes a logged purchase: deletes the record (so it stops counting
@@ -440,6 +665,10 @@ export function revertPurchase(teamId, purchase) {
   batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
     countInInventory: increment(-purchase.quantity),
   })
+  batch.set(
+    doc(collection(db, 'teams', teamId, 'log')),
+    logEntry('purchase', 'delete', `Reverted the purchase of ${purchase.quantity} × "${purchase.productName}"`)
+  )
   return batch.commit()
 }
 
@@ -447,13 +676,24 @@ export function revertPurchase(teamId, purchase) {
 // manage their own the same way but through communityDb directly (see
 // MySystems.jsx), the same split as products vs. orderRequests.
 export function addSystem(teamId, system) {
-  return addDoc(collection(db, 'teams', teamId, 'systems'), system)
+  return Promise.all([
+    addDoc(collection(db, 'teams', teamId, 'systems'), system),
+    logChange(teamId, 'system', 'create', `Added system "${system.name}"`),
+  ])
 }
 
 export function updateSystem(teamId, systemId, changes) {
-  return updateDoc(doc(db, 'teams', teamId, 'systems', systemId), changes)
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'systems', systemId), changes),
+    logChange(teamId, 'system', 'update', `Updated system "${changes.name || systemId}"`),
+  ])
 }
 
-export function deleteSystem(teamId, systemId) {
-  return deleteDoc(doc(db, 'teams', teamId, 'systems', systemId))
+// Takes the whole system (not just its id) - Systems.jsx already has it at
+// the call site, so the log can name it without an extra read.
+export function deleteSystem(teamId, system) {
+  return Promise.all([
+    deleteDoc(doc(db, 'teams', teamId, 'systems', system.id)),
+    logChange(teamId, 'system', 'delete', `Deleted system "${system.name}"`),
+  ])
 }

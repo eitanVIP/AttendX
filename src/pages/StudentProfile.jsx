@@ -29,11 +29,11 @@ export default function StudentProfile() {
 
   async function handleDeleteLog(log) {
     if (!confirm(`Delete this entry (${log.hours}h, ${log.type}, ${log.date})?`)) return
-    await deleteCommunityLog(team.id, log.id)
+    await deleteCommunityLog(team.id, log)
   }
 
   async function handleUpdateStreak(changes) {
-    await updateStudentStreak(team.id, student.id, changes)
+    await updateStudentStreak(team.id, student, changes)
   }
 
   if (!student) return <div className="page-loading">Loading student…</div>

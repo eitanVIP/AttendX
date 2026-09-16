@@ -22,6 +22,7 @@ import {
   certProgress,
   effectiveStreak,
   eventCountdown,
+  groupByScope,
   spentByCategory,
   studentCommunityHours,
   summarizeAttendance,
@@ -57,10 +58,14 @@ export default function Dashboard() {
   const categories = team?.categories || []
 
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
-  const certifications = useMemo(
-    () => trainings.filter((t) => t.category === 'professional').sort((a, b) => a.name.localeCompare(b.name)),
-    [trainings]
-  )
+  // Same division/subdivision order (then the ↑/↓ order within each) as the
+  // Certifications page itself - see groupByScope in calc.js - rather than
+  // alphabetical, so this table reads as the same list in the same order,
+  // just flattened into rows instead of cards.
+  const certifications = useMemo(() => {
+    const certs = trainings.filter((t) => t.category === 'professional')
+    return groupByScope(certs, team?.divisions || [], team?.subdivisionsByDivision || {}).flatMap((g) => g.items)
+  }, [trainings, team])
   const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
 
   const completionByGrade = useMemo(
@@ -353,7 +358,7 @@ export default function Dashboard() {
             </table>
           </StickyTableScroll>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>Attendance by student</h3>
             <div className="filter-row" style={{ margin: 0 }}>
               <button

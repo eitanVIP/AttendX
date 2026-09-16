@@ -59,8 +59,12 @@ export default function StudentProfileView({
 }) {
   const [streakEditOpen, setStreakEditOpen] = useState(false)
   const [streakValue, setStreakValue] = useState('')
+  const [showContributions, setShowContributions] = useState(false)
   const streak = effectiveStreak(student, streakResetDays)
   const streakResetMessage = describeStreakReset(streakResetHours(student, streakResetDays))
+  // Newest first - what most recently happened is what someone clicking
+  // the streak open is most likely wondering about.
+  const streakContributions = useMemo(() => [...(student.streakContributions || [])].reverse(), [student.streakContributions])
 
   const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
 
@@ -174,6 +178,26 @@ export default function StudentProfileView({
           <StreakBadge streak={streak} frozen={!!student.trainingStreakFrozen} />
           {streak > 0 && (
             <span className="muted">{student.trainingStreakFrozen ? "Frozen - won't reset" : streakResetMessage}</span>
+          )}
+          <button
+            type="button"
+            className="link-btn"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={() => setShowContributions((o) => !o)}
+            aria-expanded={showContributions}
+          >
+            {showContributions ? 'Hide what counts' : 'Show what counts'}
+          </button>
+          {showContributions && (
+            <ul className="streak-contributions">
+              {streakContributions.length === 0 && <li className="muted">Nothing counted yet.</li>}
+              {streakContributions.map((c) => (
+                <li key={c.id}>
+                  <span>{c.type === 'manual' ? `Manually set to ${c.value}` : c.trainingName}</span>
+                  <span className="muted">{c.at ? c.at.slice(0, 16).replace('T', ' ') : '—'}</span>
+                </li>
+              ))}
+            </ul>
           )}
           {onUpdateStreak && (
             <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 2 }}>

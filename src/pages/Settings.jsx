@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import MoveButtons from '../components/MoveButtons'
@@ -6,7 +7,7 @@ import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import StickyTableScroll from '../components/StickyTableScroll'
 import { DEFAULT_ACCENT } from '../lib/theme'
 import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
-import { DEFAULT_STREAK_RESET_DAYS, movedTo, todayISO } from '../lib/calc'
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, movedTo, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import {
@@ -51,6 +52,7 @@ export default function Settings() {
   const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
   const [minAttendance, setMinAttendance] = useState(String(team?.minAttendancePercent || 0))
   const [streakResetDays, setStreakResetDays] = useState(String(team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS))
+  const [logRetentionDays, setLogRetentionDays] = useState(String(team?.logRetentionDays || DEFAULT_LOG_RETENTION_DAYS))
   const [rows, setRows] = useState(teamToDivisionRows(team))
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -62,6 +64,7 @@ export default function Settings() {
     setColorPrimary(team?.colorPrimary || DEFAULT_ACCENT)
     setMinAttendance(String(team?.minAttendancePercent || 0))
     setStreakResetDays(String(team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS))
+    setLogRetentionDays(String(team?.logRetentionDays || DEFAULT_LOG_RETENTION_DAYS))
     setRows(teamToDivisionRows(team))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id])
@@ -148,9 +151,18 @@ export default function Settings() {
     }
     const minAttendancePercent = Math.min(100, Math.max(0, Math.round(Number(minAttendance) || 0)))
     const streakResetDaysValue = Math.max(1, Math.round(Number(streakResetDays) || DEFAULT_STREAK_RESET_DAYS))
+    const logRetentionDaysValue = Math.max(1, Math.round(Number(logRetentionDays) || DEFAULT_LOG_RETENTION_DAYS))
     await updateTeamStructure(
       team.id,
-      { name, colorPrimary, minAttendancePercent, streakResetDays: streakResetDaysValue, divisions, subdivisionsByDivision },
+      {
+        name,
+        colorPrimary,
+        minAttendancePercent,
+        streakResetDays: streakResetDaysValue,
+        logRetentionDays: logRetentionDaysValue,
+        divisions,
+        subdivisionsByDivision,
+      },
       renames
     )
     // Re-baseline so a second rename in the same visit is computed against
@@ -207,6 +219,20 @@ export default function Settings() {
               <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
                 A student's training streak (see their profile) resets to 0 once this many days pass
                 without them completing a training.
+              </p>
+              <label>
+                System log retention (days)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={logRetentionDays}
+                  onChange={(e) => setLogRetentionDays(e.target.value)}
+                />
+              </label>
+              <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
+                Every change made in this dashboard is logged with who made it and when - see the{' '}
+                <Link to="/settings/log">system log</Link>. Entries older than this are cleared automatically.
               </p>
             </div>
 
@@ -344,7 +370,7 @@ function EventsSection({ teamId }) {
 
   async function handleDelete(event) {
     if (!confirm(`Delete "${event.name}"?`)) return
-    await deleteEvent(teamId, event.id)
+    await deleteEvent(teamId, event)
   }
 
   return (

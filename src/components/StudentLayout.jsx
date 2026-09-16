@@ -8,11 +8,12 @@ const links = [
   { to: '/request-order', label: 'Request Order' },
   { to: '/my-systems', label: 'My Systems' },
   { to: '/my-profile', label: 'My Profile' },
+  { to: '/streaks', label: 'Streaks' },
 ]
 
 // The student equivalent of Layout.jsx (the admin shell) - same header/
 // nav/drawer markup and CSS classes for a consistent look, just with the
-// four student tabs instead of the admin's, and "Log out" clearing the
+// student tabs instead of the admin's, and "Log out" clearing the
 // student session (see StudentAuthContext) instead of the real Firebase
 // Auth one. Needs BOTH a verified team and a chosen student - either
 // missing sends back to /student-login, which shows whichever of its two

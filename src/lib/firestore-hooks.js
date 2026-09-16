@@ -119,6 +119,14 @@ export function usePurchases(teamId) {
   return { ...result, data }
 }
 
+// The system log (see logChange in actions.js) - newest first, so an admin
+// checking in on it sees the latest changes without sorting themselves.
+export function useLog(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'log'] : null)
+  const data = useMemo(() => [...result.data].sort((a, b) => (b.at || '').localeCompare(a.at || '')), [result.data])
+  return { ...result, data }
+}
+
 // Admin view of every student's systems (see DEFAULT_SYSTEM in calc.js) -
 // `needs` defaults to [] for a doc somehow missing it, same defensive
 // normalization normalizeProduct does for products.

@@ -85,14 +85,14 @@ export default function Sessions() {
     setShowForm(true)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(session) {
     if (!confirm('Delete this session and its attendance records?')) return
-    await deleteSession(team.id, id)
+    await deleteSession(team.id, session)
   }
 
-  async function handleStatusChange(sessionId, studentId, next) {
-    if (next) await setAttendance(team.id, sessionId, studentId, next)
-    else await clearAttendance(team.id, sessionId, studentId)
+  async function handleStatusChange(session, student, next) {
+    if (next) await setAttendance(team.id, session, student, next)
+    else await clearAttendance(team.id, session, student)
   }
 
   // Swaps with the neighbour within the group's rows; the full collection
@@ -263,7 +263,7 @@ function SessionGroupTable({
                       <select
                         className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
                         value={status || ''}
-                        onChange={(e) => onStatusChange(session.id, s.id, e.target.value || null)}
+                        onChange={(e) => onStatusChange(session, s, e.target.value || null)}
                       >
                         <option value="">–</option>
                         {ATTENDANCE_STATUSES.map((st) => (
@@ -290,7 +290,7 @@ function SessionGroupTable({
                     <button className="link-btn" onClick={() => onEdit(session)}>
                       Edit
                     </button>
-                    <button className="link-btn danger" onClick={() => onDelete(session.id)}>
+                    <button className="link-btn danger" onClick={() => onDelete(session)}>
                       Delete
                     </button>
                   </div>

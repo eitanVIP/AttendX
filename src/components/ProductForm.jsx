@@ -1,12 +1,10 @@
 import FormPanel from './FormPanel'
 import { isReservedFieldName } from '../lib/formula'
 
-// Shared by Inventory and Orders. Adding a product only asks for the one
-// count relevant to whichever page you're on (`countField`/`countLabel`) -
-// the other side of it defaults to 0 via DEFAULT_PRODUCT in calc.js, which
-// is what makes the two pages two views of the same doc instead of separate
-// ones. Editing shows both counts, since by then the product already
-// exists on both pages and either might need correcting.
+// Shared by Inventory and Orders. Both counts are always shown on either
+// page - the product is the same doc either way (see DEFAULT_PRODUCT in
+// calc.js), so Inventory can set how many are wanted and Orders can set how
+// many are already in stock without switching pages.
 export default function ProductForm({
   open,
   onClose,
@@ -14,8 +12,6 @@ export default function ProductForm({
   form,
   setForm,
   editing,
-  countField,
-  countLabel,
   categories,
   currencyCodes,
   productTypes,
@@ -119,23 +115,14 @@ export default function ProductForm({
             </div>
           </div>
         )}
-        {editing ? (
-          <>
-            <label>
-              Count in inventory
-              <input type="number" min="0" step="any" value={form.countInInventory} onChange={set('countInInventory')} />
-            </label>
-            <label>
-              Wanted count
-              <input type="number" min="0" step="any" value={form.wantedCount} onChange={set('wantedCount')} />
-            </label>
-          </>
-        ) : (
-          <label>
-            {countLabel}
-            <input type="number" min="0" step="any" value={form[countField]} onChange={set(countField)} />
-          </label>
-        )}
+        <label>
+          Count in inventory
+          <input type="number" min="0" step="any" value={form.countInInventory} onChange={set('countInInventory')} />
+        </label>
+        <label>
+          Wanted count
+          <input type="number" min="0" step="any" value={form.wantedCount} onChange={set('wantedCount')} />
+        </label>
       </div>
       <div className="form-actions">
         <button type="button" className="secondary" onClick={onClose}>
