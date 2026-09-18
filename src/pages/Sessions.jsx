@@ -10,7 +10,7 @@ import { ATTENDANCE_STATUSES, isSessionRelevantToStudent, movedWithinGroup, swap
 import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const emptyForm = { date: todayISO(), name: '', targetDivision: 'all' }
+const emptyForm = { date: todayISO(), name: '', targetDivision: 'all', notes: '' }
 
 const STATUS_LABELS = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' }
 
@@ -69,7 +69,7 @@ export default function Sessions() {
     if (editingId) {
       updateSession(team.id, editingId, form)
     } else {
-      rememberForm('sessions', form, 'name')
+      rememberForm('sessions', form, ['name', 'notes'])
       addSession(team.id, form)
     }
     setShowForm(false)
@@ -80,6 +80,7 @@ export default function Sessions() {
       date: session.date || todayISO(),
       name: session.name || '',
       targetDivision: session.targetDivision || 'all',
+      notes: session.notes || '',
     })
     setEditingId(session.id)
     setShowForm(true)
@@ -113,12 +114,7 @@ export default function Sessions() {
     <div className="page">
       <div className="page-toolbar">
         <div className="page-header">
-          <div>
-            <h1>Attendance</h1>
-            <p className="muted" style={{ marginTop: -12 }}>
-              Pick a status for each student directly in the table below.
-            </p>
-          </div>
+          <h1>Attendance</h1>
           <button
             onClick={() => {
               setEditingId(null)
@@ -182,6 +178,14 @@ export default function Sessions() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="span-2">
+            Notes
+            <input
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="e.g. Guest speaker, ran short"
+            />
           </label>
         </div>
         <div className="form-actions">
@@ -247,6 +251,11 @@ function SessionGroupTable({
                 <td className="matrix-name-col">
                   <strong>{session.name}</strong>
                   <div className="muted">{session.date}</div>
+                  {session.notes && (
+                    <div className="muted session-notes" title={session.notes}>
+                      {session.notes}
+                    </div>
+                  )}
                 </td>
                 {students.map((s) => {
                   const cellClass = `matrix-student-col ${s.active ? '' : 'col-inactive'}`

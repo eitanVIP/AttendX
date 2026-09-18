@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { addDoc, collection, getDocs } from 'firebase/firestore'
+import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, updateDoc } from 'firebase/firestore'
 import { communityDb } from '../firebase'
-import { studentCommunityHours } from '../lib/calc'
+import { effectiveStreak, studentCommunityHours, todayISO } from '../lib/calc'
+import { logStudentChange } from '../lib/communityLog'
 import { useStudentAuth } from '../context/StudentAuthContext'
 
 // A StudentLayout tab - sign-in (including which student this is) already
@@ -10,11 +11,12 @@ import { useStudentAuth } from '../context/StudentAuthContext'
 // shared sign-in: the log entries themselves, needed for the "hours logged
 // so far" running total.
 export default function CommunityHours() {
-  const { verified, studentId } = useStudentAuth()
+  const { verified, studentId, student } = useStudentAuth()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [type, setType] = useState('')
   const [hours, setHours] = useState('')
+  const [date, setDate] = useState(todayISO())
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -43,18 +45,44 @@ export default function CommunityHours() {
     setError('')
     setSubmitting(true)
     try {
-      const entry = {
-        studentId,
-        type,
-        hours: Number(hours),
-        notes: notes.trim(),
-        date: new Date().toISOString().slice(0, 10),
-      }
+      const entry = { studentId, type, hours: Number(hours), notes: notes.trim(), date }
       await addDoc(collection(communityDb, 'teams', verified.teamId, 'communityLogs'), entry)
       setLogs((prev) => [...prev, entry])
+
+      // Advances the community streak the same way a completed training
+      // advances the training one (see setTrainingCompletion in
+      // actions.js) - one contribution per logged entry, reset the same
+      // `streakResetDays` days after the last one. Re-reads the student
+      // doc fresh rather than trusting StudentAuthContext's cached
+      // `verified.students` snapshot (fetched once at sign-in), since
+      // that's the only way to know the CURRENT streak to add 1 to.
+      const studentSnap = await getDoc(doc(communityDb, 'teams', verified.teamId, 'students', studentId))
+      const currentStudent = studentSnap.exists() ? studentSnap.data() : {}
+      const contribution = {
+        id: crypto.randomUUID(),
+        type: 'log',
+        hours: entry.hours,
+        communityType: entry.type,
+        at: new Date().toISOString(),
+      }
+      await updateDoc(doc(communityDb, 'teams', verified.teamId, 'students', studentId), {
+        communityStreak: effectiveStreak(currentStudent, verified.streakResetDays, 'community') + 1,
+        communityStreakUpdatedAt: contribution.at,
+        communityStreakContributions: arrayUnion(contribution),
+      })
+
+      await logStudentChange(
+        verified.teamId,
+        'communityLog',
+        'create',
+        `Logged ${entry.hours}h of ${entry.type} (${entry.date})`,
+        student?.fullName
+      )
+
       setJustSubmitted(true)
       setType('')
       setHours('')
+      setDate(todayISO())
       setNotes('')
     } catch {
       setError('Something went wrong submitting that - please try again.')
@@ -103,6 +131,10 @@ export default function CommunityHours() {
             onChange={(e) => setHours(e.target.value)}
             required
           />
+        </label>
+        <label>
+          Date
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </label>
         <label>
           Notes

@@ -17,6 +17,28 @@ export function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Every timestamp this app stores (log entries, streak contributions) is a
+// plain UTC ISO string (see logEntry in actions.js) - this is the one place
+// that renders one in the team's own local time (Israel) rather than every
+// call site slicing the raw UTC string as if it were already local, which
+// is off by 2-3 hours depending on daylight saving.
+export function formatLocalDateTime(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const get = (type) => parts.find((p) => p.type === type)?.value || ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
 // Time left until an event's date (local midnight at its start). Past
 // events report `past`; the event's own day is `today` rather than a
 // negative countdown.
@@ -408,17 +430,73 @@ export function usedQuantitiesByProduct(systems, excludeSystemId) {
   return used
 }
 
-// How much of a product is still free to claim - what's in stock minus
-// what every OTHER system has already claimed (see usedQuantitiesByProduct
-// above). Never negative even if stock has since dropped below what's
-// already claimed elsewhere.
-// Deliberately NOT floored at 0 - a system is allowed to claim more of a
-// product than is actually free (NeedsTable then offers to auto-request an
-// order for the shortfall), so "available" has to be able to show the
-// resulting deficit rather than hiding it behind a 0.
-export function availableForProduct(product, usedQuantities) {
+// Whether a product's category is one an admin has flagged as consumable
+// (see the "Consumable" checkbox in Settings' Product categories editor,
+// and consumableInventoryDeltas below) - a product that's actually used up
+// once claimed by a system (glue, zip ties, sheet stock), rather than
+// merely reserved while it's still physically in the bin (a motor, a
+// sensor).
+export function isConsumableProduct(product, consumableCategories = []) {
+  return consumableCategories.includes(product.category)
+}
+
+// How much of a product is still free to claim. For a reusable (non-
+// consumable) product that's what's in stock minus what every OTHER system
+// has already claimed (see usedQuantitiesByProduct above) - a logical
+// reservation, since the stock itself isn't touched until something is
+// actually built. For a consumable product, claiming it already decrements
+// the real stock (see consumableInventoryDeltas) the moment a system is
+// saved, so the count itself is already the true remaining amount - adding
+// usedQuantities on top would double-subtract everyone else's claims.
+// Never floored at 0 for the reusable case - a system is allowed to claim
+// more of a product than is actually free (NeedsTable then offers to
+// auto-request an order for the shortfall), so "available" has to be able
+// to show the resulting deficit rather than hiding it behind a 0.
+export function availableForProduct(product, usedQuantities, consumableCategories = []) {
+  if (isConsumableProduct(product, consumableCategories)) return product.countInInventory || 0
   const used = usedQuantities[product.id] || 0
   return (product.countInInventory || 0) - used
+}
+
+// Every need in a system that claims more of a product than's actually
+// available (see availableForProduct above) - the basis for the "request an
+// order for the difference?" prompt in Systems.jsx/MySystems.jsx. Computed
+// once at submit time (not per-field on blur) so the prompt is tied to the
+// Add/Save button itself and can't be skipped by pressing Enter, which
+// submits the form before a blur handler on the field you were just typing
+// in ever runs.
+export function overallocatedNeeds(needs, products, usedQuantities, consumableCategories = []) {
+  return needs
+    .map((n) => {
+      const product = products.find((p) => p.id === n.productId)
+      if (!product) return null
+      const max = availableForProduct(product, usedQuantities, consumableCategories)
+      if (n.quantity <= max) return null
+      return { product, quantity: n.quantity, max, shortfall: n.quantity - max }
+    })
+    .filter(Boolean)
+}
+
+// The real-stock adjustment a system's needs imply for consumable-category
+// products only (see isConsumableProduct above) - reusable products are
+// untouched, since claiming one is a logical reservation, not a physical
+// consumption. A positive delta means MORE was just claimed (stock should
+// go DOWN by that much); negative means less was claimed, or the system
+// was deleted outright (`newNeeds` = []), so that much comes back. Callers
+// apply it as `countInInventory: increment(-delta)` alongside the system
+// write itself, in the same batch, so stock and the system's own needs can
+// never end up out of sync with each other.
+export function consumableInventoryDeltas(oldNeeds, newNeeds, products, consumableCategories = []) {
+  const oldMap = Object.fromEntries((oldNeeds || []).map((n) => [n.productId, n.quantity]))
+  const newMap = Object.fromEntries((newNeeds || []).map((n) => [n.productId, n.quantity]))
+  const deltas = []
+  for (const productId of new Set([...Object.keys(oldMap), ...Object.keys(newMap)])) {
+    const product = products.find((p) => p.id === productId)
+    if (!product || !isConsumableProduct(product, consumableCategories)) continue
+    const delta = (newMap[productId] || 0) - (oldMap[productId] || 0)
+    if (delta !== 0) deltas.push({ productId, delta })
+  }
+  return deltas
 }
 
 // Free-text search across every field a search box could plausibly mean by
@@ -512,19 +590,40 @@ export const DEFAULT_STREAK_RESET_DAYS = 7
 // logRetentionDays setting overrides this.
 export const DEFAULT_LOG_RETENTION_DAYS = 30
 
-// Training streak: incremented once per completed training (see
-// setTrainingCompletion in actions.js) and shown as 0 once `resetDays` have
-// passed since the last one (an admin-configurable team setting - see
-// Settings.jsx) - computed here at render time from the stored count +
-// timestamp rather than reset by a scheduled job, since the free Firestore
-// plan has no Cloud Functions to run one. An admin-frozen streak
-// (trainingStreakFrozen) ignores the gap entirely, and an admin can also
-// just overwrite the stored count directly (see updateStudentStreak).
-export function effectiveStreak(student, resetDays = DEFAULT_STREAK_RESET_DAYS) {
-  const streak = student.trainingStreak || 0
+// Three streak "kinds" share this exact shape on the student doc, each
+// under its own field prefix - trainingStreak/trainingStreakFrozen/
+// trainingStreakUpdatedAt for 'training', communityStreak/... for
+// 'community'. Attendance is deliberately NOT one of these (see
+// attendanceStreak below) - it isn't a stored counter at all.
+export const STREAK_KINDS = [
+  { id: 'training', label: 'Training' },
+  { id: 'community', label: 'Community' },
+  { id: 'attendance', label: 'Attendance' },
+]
+
+// Which field on the student doc holds a kind's contribution list. Kept
+// irregular for 'training' (`streakContributions`, no prefix) rather than
+// renamed to `trainingStreakContributions` - that field predates community/
+// attendance streaks existing at all, and renaming it would orphan every
+// student's existing history.
+export function streakContributionsField(kind) {
+  return kind === 'training' ? 'streakContributions' : `${kind}StreakContributions`
+}
+
+// Training/community streak: incremented once per completed training or
+// logged community-hours entry (see setTrainingCompletion/CommunityHours'
+// own submit handler) and shown as 0 once `resetDays` have passed since the
+// last one (an admin-configurable team setting - see Settings.jsx) -
+// computed here at render time from the stored count + timestamp rather
+// than reset by a scheduled job, since the free Firestore plan has no Cloud
+// Functions to run one. An admin-frozen streak (`{kind}StreakFrozen`)
+// ignores the gap entirely, and an admin can also just overwrite the stored
+// count directly (see updateStudentStreak).
+export function effectiveStreak(student, resetDays = DEFAULT_STREAK_RESET_DAYS, kind = 'training') {
+  const streak = student[`${kind}Streak`] || 0
   if (streak <= 0) return 0
-  if (student.trainingStreakFrozen) return streak
-  const last = student.trainingStreakUpdatedAt
+  if (student[`${kind}StreakFrozen`]) return streak
+  const last = student[`${kind}StreakUpdatedAt`]
   if (!last) return streak
   const days = (Date.now() - new Date(last).getTime()) / 86400000
   return days <= resetDays ? streak : 0
@@ -533,44 +632,88 @@ export function effectiveStreak(student, resetDays = DEFAULT_STREAK_RESET_DAYS) 
 // Hours left before an active streak resets to 0 - null when there's
 // nothing to count down (no streak yet, or a frozen one that never
 // resets). Used to show "resets in ..." under the streak badge.
-export function streakResetHours(student, resetDays = DEFAULT_STREAK_RESET_DAYS) {
-  if (student.trainingStreakFrozen) return null
-  if (effectiveStreak(student, resetDays) <= 0) return null
-  const elapsedHours = (Date.now() - new Date(student.trainingStreakUpdatedAt).getTime()) / 3600000
+export function streakResetHours(student, resetDays = DEFAULT_STREAK_RESET_DAYS, kind = 'training') {
+  if (student[`${kind}StreakFrozen`]) return null
+  if (effectiveStreak(student, resetDays, kind) <= 0) return null
+  const elapsedHours = (Date.now() - new Date(student[`${kind}StreakUpdatedAt`]).getTime()) / 3600000
   return Math.max(0, resetDays * 24 - elapsedHours)
 }
 
-// Each entry in student.streakContributions is either:
+// Each entry in a contributions array (see streakContributionsField above)
+// is either:
 //   { id, type: 'training', trainingId, trainingName, at }  - one completed
 //     training that added 1 to the streak (see setTrainingCompletion in
-//     actions.js)
+//     actions.js), or the community equivalent { type: 'log', hours,
+//     communityType, at } (see CommunityHours.jsx)
 //   { id, type: 'manual', value, by, byEmail, at }  - an admin directly
 //     setting the streak to `value` (see updateStudentStreak), which
 //     collapses the list down to just this one entry - later real
 //     completions build back up from `value`, not from wherever the
 //     organic streak had been before the override.
-// Kept in parallel with the plain trainingStreak number specifically so a
+// Kept in parallel with the plain `{kind}Streak` number specifically so a
 // later removal (a training deleted, or unchecked for this student) can
 // find exactly which entry to take back out - see streakAfterRemoving.
 export const DEFAULT_STREAK_CONTRIBUTIONS = []
 
-export function findStreakContribution(student, predicate) {
-  return (student.streakContributions || []).find(predicate) || null
+export function findStreakContribution(contributions, predicate) {
+  return (contributions || []).find(predicate) || null
 }
 
 // The streak count/contribution list implied once `target` is taken back
 // out - recomputed from what's left rather than just decremented by one, so
 // it comes out right regardless of whether `target` was the most recent
 // contribution or one from the middle of the chain. A manual entry (there's
-// at most one, always first) seeds the count; every training entry after it
+// at most one, always first) seeds the count; every other entry after it
 // adds 1. `lastAt` is the new most-recent entry's timestamp (or null once
-// the list is empty), for the caller to keep trainingStreakUpdatedAt - and
+// the list is empty), for the caller to keep `{kind}StreakUpdatedAt` - and
 // so the reset countdown - honest.
-export function streakAfterRemoving(student, target) {
-  const remaining = (student.streakContributions || []).filter((c) => c.id !== target.id)
+export function streakAfterRemoving(contributions, target) {
+  const remaining = (contributions || []).filter((c) => c.id !== target.id)
   const streak = remaining.reduce((n, c) => (c.type === 'manual' ? c.value : n + 1), 0)
   const last = remaining[remaining.length - 1] || null
   return { streak, contributions: remaining, lastAt: last?.at ?? null }
+}
+
+// The attendance streak isn't a stored counter at all - unlike training/
+// community, there's no discrete "completion" event to persist and later
+// revert, just the plain fact of each session's recorded status. So it's
+// computed fresh every time, straight off the same attendance records
+// summarizeAttendance already uses: walk backward from the most recent
+// session THIS student actually has a recorded status for, counting until
+// (and not including) the first "absent". Sessions the student was never
+// marked for at all are skipped rather than treated as a break - there's
+// nothing to break with no recorded status. "excused" is skipped the same
+// way - being excused shouldn't build the streak (nothing was actually
+// attended) but shouldn't break it either, the way an unrelated absence
+// would.
+export function attendanceStreak(records, sessionById) {
+  const sorted = records
+    .map((r) => ({ status: r.status, date: sessionById[r.sessionId]?.date || '' }))
+    .filter((r) => r.date)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  let streak = 0
+  for (const r of sorted) {
+    if (r.status === 'absent') break
+    if (r.status === 'excused') continue
+    streak += 1
+  }
+  return streak
+}
+
+// One ranked board for any streak kind - training/community read the
+// student's own stored counter (see effectiveStreak), attendance is
+// computed live from `attendanceRecordsByStudent` (see attendanceStreak
+// above, and the `sessionById` map it needs for each record's date).
+export function streakBoard(students, kind, resetDays, attendanceRecordsByStudent = {}, sessionById = {}) {
+  return students
+    .map((s) => ({
+      student: s,
+      streak:
+        kind === 'attendance'
+          ? attendanceStreak(attendanceRecordsByStudent[s.id] || [], sessionById)
+          : effectiveStreak(s, resetDays, kind),
+    }))
+    .sort((a, b) => b.streak - a.streak)
 }
 
 // Which visual tier a streak falls into (see StreakBadge) - ramps up fast

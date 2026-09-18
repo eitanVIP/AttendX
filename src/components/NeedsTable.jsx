@@ -11,12 +11,14 @@ import { availableForProduct, productMatchesSearch } from '../lib/calc'
 //
 // A quantity is no longer capped at what's available - a system can claim
 // more than there is (Available then shows negative, see
-// availableForProduct in calc.js). Leaving a field whose value exceeds
-// Available offers, via `onRequestOrder(product, shortfall)`, to
-// automatically request an order for the difference - MySystems submits an
-// orderRequest for an admin to review, Systems (admin) bumps the product's
-// wantedCount directly, same split as the rest of each page.
-export default function NeedsTable({ products, categories, needs, usedQuantities, onChange, onRequestOrder }) {
+// availableForProduct in calc.js). Whether that's actually a problem is
+// entirely up to the caller's own submit handler (see
+// overallocatedNeeds in calc.js, used by Systems.jsx/MySystems.jsx) - this
+// component itself no longer prompts about it. It used to, on blur, but a
+// prompt tied to leaving the field is trivially skipped by pressing Enter
+// (which submits the form before blur ever fires), so that check moved to
+// the Add/Save button itself instead.
+export default function NeedsTable({ products, categories, needs, usedQuantities, consumableCategories, onChange }) {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -34,28 +36,6 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
     const qty = Math.max(0, Math.round(Number(rawValue) || 0))
     const rest = needs.filter((n) => n.productId !== productId)
     onChange(qty > 0 ? [...rest, { productId, quantity: qty }] : rest)
-  }
-
-  // Runs on blur rather than every keystroke, so a confirm() dialog doesn't
-  // interrupt someone still typing a multi-digit quantity. Confirming keeps
-  // the over-allocated value and fires onRequestOrder; cancelling clamps the
-  // field back down to what's actually available instead (0 if Available
-  // itself is negative - setQuantity already floors there).
-  function handleBlur(product) {
-    const max = availableForProduct(product, usedQuantities)
-    const qty = neededMap[product.id] || 0
-    if (qty <= 0 || qty <= max) return
-    const shortfall = qty - max
-    const ok =
-      onRequestOrder &&
-      confirm(
-        `Only ${max} ${product.name} available - this needs ${shortfall} more than that. Automatically request an order for the difference?`
-      )
-    if (ok) {
-      onRequestOrder(product, shortfall)
-    } else {
-      setQuantity(product.id, max)
-    }
   }
 
   return (
@@ -81,7 +61,7 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
           </thead>
           <tbody>
             {visible.map((p) => {
-              const max = availableForProduct(p, usedQuantities)
+              const max = availableForProduct(p, usedQuantities, consumableCategories)
               const value = neededMap[p.id] || 0
               return (
                 <tr key={p.id}>
@@ -95,7 +75,6 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
                       value={value || ''}
                       placeholder="0"
                       onChange={(e) => setQuantity(p.id, e.target.value)}
-                      onBlur={() => handleBlur(p)}
                       style={{ width: 80 }}
                     />
                   </td>

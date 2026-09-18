@@ -4,8 +4,15 @@ import FormPanel from '../components/FormPanel'
 import StickyTableScroll from '../components/StickyTableScroll'
 import NeedsTable from '../components/NeedsTable'
 import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
-import { DEFAULT_SYSTEM, usedQuantitiesByProduct } from '../lib/calc'
+import {
+  DEFAULT_SYSTEM,
+  availableForProduct,
+  consumableInventoryDeltas,
+  overallocatedNeeds,
+  usedQuantitiesByProduct,
+} from '../lib/calc'
 import { addSystem, deleteSystem, updateProduct, updateSystem } from '../lib/actions'
+import { downloadCSV } from '../lib/csv'
 
 export default function Systems() {
   const { team } = useAuth()
@@ -13,10 +20,12 @@ export default function Systems() {
   const { data: products } = useProducts(team?.id)
   const { data: systems, loading } = useSystems(team?.id)
   const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState(null)
+  const [editingSystem, setEditingSystem] = useState(null)
   const [form, setForm] = useState(DEFAULT_SYSTEM)
 
   const categories = team?.categories || []
+  const consumableCategories = team?.consumableCategories || []
+  const editingId = editingSystem?.id ?? null
   const studentName = (id) => students.find((s) => s.id === id)?.fullName || 'Unknown student'
 
   const sortedSystems = useMemo(
@@ -33,31 +42,15 @@ export default function Systems() {
   const usedQuantities = useMemo(() => usedQuantitiesByProduct(systems, editingId), [systems, editingId])
 
   function startNew() {
-    setEditingId(null)
+    setEditingSystem(null)
     setForm(DEFAULT_SYSTEM)
     setShowForm(true)
   }
 
   function startEdit(system) {
-    setEditingId(system.id)
+    setEditingSystem(system)
     setForm({ studentId: system.studentId, name: system.name, needs: system.needs || [] })
     setShowForm(true)
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault()
-    const payload = { name: form.name.trim(), studentId: form.studentId, needs: form.needs }
-    if (editingId) {
-      updateSystem(team.id, editingId, payload)
-    } else {
-      addSystem(team.id, payload)
-    }
-    setShowForm(false)
-  }
-
-  async function handleDelete(system) {
-    if (!confirm('Delete this system?')) return
-    await deleteSystem(team.id, system)
   }
 
   // Unlike the student side (MySystems), an admin already has full write
@@ -68,6 +61,51 @@ export default function Systems() {
     await updateProduct(team.id, product.id, { wantedCount: (product.wantedCount || 0) + shortfall })
   }
 
+  // Checked here, at the Add/Save button, rather than per-field on blur -
+  // see the comment in NeedsTable.jsx for why that was skippable by
+  // pressing Enter. Confirming a product's shortfall bumps its wanted count
+  // for the difference; declining just skips that request - the need itself
+  // stays exactly what was entered (a system can still claim more than
+  // what's available, same as before this prompt existed at all), so
+  // declining doesn't silently shrink what the system actually needs.
+  async function handleSubmit(e) {
+    e.preventDefault()
+    for (const { product, max, shortfall } of overallocatedNeeds(form.needs, products, usedQuantities, consumableCategories)) {
+      const ok = confirm(
+        `Only ${max} ${product.name} available - this needs ${shortfall} more than that. Automatically request an order for the difference?`
+      )
+      if (ok) await handleRequestOrder(product, shortfall)
+    }
+    const payload = { name: form.name.trim(), studentId: form.studentId, needs: form.needs }
+    const inventoryDeltas = consumableInventoryDeltas(editingSystem?.needs, form.needs, products, consumableCategories)
+    if (editingId) {
+      updateSystem(team.id, editingId, payload, inventoryDeltas)
+    } else {
+      addSystem(team.id, payload, inventoryDeltas)
+    }
+    setShowForm(false)
+  }
+
+  async function handleDelete(system) {
+    if (!confirm('Delete this system?')) return
+    const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products, consumableCategories)
+    await deleteSystem(team.id, system, inventoryDeltas)
+  }
+
+  // Product, category, quantity, and what was available at export time
+  // (excluding this system's own claim, same as editing it does) - the same
+  // columns NeedsTable itself shows.
+  function handleExportSystem(system) {
+    const used = usedQuantitiesByProduct(systems, system.id)
+    const headers = ['Product', 'Category', 'Quantity', 'Available']
+    const rows = (system.needs || []).map((n) => {
+      const product = products.find((p) => p.id === n.productId)
+      const available = product ? availableForProduct(product, used, consumableCategories) : ''
+      return [product?.name || 'Unknown product', product?.category || '', n.quantity, available]
+    })
+    downloadCSV(`${system.name || 'system'}.csv`, headers, rows)
+  }
+
   if (loading) return <div className="page-loading">Loading systems…</div>
 
   return (
@@ -76,11 +114,6 @@ export default function Systems() {
         <h1>Systems</h1>
         <button onClick={startNew}>+ Add system</button>
       </div>
-      <p className="muted">
-        What each student is building and the inventory it claims - "Available" already excludes every
-        other system's own claim on the same item. A system can still claim more than what's available;
-        you'll be offered to bump the product's wanted count for the difference.
-      </p>
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>{editingId ? 'Edit system' : 'New system'}</h2>
@@ -112,8 +145,8 @@ export default function Systems() {
           categories={categories}
           needs={form.needs}
           usedQuantities={usedQuantities}
+          consumableCategories={consumableCategories}
           onChange={(needs) => setForm({ ...form, needs })}
-          onRequestOrder={handleRequestOrder}
         />
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setShowForm(false)}>
@@ -147,6 +180,9 @@ export default function Systems() {
                   <div className="row-actions">
                     <button className="link-btn" onClick={() => startEdit(system)}>
                       Edit
+                    </button>
+                    <button className="link-btn" onClick={() => handleExportSystem(system)}>
+                      Export CSV
                     </button>
                     <button className="link-btn danger" onClick={() => handleDelete(system)}>
                       Delete

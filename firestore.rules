@@ -85,6 +85,16 @@ service cloud.firestore {
     // the admin-only catch-all above via hasStudentAccess.
     match /teams/{teamId}/students/{studentId} {
       allow read: if hasStudentAccess(teamId);
+      // Logging community hours also advances the student's OWN community
+      // streak (see the submit handler in CommunityHours.jsx) - scoped to
+      // just those three fields so this can't be used to edit anything else
+      // on the doc (name, divisions, the training/attendance streaks, ...).
+      // Same no-per-student-identity limitation as everywhere else
+      // hasStudentAccess is used (see the comment above hasStudentAccess
+      // itself) - the team's shared student code is the only real boundary.
+      allow update: if hasStudentAccess(teamId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['communityStreak', 'communityStreakUpdatedAt', 'communityStreakContributions']);
     }
 
     match /teams/{teamId}/settings/{settingsDoc} {
@@ -119,6 +129,12 @@ service cloud.firestore {
     // rather than another mirrored doc.
     match /teams/{teamId}/products/{productId} {
       allow read: if hasStudentAccess(teamId);
+      // Claiming or releasing a consumable-category product on a system
+      // (see consumableInventoryDeltas in calc.js) has to adjust its real
+      // stock - scoped to just that one field so this can't be used to
+      // rename a product, reprice it, or touch anything else about it.
+      allow update: if hasStudentAccess(teamId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['countInInventory']);
     }
 
     // A "system" a student is building and the inventory it claims (see
@@ -156,6 +172,20 @@ service cloud.firestore {
 
     match /teams/{teamId}/sessions/{sessionId}/attendance/{attendanceId} {
       allow read: if hasStudentAccess(teamId);
+    }
+
+    // The system log (see logChange in actions.js): admins write to it
+    // through the catch-all above, but a student's own actions (logging
+    // hours, requesting a product, managing a system - see logStudentChange
+    // in src/lib/communityLog.js) need their own create rule, since those
+    // run through communityDb with no admin identity at all. Create-only,
+    // same as communityLogs/orderRequests - a student can add an entry but
+    // never read, edit, or delete the log itself.
+    match /teams/{teamId}/log/{logId} {
+      allow create: if hasStudentAccess(teamId)
+        && request.resource.data.entity is string
+        && request.resource.data.summary is string
+        && request.resource.data.email is string;
     }
   }
 }

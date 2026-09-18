@@ -23,6 +23,7 @@ import {
   normalizeStudent,
   remapStudentDivisions,
   streakAfterRemoving,
+  streakContributionsField,
   todayISO,
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
@@ -131,11 +132,12 @@ export function updateTeam(teamId, changes) {
 // from the same rows `categories` comes from) - it's just written as-is,
 // alongside `categories`, on the team doc only (the dashboard budget
 // section is admin-only, so it has no need for the student-facing mirror).
-export async function updateCategories(teamId, categories, renames, categoryBudgets) {
+export async function updateCategories(teamId, categories, renames, categoryBudgets, consumableCategories) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
-    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets, consumableCategories }),
+    (batch) =>
+      batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories, consumableCategories }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
   for (const d of snap.docs) {
@@ -385,9 +387,12 @@ export async function deleteTraining(teamId, training) {
   const writes = [(batch) => batch.delete(doc(db, 'teams', teamId, 'trainings', training.id))]
   for (const d of studentsSnap.docs) {
     const student = { id: d.id, ...d.data() }
-    const contribution = findStreakContribution(student, (c) => c.type === 'training' && c.trainingId === training.id)
+    const contribution = findStreakContribution(
+      student.streakContributions,
+      (c) => c.type === 'training' && c.trainingId === training.id
+    )
     if (!contribution) continue
-    const { streak, lastAt } = streakAfterRemoving(student, contribution)
+    const { streak, lastAt } = streakAfterRemoving(student.streakContributions, contribution)
     writes.push((batch) =>
       batch.update(d.ref, {
         streakContributions: arrayRemove(contribution),
@@ -440,9 +445,12 @@ export function setTrainingCompletion(teamId, training, student, completed, rese
     // this student's contributions - toggling a checkbox that's already in
     // whatever state it's headed to (a stale click, a race between two
     // admins) shouldn't silently eat another streak day it didn't earn.
-    const contribution = findStreakContribution(student, (c) => c.type === 'training' && c.trainingId === training.id)
+    const contribution = findStreakContribution(
+      student.streakContributions,
+      (c) => c.type === 'training' && c.trainingId === training.id
+    )
     if (contribution) {
-      const { streak, lastAt } = streakAfterRemoving(student, contribution)
+      const { streak, lastAt } = streakAfterRemoving(student.streakContributions, contribution)
       writes.push(
         updateDoc(doc(db, 'teams', teamId, 'students', student.id), {
           streakContributions: arrayRemove(contribution),
@@ -456,38 +464,43 @@ export function setTrainingCompletion(teamId, training, student, completed, rese
   return Promise.all(writes)
 }
 
-// Admin-only edit to a student's streak - either the count itself or the
-// frozen flag (see the streak controls in StudentProfileView). Setting the
-// count directly collapses streakContributions down to just one manual
-// entry recording who set it to what and when (see DEFAULT_STREAK_
-// CONTRIBUTIONS in calc.js) - later real completions build back up from
-// there, and the breakdown under the streak badge shows the override
-// instead of silently keeping old training entries an admin just
+// Admin-only edit to a student's training or community streak - either the
+// count itself or the frozen flag (see the streak controls in
+// StudentProfileView; attendance has no manual controls at all, since it's
+// computed live rather than stored - see attendanceStreak in calc.js).
+// Setting the count directly collapses that kind's contributions down to
+// just one manual entry recording who set it to what and when (see
+// DEFAULT_STREAK_CONTRIBUTIONS in calc.js) - later real completions build
+// back up from there, and the breakdown under the streak badge shows the
+// override instead of silently keeping old entries an admin just
 // overwrote. Setting the count, or unfreezing, both refresh the timestamp
 // so the new value isn't immediately wiped out by a stale gap the next
 // time it's read. Takes the whole student (not just its id) so the manual
 // contribution and the log entry can both name them.
-export function updateStudentStreak(teamId, student, changes) {
+export function updateStudentStreak(teamId, student, kind, changes) {
   const payload = { ...changes }
   const writes = []
-  if ('trainingStreak' in payload) {
+  const streakField = `${kind}Streak`
+  const frozenField = `${kind}StreakFrozen`
+  const updatedAtField = `${kind}StreakUpdatedAt`
+  if (streakField in payload) {
     const user = auth.currentUser
     const contribution = {
       id: crypto.randomUUID(),
       type: 'manual',
-      value: payload.trainingStreak,
+      value: payload[streakField],
       by: user?.uid || '',
       byEmail: user?.email || '',
       at: new Date().toISOString(),
     }
-    payload.streakContributions = [contribution]
-    payload.trainingStreakUpdatedAt = contribution.at
-    writes.push(logChange(teamId, 'streak', 'update', `Set ${student.fullName}'s training streak to ${payload.trainingStreak}`))
-  } else if (payload.trainingStreakFrozen === false) {
-    payload.trainingStreakUpdatedAt = new Date().toISOString()
-    writes.push(logChange(teamId, 'streak', 'update', `Unfroze ${student.fullName}'s training streak`))
-  } else if (payload.trainingStreakFrozen === true) {
-    writes.push(logChange(teamId, 'streak', 'update', `Froze ${student.fullName}'s training streak`))
+    payload[streakContributionsField(kind)] = [contribution]
+    payload[updatedAtField] = contribution.at
+    writes.push(logChange(teamId, 'streak', 'update', `Set ${student.fullName}'s ${kind} streak to ${payload[streakField]}`))
+  } else if (payload[frozenField] === false) {
+    payload[updatedAtField] = new Date().toISOString()
+    writes.push(logChange(teamId, 'streak', 'update', `Unfroze ${student.fullName}'s ${kind} streak`))
+  } else if (payload[frozenField] === true) {
+    writes.push(logChange(teamId, 'streak', 'update', `Froze ${student.fullName}'s ${kind} streak`))
   }
   writes.push(updateDoc(doc(db, 'teams', teamId, 'students', student.id), payload))
   return Promise.all(writes)
@@ -675,25 +688,52 @@ export function revertPurchase(teamId, purchase) {
 // Admin-side CRUD for systems (see DEFAULT_SYSTEM in calc.js) - students
 // manage their own the same way but through communityDb directly (see
 // MySystems.jsx), the same split as products vs. orderRequests.
-export function addSystem(teamId, system) {
-  return Promise.all([
-    addDoc(collection(db, 'teams', teamId, 'systems'), system),
-    logChange(teamId, 'system', 'create', `Added system "${system.name}"`),
-  ])
+//
+// `inventoryDeltas` (see consumableInventoryDeltas in calc.js) applies each
+// consumable-category product's real stock change alongside the system
+// write, in the same batch, so a system's claim on a consumable and that
+// product's actual stock can never end up out of sync with each other.
+export function addSystem(teamId, system, inventoryDeltas = []) {
+  const writes = [
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'systems')), system),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('system', 'create', `Added system "${system.name}"`)),
+    ...inventoryDeltas.map(
+      ({ productId, delta }) =>
+        (batch) =>
+          batch.update(doc(db, 'teams', teamId, 'products', productId), { countInInventory: increment(-delta) })
+    ),
+  ]
+  return commitAll(writes)
 }
 
-export function updateSystem(teamId, systemId, changes) {
-  return Promise.all([
-    updateDoc(doc(db, 'teams', teamId, 'systems', systemId), changes),
-    logChange(teamId, 'system', 'update', `Updated system "${changes.name || systemId}"`),
-  ])
+export function updateSystem(teamId, systemId, changes, inventoryDeltas = []) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId, 'systems', systemId), changes),
+    (batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('system', 'update', `Updated system "${changes.name || systemId}"`)),
+    ...inventoryDeltas.map(
+      ({ productId, delta }) =>
+        (batch) =>
+          batch.update(doc(db, 'teams', teamId, 'products', productId), { countInInventory: increment(-delta) })
+    ),
+  ]
+  return commitAll(writes)
 }
 
 // Takes the whole system (not just its id) - Systems.jsx already has it at
-// the call site, so the log can name it without an extra read.
-export function deleteSystem(teamId, system) {
-  return Promise.all([
-    deleteDoc(doc(db, 'teams', teamId, 'systems', system.id)),
-    logChange(teamId, 'system', 'delete', `Deleted system "${system.name}"`),
-  ])
+// the call site, so the log can name it without an extra read. Deleting a
+// system returns every consumable it claimed (`inventoryDeltas` is the same
+// shape as add/updateSystem's, computed by the caller with an empty
+// `newNeeds`).
+export function deleteSystem(teamId, system, inventoryDeltas = []) {
+  const writes = [
+    (batch) => batch.delete(doc(db, 'teams', teamId, 'systems', system.id)),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('system', 'delete', `Deleted system "${system.name}"`)),
+    ...inventoryDeltas.map(
+      ({ productId, delta }) =>
+        (batch) =>
+          batch.update(doc(db, 'teams', teamId, 'products', productId), { countInInventory: increment(-delta) })
+    ),
+  ]
+  return commitAll(writes)
 }

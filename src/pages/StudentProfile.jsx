@@ -32,8 +32,8 @@ export default function StudentProfile() {
     await deleteCommunityLog(team.id, log)
   }
 
-  async function handleUpdateStreak(changes) {
-    await updateStudentStreak(team.id, student, changes)
+  async function handleUpdateStreak(kind, changes) {
+    await updateStudentStreak(team.id, student, kind, changes)
   }
 
   if (!student) return <div className="page-loading">Loading student…</div>

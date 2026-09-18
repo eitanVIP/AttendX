@@ -449,11 +449,13 @@ function EventsSection({ teamId }) {
 }
 
 function teamToCategoryRows(team) {
+  const consumable = team?.consumableCategories || []
   return (team?.categories || []).map((name, i) => ({
     key: `${name}-${i}`,
     original: name,
     name,
     budget: String(team?.categoryBudgets?.[name] || ''),
+    consumable: consumable.includes(name),
   }))
 }
 
@@ -474,7 +476,7 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '', consumable: false }])
     setInput('')
   }
 
@@ -484,6 +486,10 @@ function CategoriesSection({ team }) {
 
   function setBudget(key, value) {
     setRows(rows.map((r) => (r.key === key ? { ...r, budget: value } : r)))
+  }
+
+  function setConsumable(key, value) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, consumable: value } : r)))
   }
 
   function removeCategory(key) {
@@ -518,8 +524,17 @@ function CategoriesSection({ team }) {
     const categoryBudgets = Object.fromEntries(
       cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
     )
-    await updateCategories(team.id, categories, renames, categoryBudgets)
-    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name, budget: String(categoryBudgets[name] || '') })))
+    const consumableCategories = cleanRows.filter((r) => r.consumable).map((r) => r.name)
+    await updateCategories(team.id, categories, renames, categoryBudgets, consumableCategories)
+    setRows(
+      categories.map((name, i) => ({
+        key: `${name}-${i}`,
+        original: name,
+        name,
+        budget: String(categoryBudgets[name] || ''),
+        consumable: consumableCategories.includes(name),
+      }))
+    )
     setSaving(false)
     setSaved(true)
   }
@@ -532,6 +547,10 @@ function CategoriesSection({ team }) {
         or remove it with Remove - changes save when you click Save below, and reach every product
         already using that category. Budget is optional and isn't a hard limit - it's just what the
         dashboard's budget section compares spending against; leave it blank for "no budget".
+        Consumable marks a category as actually used up once a system claims it (glue, zip ties,
+        sheet stock) - adding it to a system lowers the product's real stock, and removing it (or
+        deleting the system) gives that stock back. Leave it off for reusable parts (motors,
+        sensors), which stay in stock and are only reserved against.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -563,6 +582,14 @@ function CategoriesSection({ team }) {
                 title="Budget"
                 style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
               />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, whiteSpace: 'nowrap' }}>
+                <input
+                  type="checkbox"
+                  checked={r.consumable}
+                  onChange={(e) => setConsumable(r.key, e.target.checked)}
+                />
+                Consumable
+              </label>
               <button
                 type="button"
                 className="link-btn danger"

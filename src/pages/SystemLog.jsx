@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import StickyTableScroll from '../components/StickyTableScroll'
 import { useLog } from '../lib/firestore-hooks'
 import { purgeOldLogEntries } from '../lib/actions'
-import { DEFAULT_LOG_RETENTION_DAYS } from '../lib/calc'
+import { DEFAULT_LOG_RETENTION_DAYS, formatLocalDateTime } from '../lib/calc'
 
 // Every change made in this team's dashboard, who made it, and when (see
 // logChange in actions.js, called alongside virtually every write in that
@@ -49,7 +49,7 @@ export default function SystemLog() {
             {entries.map((e) => (
               <tr key={e.id}>
                 <td className="muted" style={{ whiteSpace: 'nowrap' }}>
-                  {e.at ? e.at.slice(0, 16).replace('T', ' ') : '—'}
+                  {formatLocalDateTime(e.at)}
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>{e.email || e.uid || 'Unknown'}</td>
                 <td>{e.summary}</td>

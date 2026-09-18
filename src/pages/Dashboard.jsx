@@ -5,6 +5,7 @@ import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import PieChart from '../components/PieChart'
 import StickyTableScroll from '../components/StickyTableScroll'
 import StreakBadge from '../components/StreakBadge'
+import StreakTabs from '../components/StreakTabs'
 import {
   useAllAttendance,
   useCommunityLogs,
@@ -13,6 +14,7 @@ import {
   useNow,
   useProducts,
   usePurchases,
+  useSessions,
   useStudents,
   useTrainings,
 } from '../lib/firestore-hooks'
@@ -20,10 +22,10 @@ import {
   NO_PRODUCT_TYPES,
   budgetRemainingSlices,
   certProgress,
-  effectiveStreak,
   eventCountdown,
   groupByScope,
   spentByCategory,
+  streakBoard,
   studentCommunityHours,
   summarizeAttendance,
   totalBudget,
@@ -44,6 +46,7 @@ export default function Dashboard() {
   const { team } = useAuth()
   const { data: students, loading: studentsLoading } = useStudents(team)
   const { data: trainings, loading: trainingsLoading } = useTrainings(team?.id)
+  const { data: sessions } = useSessions(team?.id)
   const { data: attendance, loading: attLoading } = useAllAttendance(team?.id)
   const { data: communityLogs, loading: logsLoading } = useCommunityLogs(team?.id)
   const { settings: communitySettings, loading: settingsLoading } = useCommunitySettings(team?.id)
@@ -51,6 +54,7 @@ export default function Dashboard() {
   const { data: products, loading: productsLoading } = useProducts(team?.id)
   const { data: purchases, loading: purchasesLoading } = usePurchases(team?.id)
   const [attendanceMetric, setAttendanceMetric] = useState('percent')
+  const [streakKind, setStreakKind] = useState('training')
 
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
@@ -73,18 +77,27 @@ export default function Dashboard() {
     [students, regularTrainings, team?.divisions]
   )
 
-  const attendanceByStudent = useMemo(() => {
+  // Raw records grouped per student - both the attendance summaries below
+  // AND the attendance streak (see attendanceStreak in calc.js, used by
+  // streakBoard) need this same grouping, just processed differently.
+  const recordsByStudent = useMemo(() => {
     const grouped = {}
     for (const s of students) grouped[s.id] = []
     for (const r of attendance) {
       if (grouped[r.studentId]) grouped[r.studentId].push(r)
     }
+    return grouped
+  }, [attendance, students])
+
+  const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
+
+  const attendanceByStudent = useMemo(() => {
     const summaries = {}
-    for (const [id, records] of Object.entries(grouped)) {
+    for (const [id, records] of Object.entries(recordsByStudent)) {
       summaries[id] = summarizeAttendance(records)
     }
     return summaries
-  }, [attendance, students])
+  }, [recordsByStudent])
 
   // Everyone, inactive included (dimmed) - the students with the lowest
   // attendance are exactly the ones this chart is for. `count` is sessions
@@ -197,12 +210,10 @@ export default function Dashboard() {
   )
 
   const topStreaks = useMemo(() => {
-    return students
-      .map((s) => ({ student: s, streak: effectiveStreak(s, team?.streakResetDays) }))
+    return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById)
       .filter((r) => r.streak > 0)
-      .sort((a, b) => b.streak - a.streak)
       .slice(0, TOP_STREAKS_LIMIT)
-  }, [students, team?.streakResetDays])
+  }, [students, streakKind, team?.streakResetDays, recordsByStudent, sessionById])
 
   const loading =
     studentsLoading || trainingsLoading || attLoading || logsLoading || settingsLoading || productsLoading || purchasesLoading
@@ -309,7 +320,8 @@ export default function Dashboard() {
         </>
       )}
 
-      <h2>Top training streaks</h2>
+      <h2>Top streaks</h2>
+      <StreakTabs kind={streakKind} onChange={setStreakKind} />
       {topStreaks.length === 0 ? (
         <p className="muted">No active streaks yet.</p>
       ) : (
@@ -319,7 +331,7 @@ export default function Dashboard() {
               <Link to={`/students/${student.id}`} className="streak-board-row">
                 <span className="streak-board-rank">#{i + 1}</span>
                 <span className="streak-board-name">{student.fullName}</span>
-                <StreakBadge streak={streak} frozen={!!student.trainingStreakFrozen} />
+                <StreakBadge streak={streak} frozen={streakKind !== 'attendance' && !!student[`${streakKind}StreakFrozen`]} />
               </Link>
             </li>
           ))}

@@ -110,13 +110,7 @@ export default function Certifications() {
     <div className="page">
       <div className="page-toolbar">
         <div className="page-header">
-          <div>
-            <h1>Certifications</h1>
-            <p className="muted" style={{ marginTop: -12 }}>
-              Professional / machine certifications - earned automatically once a student completes every
-              training you mark as required. Every one counts, so make them count for something real.
-            </p>
-          </div>
+          <h1>Certifications</h1>
           <button
             onClick={() => {
               setForm(withLastValues('certifications', emptyForm))

@@ -3,11 +3,16 @@ import { Link } from 'react-router-dom'
 import FormPanel from './FormPanel'
 import StickyTableScroll from './StickyTableScroll'
 import StreakBadge from './StreakBadge'
+import StreakTabs from './StreakTabs'
 import {
+  STREAK_KINDS,
   activityLabel,
+  attendanceStreak,
   describeStudentDivisions,
   effectiveStreak,
+  formatLocalDateTime,
   groupByScope,
+  streakContributionsField,
   streakResetHours,
   studentCommunityHours,
   studentHasCert,
@@ -57,16 +62,29 @@ export default function StudentProfileView({
   onUpdateStreak,
   backLink,
 }) {
+  const [streakKind, setStreakKind] = useState('training')
   const [streakEditOpen, setStreakEditOpen] = useState(false)
   const [streakValue, setStreakValue] = useState('')
   const [showContributions, setShowContributions] = useState(false)
-  const streak = effectiveStreak(student, streakResetDays)
-  const streakResetMessage = describeStreakReset(streakResetHours(student, streakResetDays))
-  // Newest first - what most recently happened is what someone clicking
-  // the streak open is most likely wondering about.
-  const streakContributions = useMemo(() => [...(student.streakContributions || [])].reverse(), [student.streakContributions])
 
   const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
+
+  // Attendance has no stored counter to read (see attendanceStreak in
+  // calc.js) - it's recomputed from this student's own attendance records
+  // every render, same records the history table below already has.
+  const attendanceStreakValue = useMemo(
+    () => attendanceStreak(attendanceRecords, sessionById),
+    [attendanceRecords, sessionById]
+  )
+  const streak = streakKind === 'attendance' ? attendanceStreakValue : effectiveStreak(student, streakResetDays, streakKind)
+  const streakFrozen = streakKind !== 'attendance' && !!student[`${streakKind}StreakFrozen`]
+  const streakResetMessage = describeStreakReset(streakResetHours(student, streakResetDays, streakKind))
+  // Newest first - what most recently happened is what someone clicking
+  // the streak open is most likely wondering about.
+  const streakContributions = useMemo(
+    () => [...(student[streakContributionsField(streakKind)] || [])].reverse(),
+    [student, streakKind]
+  )
 
   const summary = useMemo(() => summarizeAttendance(attendanceRecords), [attendanceRecords])
   // Total is split into sessions aimed at one division ("division") and
@@ -174,51 +192,62 @@ export default function StudentProfileView({
           <span className="muted">{percent(trainingStats.percent)}</span>
         </div>
         <div className="card stat-card">
-          <span className="stat-label">Training streak</span>
-          <StreakBadge streak={streak} frozen={!!student.trainingStreakFrozen} />
-          {streak > 0 && (
-            <span className="muted">{student.trainingStreakFrozen ? "Frozen - won't reset" : streakResetMessage}</span>
-          )}
-          <button
-            type="button"
-            className="link-btn"
-            style={{ alignSelf: 'flex-start' }}
-            onClick={() => setShowContributions((o) => !o)}
-            aria-expanded={showContributions}
-          >
-            {showContributions ? 'Hide what counts' : 'Show what counts'}
-          </button>
-          {showContributions && (
-            <ul className="streak-contributions">
-              {streakContributions.length === 0 && <li className="muted">Nothing counted yet.</li>}
-              {streakContributions.map((c) => (
-                <li key={c.id}>
-                  <span>{c.type === 'manual' ? `Manually set to ${c.value}` : c.trainingName}</span>
-                  <span className="muted">{c.at ? c.at.slice(0, 16).replace('T', ' ') : '—'}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {onUpdateStreak && (
-            <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 2 }}>
+          <span className="stat-label">Streak</span>
+          <StreakTabs kind={streakKind} onChange={setStreakKind} />
+          <StreakBadge streak={streak} frozen={streakFrozen} />
+          {streakKind === 'attendance' ? (
+            streak > 0 && <span className="muted">Resets immediately after an absence</span>
+          ) : (
+            <>
+              {streak > 0 && <span className="muted">{streakFrozen ? "Frozen - won't reset" : streakResetMessage}</span>}
               <button
                 type="button"
                 className="link-btn"
-                onClick={() => {
-                  setStreakValue(String(streak))
-                  setStreakEditOpen(true)
-                }}
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => setShowContributions((o) => !o)}
+                aria-expanded={showContributions}
               >
-                Edit
+                {showContributions ? 'Hide what counts' : 'Show what counts'}
               </button>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => onUpdateStreak({ trainingStreakFrozen: !student.trainingStreakFrozen })}
-              >
-                {student.trainingStreakFrozen ? 'Unfreeze' : 'Freeze'}
-              </button>
-            </div>
+              {showContributions && (
+                <ul className="streak-contributions">
+                  {streakContributions.length === 0 && <li className="muted">Nothing counted yet.</li>}
+                  {streakContributions.map((c) => (
+                    <li key={c.id}>
+                      <span>
+                        {c.type === 'manual'
+                          ? `Manually set to ${c.value}`
+                          : streakKind === 'training'
+                            ? c.trainingName
+                            : `${c.hours}h of ${c.communityType}`}
+                      </span>
+                      <span className="muted">{formatLocalDateTime(c.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {onUpdateStreak && (
+                <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 2 }}>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => {
+                      setStreakValue(String(streak))
+                      setStreakEditOpen(true)
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => onUpdateStreak(streakKind, { [`${streakKind}StreakFrozen`]: !streakFrozen })}
+                  >
+                    {streakFrozen ? 'Unfreeze' : 'Freeze'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
         {communitySettings.hoursTarget > 0 && (
@@ -243,6 +272,7 @@ export default function StudentProfileView({
                 <th>Date</th>
                 <th>Session</th>
                 <th>Status</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -253,11 +283,12 @@ export default function StudentProfileView({
                   <td>
                     <span className={`badge status-badge-${r.status}`}>{r.status}</span>
                   </td>
+                  <td className="muted">{r.session.notes || '—'}</td>
                 </tr>
               ))}
               {history.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="empty-cell">
+                  <td colSpan={4} className="empty-cell">
                     No attendance recorded yet.
                   </td>
                 </tr>
@@ -360,11 +391,11 @@ export default function StudentProfileView({
           onClose={() => setStreakEditOpen(false)}
           onSubmit={(e) => {
             e.preventDefault()
-            onUpdateStreak({ trainingStreak: Math.max(0, Math.round(Number(streakValue)) || 0) })
+            onUpdateStreak(streakKind, { [`${streakKind}Streak`]: Math.max(0, Math.round(Number(streakValue)) || 0) })
             setStreakEditOpen(false)
           }}
         >
-          <h2>Edit training streak</h2>
+          <h2>Edit {STREAK_KINDS.find((k) => k.id === streakKind)?.label.toLowerCase()} streak</h2>
           <div className="form-grid" style={{ gridTemplateColumns: '1fr' }}>
             <label>
               Streak

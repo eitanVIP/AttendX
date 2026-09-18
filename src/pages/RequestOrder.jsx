@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { addDoc, collection } from 'firebase/firestore'
 import { communityDb } from '../firebase'
 import { DEFAULT_PRODUCT } from '../lib/calc'
+import { logStudentChange } from '../lib/communityLog'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import ProductForm from '../components/ProductForm'
 
@@ -41,6 +42,13 @@ export default function RequestOrder() {
         requestedAt: new Date().toISOString().slice(0, 10),
       }
       await addDoc(collection(communityDb, 'teams', verified.teamId, 'orderRequests'), payload)
+      await logStudentChange(
+        verified.teamId,
+        'orderRequest',
+        'create',
+        `Requested order for "${payload.name}" ×${payload.wantedCount}`,
+        student?.fullName
+      )
       setShowForm(false)
       setJustSubmitted(true)
     } catch {
