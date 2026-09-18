@@ -14,6 +14,7 @@ import Certifications from './pages/Certifications'
 import Sessions from './pages/Sessions'
 import Inventory from './pages/Inventory'
 import Orders from './pages/Orders'
+import PurchaseLog from './pages/PurchaseLog'
 import Systems from './pages/Systems'
 import Settings from './pages/Settings'
 import SystemLog from './pages/SystemLog'
@@ -74,6 +75,7 @@ export default function App() {
                 <Route path="/sessions" element={<Sessions />} />
                 <Route path="/inventory" element={<Inventory />} />
                 <Route path="/orders" element={<Orders />} />
+                <Route path="/orders/purchases" element={<PurchaseLog />} />
                 <Route path="/systems" element={<Systems />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/settings/log" element={<SystemLog />} />

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import ProductForm from '../components/ProductForm'
@@ -248,9 +249,14 @@ export default function Orders() {
 
       <div className="page-header">
         <h2>Bought</h2>
-        <button type="button" className="secondary" onClick={openBoughtForm}>
-          + Log a purchase
-        </button>
+        <div className="page-header-actions">
+          <Link to="/orders/purchases" className="secondary">
+            View all bought items
+          </Link>
+          <button type="button" className="secondary" onClick={openBoughtForm}>
+            + Log a purchase
+          </button>
+        </div>
       </div>
       <p className="muted" style={{ marginTop: -8 }}>
         Logged by hand - each one restocks the product and counts toward its category's spend on the

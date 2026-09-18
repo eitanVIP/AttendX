@@ -44,6 +44,7 @@ export default function Certifications() {
   const { data: allTrainings, loading } = useTrainings(team?.id)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
+  const [divisionFilter, setDivisionFilter] = useState('')
 
   const divisions = useMemo(() => team?.divisions || [], [team])
   const subdivisionsByDivision = useMemo(() => team?.subdivisionsByDivision || {}, [team])
@@ -64,17 +65,25 @@ export default function Certifications() {
     [requirableTrainings, form.scopeDivision, form.scopeSubdivision, form.requiredTrainingIds]
   )
 
+  // Division-only, same as Trainings.jsx's own filter - picking one keeps
+  // General certs visible alongside it (they apply regardless of division)
+  // but hides every OTHER division's, subdivisions included.
+  const visible = useMemo(() => {
+    if (!divisionFilter) return certifications
+    return certifications.filter((c) => !c.scopeDivision || c.scopeDivision === divisionFilter)
+  }, [certifications, divisionFilter])
+
   // Sorted and titled exactly like Trainings.jsx's groups - same division/
-  // subdivision order from Settings, "General" last.
-  const groups = useMemo(
-    () =>
-      groupByScope(certifications, divisions, subdivisionsByDivision).map(({ key, division: d, subdivision: s, items }) => ({
-        key,
-        title: d ? (s ? `${d} / ${s}` : d) : 'General',
-        certs: items,
-      })),
-    [certifications, divisions, subdivisionsByDivision]
-  )
+  // subdivision order from Settings, "General" last. Still broken down by
+  // subdivision within whichever division(s) survived the filter above.
+  const groups = useMemo(() => {
+    const knownDivisions = divisionFilter ? [divisionFilter] : divisions
+    return groupByScope(visible, knownDivisions, subdivisionsByDivision).map(({ key, division: d, subdivision: s, items }) => ({
+      key,
+      title: d ? (s ? `${d} / ${s}` : d) : 'General',
+      certs: items,
+    }))
+  }, [visible, divisions, subdivisionsByDivision, divisionFilter])
 
   // Swaps with the neighbour within the group's own cards; the whole
   // trainings collection (regular trainings included) is what gets
@@ -120,6 +129,22 @@ export default function Certifications() {
             + Add certification
           </button>
         </div>
+        {divisions.length > 0 && (
+          <div className="filter-row">
+            <button className={!divisionFilter ? 'chip active' : 'chip'} onClick={() => setDivisionFilter('')}>
+              All ({certifications.length})
+            </button>
+            {divisions.map((d) => (
+              <button
+                key={d}
+                className={divisionFilter === d ? 'chip active' : 'chip'}
+                onClick={() => setDivisionFilter(d)}
+              >
+                {d} ({certifications.filter((c) => c.scopeDivision === d).length})
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
@@ -219,6 +244,9 @@ export default function Certifications() {
         </div>
       ))}
       {certifications.length === 0 && <p className="muted">No certifications tracked yet.</p>}
+      {certifications.length > 0 && groups.length === 0 && (
+        <p className="muted">No certifications match this filter.</p>
+      )}
     </div>
   )
 }

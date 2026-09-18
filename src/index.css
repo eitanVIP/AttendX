@@ -305,6 +305,23 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
+/* An <a>/<Link> that should read as a secondary button (cross-page nav
+   sitting next to a real <button>, e.g. Orders' "View all bought items") -
+   `button` styling above is element-selector-based, so it never reaches an
+   anchor tag; this repeats just enough of it rather than widening that
+   selector and risking every other button/anchor pairing in the app. */
+a.secondary {
+  display: inline-block;
+  font: inherit;
+  cursor: pointer;
+  padding: 9px 16px;
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+
 button.danger {
   background: var(--danger);
 }

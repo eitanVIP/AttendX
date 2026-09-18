@@ -10,6 +10,7 @@ import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
 import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, movedTo, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
+import { exportOfflineSite } from '../lib/offlineExport'
 import {
   addEvent,
   deleteEvent,
@@ -303,6 +304,58 @@ export default function Settings() {
         </div>
 
         <AccountSection />
+        <OfflineExportSection />
+      </div>
+    </div>
+  )
+}
+
+function OfflineExportSection() {
+  const [status, setStatus] = useState('idle') // 'idle' | 'running' | 'done'
+  const [progress, setProgress] = useState(null) // { current, total, label }
+  const [failed, setFailed] = useState([])
+
+  async function handleExport() {
+    setStatus('running')
+    setFailed([])
+    const result = await exportOfflineSite((current, total, label) => setProgress({ current, total, label }))
+    if (result.cancelled) {
+      setStatus('idle')
+      return
+    }
+    setFailed(result.failed)
+    setStatus('done')
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>
+        Offline export <span className="badge badge-warn">Beta</span>
+      </h2>
+      <p className="muted">
+        Beta - this only partially works so far; treat it as a rough backup, not something to rely on.
+        Saves every page in the main menu (Dashboard, Students, Attendance, Trainings, Certifications,
+        Inventory, Orders, Bought items, Systems, Settings, System log) as plain HTML files you can open
+        with no internet - handy at a competition with no wifi. The links between them work offline too,
+        as long as the files stay together in whatever folder you pick. Individual student profiles
+        aren't included. Each file freezes whatever's on screen the moment you click; nothing on it stays
+        live, and nothing you do on an exported page changes the real database. In Chrome/Edge this asks
+        you to pick a folder first; other browsers download each page instead, into an "attendx-offline"
+        folder under your regular Downloads.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <button type="button" className="secondary" onClick={handleExport} disabled={status === 'running'}>
+          {status === 'running' ? 'Exporting…' : 'Export offline site'}
+        </button>
+        {status === 'running' && progress && (
+          <span className="muted">
+            {progress.label} ({progress.current}/{progress.total})
+          </span>
+        )}
+        {status === 'done' && failed.length === 0 && <span className="muted">Done.</span>}
+        {status === 'done' && failed.length > 0 && (
+          <span className="form-error">Done, but couldn't render: {failed.join(', ')}.</span>
+        )}
       </div>
     </div>
   )

@@ -668,19 +668,49 @@ export function dismissPurchase(teamId, purchase) {
 }
 
 // Fully undoes a logged purchase: deletes the record (so it stops counting
-// toward spend) and gives back the stock it added. Uses increment rather
-// than reading the product's current count first - the count may well have
-// moved since the purchase (further purchases, a manual edit), and this
-// only ever needs to remove exactly what THIS purchase itself added.
+// toward spend) and, for a real product, gives back the stock it added.
+// Uses increment rather than reading the product's current count first -
+// the count may well have moved since the purchase (further purchases, a
+// manual edit), and this only ever needs to remove exactly what THIS
+// purchase itself added. A manual expense (see logFakePurchase) has no
+// productId - there's no real stock to give back, so that half is skipped
+// and this just deletes the record.
 export function revertPurchase(teamId, purchase) {
   const batch = writeBatch(db)
   batch.delete(doc(db, 'teams', teamId, 'purchases', purchase.id))
-  batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
-    countInInventory: increment(-purchase.quantity),
-  })
+  if (purchase.productId) {
+    batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
+      countInInventory: increment(-purchase.quantity),
+    })
+  }
   batch.set(
     doc(collection(db, 'teams', teamId, 'log')),
     logEntry('purchase', 'delete', `Reverted the purchase of ${purchase.quantity} × "${purchase.productName}"`)
+  )
+  return batch.commit()
+}
+
+// A manual expense (the "+ Add a manual expense" button on the Bought
+// items page) - money spent on something that was never a real product and
+// never needs to be. It's the same purchases doc shape logPurchase writes,
+// just with no productId and no inventory update, so it counts toward
+// totalSpent/spentByCategory (and shows up in Orders' own Bought table,
+// which never dereferences productId) exactly like a real one does.
+export function logFakePurchase(teamId, purchase) {
+  const batch = writeBatch(db)
+  batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+    productId: '',
+    productName: purchase.productName,
+    category: purchase.category || '',
+    quantity: purchase.quantity,
+    unitPrice: purchase.unitPrice,
+    currency: purchase.currency,
+    date: purchase.date,
+    dismissed: false,
+  })
+  batch.set(
+    doc(collection(db, 'teams', teamId, 'log')),
+    logEntry('purchase', 'create', `Logged a manual expense of ${purchase.quantity} × "${purchase.productName}"`)
   )
   return batch.commit()
 }
