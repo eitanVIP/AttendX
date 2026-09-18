@@ -23,12 +23,12 @@ import {
   budgetRemainingSlices,
   certProgress,
   eventCountdown,
-  groupByScope,
   spentByCategory,
   streakBoard,
   studentCommunityHours,
   summarizeAttendance,
   totalBudget,
+  todayISO,
   totalSpent,
   totalToBuyCost,
   trainingCompletionByGrade,
@@ -41,6 +41,21 @@ import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 const PIE_COLORS = ['#2563eb', '#f97316', '#16a34a', '#dc2626', '#9333ea', '#0891b2', '#ca8a04', '#db2777']
 const UNCATEGORIZED_COLOR = '#6b7280'
 const TOP_STREAKS_LIMIT = 10
+// How many cards/charts one row of an evenly-spread grid holds before it
+// wraps (the upcoming events under the next one, the per-category budget
+// pies) - fewer than this and they stretch to fill the width between them,
+// so two events are half the dashboard each. Both counts are handed to CSS
+// rather than picked here: which one applies is a question of the viewport,
+// which only the stylesheet's own media query can answer (and repeat()
+// won't take a min() expression as its count, so it can't derive the
+// smaller one itself).
+const ROW_LIMIT = 5
+const ROW_LIMIT_MOBILE = 3
+
+const spreadCols = (count) => ({
+  '--cols': Math.min(count, ROW_LIMIT),
+  '--cols-mobile': Math.min(count, ROW_LIMIT_MOBILE),
+})
 
 export default function Dashboard() {
   const { team } = useAuth()
@@ -62,14 +77,40 @@ export default function Dashboard() {
   const categories = team?.categories || []
 
   const activeStudents = useMemo(() => students.filter((s) => s.active), [students])
-  // Same division/subdivision order (then the ↑/↓ order within each) as the
-  // Certifications page itself - see groupByScope in calc.js - rather than
-  // alphabetical, so this table reads as the same list in the same order,
-  // just flattened into rows instead of cards.
-  const certifications = useMemo(() => {
-    const certs = trainings.filter((t) => t.category === 'professional')
-    return groupByScope(certs, team?.divisions || [], team?.subdivisionsByDivision || {}).flatMap((g) => g.items)
-  }, [trainings, team])
+  // One table per division (subdivisions folded into their parent - the
+  // division is the grouping every other page filters by), in the team's own
+  // division order with General last, and within each the same ↑/↓ order the
+  // Certifications page shows (useTrainings already sorted by it). A cert
+  // still pointing at a division Settings has since removed keeps its own
+  // table, after the known ones, rather than vanishing from the dashboard.
+  const certsByDivision = useMemo(() => {
+    const divisions = team?.divisions || []
+    const today = todayISO()
+    const rank = (d) => {
+      if (!d) return Number.MAX_SAFE_INTEGER
+      const i = divisions.indexOf(d)
+      return i === -1 ? divisions.length : i
+    }
+    const byDivision = new Map()
+    for (const cert of trainings.filter((t) => t.category === 'professional')) {
+      const key = cert.scopeDivision || ''
+      if (!byDivision.has(key)) byDivision.set(key, [])
+      const progress = certProgress(cert, students, trainings)
+      // Same rule the Trainings matrix marks a row overdue by: the date has
+      // actually passed (today itself still counts as time left) and the
+      // target still isn't met.
+      const overdue = !!cert.targetDate && cert.targetDate < today && progress.missing > 0
+      byDivision.get(key).push({ cert, progress, overdue })
+    }
+    return [...byDivision.entries()]
+      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .map(([division, rows]) => ({
+        key: division || 'general',
+        title: division || 'General',
+        rows,
+        overdueCount: rows.filter((r) => r.overdue).length,
+      }))
+  }, [trainings, students, team?.divisions])
   const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
 
   const completionByGrade = useMemo(
@@ -220,7 +261,7 @@ export default function Dashboard() {
   if (loading) return <div className="page-loading">Loading dashboard…</div>
 
   return (
-    <div className="page">
+    <div className="page dashboard-page">
       <div className="page-header">
         <h1>Dashboard</h1>
       </div>
@@ -229,6 +270,7 @@ export default function Dashboard() {
 
       <EventCountdowns events={events} />
 
+      <h2>Students</h2>
       <div className="stat-cards">
         <div className="card stat-card">
           <span className="stat-label">Active students</span>
@@ -254,11 +296,201 @@ export default function Dashboard() {
         )}
       </div>
 
+      <h3>By division</h3>
+      <StickyTableScroll>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Division</th>
+              <th>Students</th>
+              <th>Avg. attendance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {divisionStats.map((d) => (
+              <tr key={d.division}>
+                <td>{d.division}</td>
+                <td>{d.count}</td>
+                <td>
+                  {d.avgAttendance === null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <span className="table-bar">
+                      <span className="bar-row-track">
+                        <span className="bar-row-fill" style={{ width: `${d.avgAttendance}%` }} />
+                      </span>
+                      <span className="bar-row-value">{d.avgAttendance}%</span>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {divisionStats.length === 0 && (
+              <tr>
+                <td colSpan={3} className="empty-cell">
+                  No divisions set up.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </StickyTableScroll>
+
+      <div className="dashboard-columns">
+        <div className="dashboard-col">
+          <div className="dashboard-col-head">
+            <h3>Attendance by student</h3>
+            <div className="filter-row dashboard-chips">
+              <button
+                className={attendanceMetric === 'percent' ? 'chip active' : 'chip'}
+                onClick={() => setAttendanceMetric('percent')}
+              >
+                %
+              </button>
+              <button
+                className={attendanceMetric === 'count' ? 'chip active' : 'chip'}
+                onClick={() => setAttendanceMetric('count')}
+              >
+                Times attended
+              </button>
+            </div>
+          </div>
+          <div className="card bar-chart">
+            {attendanceBars.map(({ student, percent, count }) => (
+              <Link
+                to={`/students/${student.id}`}
+                key={student.id}
+                className={`bar-row ${student.active ? '' : 'row-inactive'}`}
+                title={student.active ? undefined : 'Inactive'}
+              >
+                <span className="bar-row-name">{student.fullName}</span>
+                <span className="bar-row-track">
+                  <span
+                    className="bar-row-fill"
+                    style={{
+                      width:
+                        attendanceMetric === 'count'
+                          ? `${(count / maxAttendanceCount) * 100}%`
+                          : `${percent ?? 0}%`,
+                    }}
+                  />
+                </span>
+                <span className="bar-row-value">
+                  {attendanceMetric === 'count' ? count : percent === null ? '—' : `${percent}%`}
+                </span>
+              </Link>
+            ))}
+            {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
+          </div>
+        </div>
+
+        <div className="dashboard-col">
+          <div className="dashboard-col-head">
+            <h3>Training completion by grade</h3>
+          </div>
+          <div className="card bar-chart grade-chart">
+            {completionByGrade.map(({ division, rows }) => (
+              <div key={division} className="grade-chart-block">
+                <div className="grade-chart-division">{division}</div>
+                {rows.map((row) => (
+                  <div
+                    key={row.grade}
+                    className="bar-row"
+                    title={`${row.completed} of ${row.total} trainings completed across ${row.students} student${row.students === 1 ? '' : 's'}`}
+                  >
+                    <span className="bar-row-name">{row.grade}</span>
+                    <span className="bar-row-track">
+                      <span className="bar-row-fill" style={{ width: `${row.percent ?? 0}%` }} />
+                    </span>
+                    <span className="bar-row-value">{row.percent === null ? '—' : `${row.percent}%`}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {completionByGrade.length === 0 && <p className="muted">No trainings apply to any active student yet.</p>}
+          </div>
+        </div>
+      </div>
+
+      <h2>Certifications</h2>
+      {certsByDivision.length === 0 ? (
+        <p className="muted">No certifications tracked yet.</p>
+      ) : (
+        <div className="dashboard-columns">
+          {certsByDivision.map((group) => (
+            <div className="dashboard-col" key={group.key}>
+              <h3 className="cert-group-head">
+                {group.title}
+                {group.overdueCount > 0 && (
+                  <span
+                    className="cert-warn-dot"
+                    title={`${group.overdueCount} target${group.overdueCount === 1 ? '' : 's'} past due and still unmet`}
+                    aria-label={`${group.overdueCount} target${group.overdueCount === 1 ? '' : 's'} past due and still unmet`}
+                  >
+                    !
+                  </span>
+                )}
+              </h3>
+              {/* Capped height with its own scrollbar rather than
+                  StickyTableScroll: these sit two-up in a grid row, so one
+                  division with a long list would otherwise stretch that
+                  whole row. Scrolling inside a fixed-height box is also the
+                  one case plain position:sticky handles correctly (the box
+                  itself is the scroll container), so the header can stay put
+                  without the floating-clone machinery. */}
+              <div className="table-scroll cert-table-scroll">
+                <table className="data-table data-table-narrow">
+                  <thead>
+                    <tr>
+                      <th>Certification</th>
+                      <th>Target date</th>
+                      <th>Certified</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.rows.map(({ cert, progress, overdue }) => (
+                      <tr key={cert.id} className={overdue ? 'row-overdue' : ''}>
+                        <td>{cert.name}</td>
+                        <td
+                          className="muted due-cell"
+                          title={overdue ? 'Past due with the target still unmet' : undefined}
+                        >
+                          {cert.targetDate || '—'}
+                        </td>
+                        <td>
+                          <span className={progress.onTarget ? 'badge badge-ok' : 'badge badge-warn'}>
+                            {progress.completed}/{progress.target}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h2>Top streaks</h2>
+      <StreakTabs kind={streakKind} onChange={setStreakKind} />
+      {topStreaks.length === 0 ? (
+        <p className="muted">No active streaks yet.</p>
+      ) : (
+        <ol className="streak-board">
+          {topStreaks.map(({ student, streak }, i) => (
+            <li key={student.id}>
+              <Link to={`/students/${student.id}`} className="streak-board-row">
+                <span className="streak-board-rank">#{i + 1}</span>
+                <span className="streak-board-name">{student.fullName}</span>
+                <StreakBadge streak={streak} frozen={streakKind !== 'attendance' && !!student[`${streakKind}StreakFrozen`]} />
+              </Link>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <h2>Budget</h2>
-      <p className="muted" style={{ marginTop: -12 }}>
-        Budgets (set per category in Settings) aren't hard limits - spending past one is allowed and
-        just shows up here.
-      </p>
       <div className="stat-cards">
         <div className="card stat-card">
           <span className="stat-label">Total budget</span>
@@ -307,176 +539,16 @@ export default function Dashboard() {
       {perCategorySlices.length > 0 && (
         <>
           <h3>By category</h3>
-          <div className="pie-chart-grid">
+          <div className="pie-chart-grid" style={spreadCols(perCategorySlices.length)}>
             {perCategorySlices.map(({ category, slices }) => (
               <div key={category}>
-                <p className="muted" style={{ margin: '0 0 4px' }}>
-                  {category}
-                </p>
+                <p className="muted pie-chart-grid-label">{category}</p>
                 <PieChart slices={slices} size={110} />
               </div>
             ))}
           </div>
         </>
       )}
-
-      <h2>Top streaks</h2>
-      <StreakTabs kind={streakKind} onChange={setStreakKind} />
-      {topStreaks.length === 0 ? (
-        <p className="muted">No active streaks yet.</p>
-      ) : (
-        <ol className="streak-board">
-          {topStreaks.map(({ student, streak }, i) => (
-            <li key={student.id}>
-              <Link to={`/students/${student.id}`} className="streak-board-row">
-                <span className="streak-board-rank">#{i + 1}</span>
-                <span className="streak-board-name">{student.fullName}</span>
-                <StreakBadge streak={streak} frozen={streakKind !== 'attendance' && !!student[`${streakKind}StreakFrozen`]} />
-              </Link>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      <h2>Training &amp; attendance</h2>
-      <div className="dashboard-columns">
-        <div className="dashboard-col">
-          <h3>By division</h3>
-          <StickyTableScroll>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Division</th>
-                  <th>Students</th>
-                  <th>Avg. attendance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {divisionStats.map((d) => (
-                  <tr key={d.division}>
-                    <td>{d.division}</td>
-                    <td>{d.count}</td>
-                    <td>{d.avgAttendance === null ? '—' : `${d.avgAttendance}%`}</td>
-                  </tr>
-                ))}
-                {divisionStats.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="empty-cell">
-                      No divisions set up.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </StickyTableScroll>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <h3 style={{ margin: 0 }}>Attendance by student</h3>
-            <div className="filter-row" style={{ margin: 0 }}>
-              <button
-                className={attendanceMetric === 'percent' ? 'chip active' : 'chip'}
-                onClick={() => setAttendanceMetric('percent')}
-              >
-                %
-              </button>
-              <button
-                className={attendanceMetric === 'count' ? 'chip active' : 'chip'}
-                onClick={() => setAttendanceMetric('count')}
-              >
-                Times attended
-              </button>
-            </div>
-          </div>
-          <div className="card bar-chart">
-            {attendanceBars.map(({ student, percent, count }) => (
-              <Link
-                to={`/students/${student.id}`}
-                key={student.id}
-                className={`bar-row ${student.active ? '' : 'row-inactive'}`}
-                title={student.active ? undefined : 'Inactive'}
-              >
-                <span className="bar-row-name">{student.fullName}</span>
-                <span className="bar-row-track">
-                  <span
-                    className="bar-row-fill"
-                    style={{
-                      width:
-                        attendanceMetric === 'count'
-                          ? `${(count / maxAttendanceCount) * 100}%`
-                          : `${percent ?? 0}%`,
-                    }}
-                  />
-                </span>
-                <span className="bar-row-value">
-                  {attendanceMetric === 'count' ? count : percent === null ? '—' : `${percent}%`}
-                </span>
-              </Link>
-            ))}
-            {attendanceBars.length === 0 && <p className="muted">No students yet.</p>}
-          </div>
-
-          <h3>Training completion by grade</h3>
-          <div className="card bar-chart grade-chart">
-            {completionByGrade.map(({ division, rows }) => (
-              <div key={division} className="grade-chart-block">
-                <div className="grade-chart-division">{division}</div>
-                {rows.map((row) => (
-                  <div
-                    key={row.grade}
-                    className="bar-row"
-                    title={`${row.completed} of ${row.total} trainings completed across ${row.students} student${row.students === 1 ? '' : 's'}`}
-                  >
-                    <span className="bar-row-name">{row.grade}</span>
-                    <span className="bar-row-track">
-                      <span className="bar-row-fill" style={{ width: `${row.percent ?? 0}%` }} />
-                    </span>
-                    <span className="bar-row-value">{row.percent === null ? '—' : `${row.percent}%`}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {completionByGrade.length === 0 && <p className="muted">No trainings apply to any active student yet.</p>}
-          </div>
-        </div>
-
-        <div className="dashboard-col">
-          <h3>Certifications</h3>
-          <StickyTableScroll>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Certification</th>
-                  <th>Division</th>
-                  <th>Certified</th>
-                </tr>
-              </thead>
-              <tbody>
-                {certifications.map((cert) => {
-                  const progress = certProgress(cert, students, trainings)
-                  return (
-                    <tr key={cert.id}>
-                      <td>{cert.name}</td>
-                      <td className="muted">{cert.scopeDivision || 'General'}</td>
-                      <td>
-                        <span className={progress.onTarget ? 'badge badge-ok' : 'badge badge-warn'}>
-                          {progress.completed}/{progress.target}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {certifications.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="empty-cell">
-                      No certifications tracked yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </StickyTableScroll>
-        </div>
-      </div>
     </div>
   )
 }
@@ -494,7 +566,7 @@ function EventCountdowns({ events }) {
     <div className="events">
       <EventCard event={next} hero />
       {rest.length > 0 && (
-        <div className="events-rest">
+        <div className="events-rest" style={spreadCols(rest.length)}>
           {rest.map((event) => (
             <EventCard key={event.id} event={event} />
           ))}

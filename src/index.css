@@ -917,10 +917,23 @@ body:has(dialog.modal[open]) {
   color: var(--accent);
 }
 
+/* The upcoming events under the hero one, spread evenly across the full
+   width rather than packed left at a fixed card size: --cols is however
+   many there are, capped at ROW_LIMIT (see Dashboard.jsx), so two of them
+   take half the dashboard each and a seventh wraps onto a second row still
+   lined up with the first. Set as a custom property rather than an inline
+   grid-template-columns so the phone override below can still win. */
 .events-rest {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(var(--cols, 1), 1fr);
   gap: 12px;
+}
+
+/* A grid item won't shrink under its own content's width unless told to,
+   which is what would otherwise push the last column off a narrow screen
+   rather than fitting three into it. */
+.events-rest > * {
+  min-width: 0;
 }
 
 /* Training completion by grade: one block per division, one bar per grade
@@ -1042,16 +1055,26 @@ body:has(dialog.modal[open]) {
 /* One small pie per budgeted category (Dashboard's "By category") - each
    card sizes to its own content rather than stretching, so the row just
    wraps once it runs out of width instead of leaving the pies far apart. */
+/* Same even spread as .events-rest above, for the per-category budget pies. */
 .pie-chart-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 1), 1fr);
   gap: 24px;
   margin: 8px 0 20px;
+}
+
+.pie-chart-grid > * {
+  min-width: 0;
 }
 
 .pie-chart-grid .pie-chart-row {
   margin: 0;
   gap: 10px;
+}
+
+.pie-chart-grid-label {
+  margin: 0 0 4px;
+  font-size: 13px;
 }
 
 /* Top training streaks scoreboard */
@@ -1126,6 +1149,114 @@ body:has(dialog.modal[open]) {
   min-width: 0;
 }
 
+/* The dashboard's four top-level sections (Students, Certifications, Top
+   streaks, Budget) are centred so they read as dividers between whole
+   blocks; everything under them - sub-headings, chart labels, the tables
+   themselves - stays left-aligned like the rest of the app. h3 has no base
+   styling of its own (see the h1/h2 rules at the top), so the dashboard's
+   sub-headings get theirs here. */
+.dashboard-page h2 {
+  text-align: center;
+}
+
+.dashboard-page h3 {
+  color: var(--text-h);
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+/* A column's heading with its own controls alongside it (Attendance by
+   student's %/Times attended toggle), wrapping the controls under the
+   heading only once the column is too narrow to seat both. */
+.dashboard-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  /* Tall enough for a chip, so a column whose heading carries controls
+     still starts its card level with the plain-heading column beside it. */
+  min-height: 32px;
+  margin-bottom: 10px;
+}
+
+.dashboard-col-head h3 {
+  margin: 0;
+}
+
+.dashboard-chips {
+  margin: 0;
+}
+
+/* A progress bar inside a table cell (By division's average attendance) -
+   the same track/fill the bar charts use, which get their width from their
+   own grid row, so here the flex row supplies it instead. */
+.table-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+}
+
+.table-bar .bar-row-track {
+  flex: 1;
+}
+
+/* Certification tables sit two-up in a grid row, so a long one is capped
+   and scrolls on its own rather than stretching the row it shares. The
+   header can stick natively here: this box IS the scroll container, which
+   is exactly the case StickyTableScroll's floating clone exists to work
+   around everywhere else. */
+/* Division name left, its warning dot pushed out to the far edge of the
+   column. */
+.cert-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* "This division has a target past due" - it lives on the heading's own
+   line so it can't push the table below it around, and it's amber rather
+   than the theme's --warn pair, which is a soft fill meant to sit behind
+   text and wouldn't read as a solid dot on its own. */
+.cert-warn-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #eab308;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cert-table-scroll {
+  max-height: 390px;
+  overflow-y: auto;
+}
+
+.cert-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card-bg);
+}
+
+/* The dashboard's certification tables are two narrow columns (name +
+   count) sharing a row, so the 480px floor every full-width table wants
+   would force a scrollbar inside each half instead. Both classes in the
+   selector: .data-table's own min-width is declared later in this file, and
+   at equal specificity that would win on order alone. */
+.data-table.data-table-narrow {
+  min-width: 0;
+}
+
 /* CSS Grid gaps don't collapse with child margins the way block layout
    does, so without this the heading's own top margin stacked on top of the
    grid gap once the columns stack on mobile, making that gap much larger
@@ -1175,6 +1306,19 @@ body:has(dialog.modal[open]) {
   }
   .form-grid {
     grid-template-columns: 1fr;
+  }
+  /* Same even spread as on desktop, just capped lower: five columns is a
+     fine share of a desktop width and an unreadable sliver of a phone's.
+     See spreadCols in Dashboard.jsx for where both counts come from. */
+  .events-rest {
+    grid-template-columns: repeat(var(--cols-mobile, 1), 1fr);
+  }
+
+  /* Not spread the same way: a pie is a fixed-size circle, so a third of a
+     phone's width is narrower than the circle itself - these pack at a
+     size they actually fit in instead. */
+  .pie-chart-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
 
@@ -1820,6 +1964,13 @@ th.col-inactive {
 
 /* Phones */
 @media (max-width: 640px) {
+  /* Three upcoming events share a phone's width, so their countdown has
+     about a third of it to fit "00:00:00" into. The hero card above them
+     keeps its full size - it has the whole width to itself. */
+  .events-rest .event-countdown {
+    font-size: 15px;
+  }
+
   .app-header {
     padding: 10px 14px;
     gap: 10px;
