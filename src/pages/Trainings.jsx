@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
@@ -16,6 +16,26 @@ import {
 } from '../lib/calc'
 import { addTraining, deleteTraining, reorderDocs, setTrainingCompletion, updateTraining } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
+
+// Same breakpoint DataTable's own stickyBudget uses (and index.css's
+// @media queries) - so "mobile" means the same width everywhere. Below it
+// the Name column's own maxWidth shrinks (see TrainingGroupTable): on a
+// narrow phone Name+Due (both frozen left) were eating enough of the
+// screen that only a single student checkbox fit at a time, which is what
+// was confusing the auto-scroll reveal - two neighbouring columns is the
+// minimum it needs to tell "closer to the left edge" from "closer to the
+// right edge" (see reveal() in DataTable.jsx).
+const MOBILE_WIDTH = 800
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_WIDTH)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < MOBILE_WIDTH)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return isMobile
+}
 
 const emptyForm = {
   name: '',
@@ -336,6 +356,7 @@ function TrainingGroupTable({
   onMoveTo,
 }) {
   const today = todayISO()
+  const isMobile = useIsMobile()
 
   // Wraps a training doc (top-level or sub) with its own progress/overdue,
   // and recurses into its children (if it's a top-level one with
@@ -370,7 +391,11 @@ function TrainingGroupTable({
         // Capped so a long name wraps onto a second line rather than
         // widening the whole frozen block - the more of the width the
         // student columns keep, the fewer of them scroll out of view.
-        maxWidth: 300,
+        // Tighter still on a phone: at 300 there, Name+Due could leave room
+        // for only one checkbox column at a time, and the auto-scroll
+        // reveal needs at least two neighbouring cells to tell which edge
+        // a tap is actually closer to (see reveal() in DataTable.jsx).
+        maxWidth: isMobile ? 140 : 300,
         cell: ({ training }) => <strong>{training.name}</strong>,
         subCell: ({ training }) => training.name,
       },
@@ -471,7 +496,7 @@ function TrainingGroupTable({
         ),
       },
     ],
-    [students, teamId, streakResetDays, allTrainings, onMove, onMoveTo, onAddSub, onEdit, onDelete, trainings.length]
+    [students, teamId, streakResetDays, allTrainings, onMove, onMoveTo, onAddSub, onEdit, onDelete, trainings.length, isMobile]
   )
 
   return (

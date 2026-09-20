@@ -496,18 +496,35 @@ export default function DataTable({
         })
         visibleLeft += PAD
         visibleRight -= PAD
-        extend(lookahead.after, (r) => r.right > visibleRight, (r) => (rect.right = r.right))
-        extend(lookahead.before, (r) => r.left < visibleLeft, (r) => (rect.left = r.left))
-        if (rect.left < visibleLeft) dx = Math.max(rect.left - visibleLeft, anchor.right - visibleRight)
-        else if (rect.right > visibleRight) dx = Math.min(rect.right - visibleRight, anchor.left - visibleLeft)
+        // Only one side is ever the cell's own business - whichever edge
+        // it's actually nearer to (already past it, on a hidden/partial
+        // cell, counts as very near). Checking both lookahead directions
+        // unconditionally and letting "before" win whenever it found
+        // anything (the previous behaviour) breaks on any row wider than
+        // the viewport: once you've scrolled at all, the far side almost
+        // always has something already scrolled past too, and it would
+        // hijack a click that was actually asking to keep going the other
+        // way - which is exactly what made a second tap near the right
+        // edge silently do nothing (or scroll backwards) instead of
+        // continuing to reveal the next hidden column.
+        if (anchor.left - visibleLeft <= visibleRight - anchor.right) {
+          extend(lookahead.before, (r) => r.left < visibleLeft, (r) => (rect.left = r.left))
+          if (rect.left < visibleLeft) dx = Math.max(rect.left - visibleLeft, anchor.right - visibleRight)
+        } else {
+          extend(lookahead.after, (r) => r.right > visibleRight, (r) => (rect.right = r.right))
+          if (rect.right > visibleRight) dx = Math.min(rect.right - visibleRight, anchor.left - visibleLeft)
+        }
       }
       if (vertical && box) {
         const top = sRect.top + headH + PAD
         const bottom = sRect.bottom - hScrollbar - PAD
-        extend(lookahead.below, (r) => r.bottom > bottom, (r) => (rect.bottom = r.bottom))
-        extend(lookahead.above, (r) => r.top < top, (r) => (rect.top = r.top))
-        if (rect.top < top) dy = Math.max(rect.top - top, anchor.bottom - bottom)
-        else if (rect.bottom > bottom) dy = Math.min(rect.bottom - bottom, anchor.top - top)
+        if (anchor.top - top <= bottom - anchor.bottom) {
+          extend(lookahead.above, (r) => r.top < top, (r) => (rect.top = r.top))
+          if (rect.top < top) dy = Math.max(rect.top - top, anchor.bottom - bottom)
+        } else {
+          extend(lookahead.below, (r) => r.bottom > bottom, (r) => (rect.bottom = r.bottom))
+          if (rect.bottom > bottom) dy = Math.min(rect.bottom - bottom, anchor.top - top)
+        }
       }
       if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
         scroller.scrollTo({ left: scroller.scrollLeft + dx, top: scroller.scrollTop + dy, behavior: 'smooth' })
@@ -515,11 +532,14 @@ export default function DataTable({
       if (vertical && !box) {
         const top = stickyTopPx() + headH + PAD
         const bottom = window.innerHeight - PAD
-        extend(lookahead.below, (r) => r.bottom > bottom, (r) => (rect.bottom = r.bottom))
-        extend(lookahead.above, (r) => r.top < top, (r) => (rect.top = r.top))
         let wy = 0
-        if (rect.top < top) wy = Math.max(rect.top - top, anchor.bottom - bottom)
-        else if (rect.bottom > bottom) wy = Math.min(rect.bottom - bottom, anchor.top - top)
+        if (anchor.top - top <= bottom - anchor.bottom) {
+          extend(lookahead.above, (r) => r.top < top, (r) => (rect.top = r.top))
+          if (rect.top < top) wy = Math.max(rect.top - top, anchor.bottom - bottom)
+        } else {
+          extend(lookahead.below, (r) => r.bottom > bottom, (r) => (rect.bottom = r.bottom))
+          if (rect.bottom > bottom) wy = Math.min(rect.bottom - bottom, anchor.top - top)
+        }
         if (Math.abs(wy) > 0.5) window.scrollBy({ top: wy, behavior: 'smooth' })
       }
     },
