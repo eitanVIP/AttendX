@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import NeedsTable from '../components/NeedsTable'
 import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
 import {
@@ -24,7 +24,6 @@ export default function Systems() {
   const [form, setForm] = useState(DEFAULT_SYSTEM)
 
   const categories = team?.categories || []
-  const consumableCategories = team?.consumableCategories || []
   const editingId = editingSystem?.id ?? null
   const studentName = (id) => students.find((s) => s.id === id)?.fullName || 'Unknown student'
 
@@ -70,14 +69,14 @@ export default function Systems() {
   // declining doesn't silently shrink what the system actually needs.
   async function handleSubmit(e) {
     e.preventDefault()
-    for (const { product, max, shortfall } of overallocatedNeeds(form.needs, products, usedQuantities, consumableCategories)) {
+    for (const { product, max, shortfall } of overallocatedNeeds(form.needs, products, usedQuantities)) {
       const ok = confirm(
         `Only ${max} ${product.name} available - this needs ${shortfall} more than that. Automatically request an order for the difference?`
       )
       if (ok) await handleRequestOrder(product, shortfall)
     }
     const payload = { name: form.name.trim(), studentId: form.studentId, needs: form.needs }
-    const inventoryDeltas = consumableInventoryDeltas(editingSystem?.needs, form.needs, products, consumableCategories)
+    const inventoryDeltas = consumableInventoryDeltas(editingSystem?.needs, form.needs, products)
     if (editingId) {
       updateSystem(team.id, editingId, payload, inventoryDeltas)
     } else {
@@ -88,7 +87,7 @@ export default function Systems() {
 
   async function handleDelete(system) {
     if (!confirm('Delete this system?')) return
-    const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products, consumableCategories)
+    const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products)
     await deleteSystem(team.id, system, inventoryDeltas)
   }
 
@@ -100,7 +99,7 @@ export default function Systems() {
     const headers = ['Product', 'Category', 'Quantity', 'Available']
     const rows = (system.needs || []).map((n) => {
       const product = products.find((p) => p.id === n.productId)
-      const available = product ? availableForProduct(product, used, consumableCategories) : ''
+      const available = product ? availableForProduct(product, used) : ''
       return [product?.name || 'Unknown product', product?.category || '', n.quantity, available]
     })
     downloadCSV(`${system.name || 'system'}.csv`, headers, rows)
@@ -145,7 +144,6 @@ export default function Systems() {
           categories={categories}
           needs={form.needs}
           usedQuantities={usedQuantities}
-          consumableCategories={consumableCategories}
           onChange={(needs) => setForm({ ...form, needs })}
         />
         <div className="form-actions">
@@ -156,51 +154,43 @@ export default function Systems() {
         </div>
       </FormPanel>
 
-      <StickyTableScroll>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>System</th>
-              <th>Student</th>
-              <th>Needs</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedSystems.map((system) => (
-              <tr key={system.id}>
-                <td>{system.name}</td>
-                <td>{studentName(system.studentId)}</td>
-                <td className="muted">
-                  {(system.needs || [])
-                    .map((n) => `${products.find((p) => p.id === n.productId)?.name || 'Unknown'} ×${n.quantity}`)
-                    .join(', ') || '—'}
-                </td>
-                <td>
-                  <div className="row-actions">
-                    <button className="link-btn" onClick={() => startEdit(system)}>
-                      Edit
-                    </button>
-                    <button className="link-btn" onClick={() => handleExportSystem(system)}>
-                      Export CSV
-                    </button>
-                    <button className="link-btn danger" onClick={() => handleDelete(system)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {sortedSystems.length === 0 && (
-              <tr>
-                <td colSpan={4} className="empty-cell">
-                  No systems yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      <DataTable
+        columns={[
+          { key: 'name', header: 'System', sticky: 'left', nowrap: true, cell: (system) => system.name },
+          { key: 'student', header: 'Student', cell: (system) => studentName(system.studentId) },
+          {
+            key: 'needs',
+            header: 'Needs',
+            spread: true,
+            cellClassName: 'muted',
+            cell: (system) =>
+              (system.needs || [])
+                .map((n) => `${products.find((p) => p.id === n.productId)?.name || 'Unknown'} ×${n.quantity}`)
+                .join(', ') || '—',
+          },
+          {
+            key: 'actions',
+            header: '',
+            sticky: 'right',
+            nowrap: true,
+            cell: (system) => (
+              <div className="row-actions">
+                <button className="link-btn" onClick={() => startEdit(system)}>
+                  Edit
+                </button>
+                <button className="link-btn" onClick={() => handleExportSystem(system)}>
+                  Export CSV
+                </button>
+                <button className="link-btn danger" onClick={() => handleDelete(system)}>
+                  Delete
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={sortedSystems}
+        emptyMessage="No systems yet."
+      />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import StickyTableScroll from './StickyTableScroll'
+import DataTable from './DataTable'
 import ProductFilters from './ProductFilters'
 import { availableForProduct, productMatchesSearch } from '../lib/calc'
 
@@ -18,7 +18,7 @@ import { availableForProduct, productMatchesSearch } from '../lib/calc'
 // prompt tied to leaving the field is trivially skipped by pressing Enter
 // (which submits the form before blur ever fires), so that check moved to
 // the Add/Save button itself instead.
-export default function NeedsTable({ products, categories, needs, usedQuantities, consumableCategories, onChange }) {
+export default function NeedsTable({ products, categories, needs, usedQuantities, onChange }) {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -38,6 +38,26 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
     onChange(qty > 0 ? [...rest, { productId, quantity: qty }] : rest)
   }
 
+  const columns = [
+    { key: 'name', header: 'Name', sticky: 'left', cell: (p) => p.name },
+    { key: 'category', header: 'Category', cellClassName: 'muted', cell: (p) => p.category },
+    { key: 'available', header: 'Available', cell: (p) => availableForProduct(p, usedQuantities) },
+    {
+      key: 'needed',
+      header: 'Needed',
+      cell: (p) => (
+        <input
+          type="number"
+          min="0"
+          value={neededMap[p.id] || ''}
+          placeholder="0"
+          onChange={(e) => setQuantity(p.id, e.target.value)}
+          style={{ width: 80 }}
+        />
+      ),
+    },
+  ]
+
   return (
     <div style={{ marginTop: 10 }}>
       <label style={{ marginBottom: 6 }}>Inventory needed</label>
@@ -49,48 +69,16 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
         search={search}
         onSearch={setSearch}
       />
-      <StickyTableScroll style={{ marginTop: 10 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Available</th>
-              <th>Needed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((p) => {
-              const max = availableForProduct(p, usedQuantities, consumableCategories)
-              const value = neededMap[p.id] || 0
-              return (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td className="muted">{p.category}</td>
-                  <td>{max}</td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      value={value || ''}
-                      placeholder="0"
-                      onChange={(e) => setQuantity(p.id, e.target.value)}
-                      style={{ width: 80 }}
-                    />
-                  </td>
-                </tr>
-              )
-            })}
-            {visible.length === 0 && (
-              <tr>
-                <td colSpan={4} className="empty-cell">
-                  No products match.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      {/* stickyTop 0, not the page's own --sticky-top: this table lives
+          inside a FormPanel modal (its own scroll container, not the
+          page), which has no admin header to duck under. */}
+      <DataTable
+        columns={columns}
+        rows={visible}
+        stickyTop={0}
+        emptyMessage="No products match."
+        style={{ marginTop: 10 }}
+      />
     </div>
   )
 }

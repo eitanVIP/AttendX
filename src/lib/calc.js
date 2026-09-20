@@ -36,7 +36,19 @@ export function formatLocalDateTime(iso) {
     hour12: false,
   }).formatToParts(d)
   const get = (type) => parts.find((p) => p.type === type)?.value || ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`
+}
+
+// Renders a stored YYYY-MM-DD date (session/target/purchase dates, all
+// plain local calendar dates with no time component - see todayISO above)
+// for display as DD/MM/YYYY. Storage, sorting/comparison ('<' on the ISO
+// string) and <input type="date"> values all stay ISO, which is the only
+// format that does both correctly - this is only for text a person reads.
+export function formatDate(iso) {
+  if (!iso) return '—'
+  const [y, m, d] = iso.split('-')
+  if (!y || !m || !d) return iso
+  return `${d}/${m}/${y}`
 }
 
 // Time left until an event's date (local midnight at its start). Past
@@ -221,6 +233,66 @@ export function trainingProgress(training, students) {
   }
 }
 
+// A training a student's own completion aggregates (streaks, "trainings
+// completed" stats, cert requirement eligibility) should actually count -
+// excludes certifications (their own "category: professional" docs track a
+// target headcount, not a per-student checkbox the way a training does)
+// and sub-trainings (see trainingCompletionCascade below - a sub-training's
+// own completion never counts on its own, only through its parent, once
+// every one of its siblings is also done).
+export function isCountableTraining(training) {
+  return training.category !== 'professional' && !training.parentTrainingId
+}
+
+// Every training doc whose completedStudentIds should change for `student`
+// as a direct or indirect result of setting `training` to `completed`, plus
+// which ONE of those (if any) is the training whose streak contribution
+// should actually change - see setTrainingCompletion in actions.js, which
+// turns this into the real batch writes. A sub-training's own completion
+// never earns streak credit by itself; only its parent's does, whether the
+// parent was checked directly or every one of its sub-trainings just
+// finished (or un-finished) being complete:
+//   - Toggling a plain training (no parent, no subs) just changes itself,
+//     and is its own streak target - exactly the old, pre-sub-trainings
+//     behaviour.
+//   - Toggling a training that HAS sub-trainings cascades the same value
+//     onto every one of them (so "the training is done" and "all its
+//     sub-trainings are done" can never disagree), and is the streak
+//     target itself.
+//   - Toggling a sub-training only ever changes that one row directly, but
+//     if every sibling is now complete (or, conversely, no longer all
+//     complete) the parent's own completion flips to match - and gets
+//     credited/reverted as the streak target - so completing the last
+//     sub-training finishes the parent, and reopening any one of them
+//     un-finishes it.
+export function trainingCompletionCascade(allTrainings, training, student, completed) {
+  const byId = new Map(allTrainings.map((t) => [t.id, t]))
+  const isDone = (t) => (t.id === training.id ? completed : !!t.completedStudentIds?.includes(student.id))
+
+  const changes = [{ training, completed }]
+  let streakTarget = { training, completed }
+
+  if (training.parentTrainingId) {
+    const parent = byId.get(training.parentTrainingId)
+    streakTarget = null
+    if (parent) {
+      const siblings = allTrainings.filter((t) => t.parentTrainingId === parent.id)
+      const allComplete = siblings.length > 0 && siblings.every(isDone)
+      const parentDone = !!parent.completedStudentIds?.includes(student.id)
+      if (allComplete !== parentDone) {
+        changes.push({ training: parent, completed: allComplete })
+        streakTarget = { training: parent, completed: allComplete }
+      }
+    }
+  } else {
+    for (const sub of allTrainings.filter((t) => t.parentTrainingId === training.id)) {
+      if (!!sub.completedStudentIds?.includes(student.id) !== completed) changes.push({ training: sub, completed })
+    }
+  }
+
+  return { changes, streakTarget }
+}
+
 // Students used to hold a single `division`/`subdivision` pair; they now
 // hold `divisions: string[]` plus `subdivisions: { [division]: string[] }`.
 // Docs written before that change are reshaped here on read (see
@@ -248,6 +320,14 @@ export const DEFAULT_PRODUCT = {
   link: '',
   notes: '',
   customData: {},
+  // Whether claiming this product on a system actually consumes it (glue,
+  // zip ties, sheet stock) rather than merely reserving it while it's
+  // still physically in the bin (a motor, a sensor) - see
+  // isConsumableProduct below. Per product, not per category: two products
+  // in the same category can behave differently (a "Fasteners" category
+  // might have both reusable bins of standard screws and a one-off custom
+  // batch that's genuinely used up).
+  consumable: false,
 }
 
 export function normalizeProduct(raw) {
@@ -430,14 +510,13 @@ export function usedQuantitiesByProduct(systems, excludeSystemId) {
   return used
 }
 
-// Whether a product's category is one an admin has flagged as consumable
-// (see the "Consumable" checkbox in Settings' Product categories editor,
-// and consumableInventoryDeltas below) - a product that's actually used up
-// once claimed by a system (glue, zip ties, sheet stock), rather than
-// merely reserved while it's still physically in the bin (a motor, a
-// sensor).
-export function isConsumableProduct(product, consumableCategories = []) {
-  return consumableCategories.includes(product.category)
+// Whether a product is one an admin has flagged as consumable (see the
+// "Consumable" checkbox in ProductForm, and consumableInventoryDeltas
+// below) - a product that's actually used up once claimed by a system
+// (glue, zip ties, sheet stock), rather than merely reserved while it's
+// still physically in the bin (a motor, a sensor).
+export function isConsumableProduct(product) {
+  return !!product.consumable
 }
 
 // How much of a product is still free to claim. For a reusable (non-
@@ -452,8 +531,8 @@ export function isConsumableProduct(product, consumableCategories = []) {
 // more of a product than is actually free (NeedsTable then offers to
 // auto-request an order for the shortfall), so "available" has to be able
 // to show the resulting deficit rather than hiding it behind a 0.
-export function availableForProduct(product, usedQuantities, consumableCategories = []) {
-  if (isConsumableProduct(product, consumableCategories)) return product.countInInventory || 0
+export function availableForProduct(product, usedQuantities) {
+  if (isConsumableProduct(product)) return product.countInInventory || 0
   const used = usedQuantities[product.id] || 0
   return (product.countInInventory || 0) - used
 }
@@ -465,34 +544,34 @@ export function availableForProduct(product, usedQuantities, consumableCategorie
 // Add/Save button itself and can't be skipped by pressing Enter, which
 // submits the form before a blur handler on the field you were just typing
 // in ever runs.
-export function overallocatedNeeds(needs, products, usedQuantities, consumableCategories = []) {
+export function overallocatedNeeds(needs, products, usedQuantities) {
   return needs
     .map((n) => {
       const product = products.find((p) => p.id === n.productId)
       if (!product) return null
-      const max = availableForProduct(product, usedQuantities, consumableCategories)
+      const max = availableForProduct(product, usedQuantities)
       if (n.quantity <= max) return null
       return { product, quantity: n.quantity, max, shortfall: n.quantity - max }
     })
     .filter(Boolean)
 }
 
-// The real-stock adjustment a system's needs imply for consumable-category
-// products only (see isConsumableProduct above) - reusable products are
-// untouched, since claiming one is a logical reservation, not a physical
-// consumption. A positive delta means MORE was just claimed (stock should
-// go DOWN by that much); negative means less was claimed, or the system
-// was deleted outright (`newNeeds` = []), so that much comes back. Callers
-// apply it as `countInInventory: increment(-delta)` alongside the system
-// write itself, in the same batch, so stock and the system's own needs can
-// never end up out of sync with each other.
-export function consumableInventoryDeltas(oldNeeds, newNeeds, products, consumableCategories = []) {
+// The real-stock adjustment a system's needs imply for consumable products
+// only (see isConsumableProduct above) - reusable products are untouched,
+// since claiming one is a logical reservation, not a physical consumption.
+// A positive delta means MORE was just claimed (stock should go DOWN by
+// that much); negative means less was claimed, or the system was deleted
+// outright (`newNeeds` = []), so that much comes back. Callers apply it as
+// `countInInventory: increment(-delta)` alongside the system write itself,
+// in the same batch, so stock and the system's own needs can never end up
+// out of sync with each other.
+export function consumableInventoryDeltas(oldNeeds, newNeeds, products) {
   const oldMap = Object.fromEntries((oldNeeds || []).map((n) => [n.productId, n.quantity]))
   const newMap = Object.fromEntries((newNeeds || []).map((n) => [n.productId, n.quantity]))
   const deltas = []
   for (const productId of new Set([...Object.keys(oldMap), ...Object.keys(newMap)])) {
     const product = products.find((p) => p.id === productId)
-    if (!product || !isConsumableProduct(product, consumableCategories)) continue
+    if (!product || !isConsumableProduct(product)) continue
     const delta = (newMap[productId] || 0) - (oldMap[productId] || 0)
     if (delta !== 0) deltas.push({ productId, delta })
   }

@@ -23,8 +23,8 @@ export default function StudentLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const headerRef = useRef(null)
 
-  // My Profile's tables (see StudentProfileView) use StickyTableScroll just
-  // like the admin pages do, and that reads --sticky-top off
+  // My Profile's tables (see StudentProfileView) use DataTable just like
+  // the admin pages do, and that reads --sticky-top off
   // document.documentElement - a GLOBAL property, not scoped to whichever
   // shell is mounted. Layout.jsx sets it to the admin header's (taller,
   // toolbar-inclusive) height and never clears it on unmount, so without

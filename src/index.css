@@ -469,6 +469,29 @@ code {
   margin-bottom: 4px;
 }
 
+/* A checkbox with an explanatory sentence next to it (e.g. ProductForm's
+   Consumable field) rather than the usual caption-above-input layout -
+   row instead of label's own default column, checkbox held to its own
+   size and top-aligned against however many lines the text wraps to. */
+.checkbox-field {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.checkbox-field input[type='checkbox'] {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* Trainings' per-student completion checkboxes - one per (training,
+   student) cell, easy to misclick at the browser's default ~13px when a
+   table has a couple dozen of them side by side. */
+.training-check {
+  width: 20px;
+  height: 20px;
+}
+
 .division-picker,
 .division-picker-subs {
   list-style: none;
@@ -1236,27 +1259,6 @@ body:has(dialog.modal[open]) {
   line-height: 1;
 }
 
-.cert-table-scroll {
-  max-height: 390px;
-  overflow-y: auto;
-}
-
-.cert-table-scroll thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--card-bg);
-}
-
-/* The dashboard's certification tables are two narrow columns (name +
-   count) sharing a row, so the 480px floor every full-width table wants
-   would force a scrollbar inside each half instead. Both classes in the
-   selector: .data-table's own min-width is declared later in this file, and
-   at equal specificity that would win on order alone. */
-.data-table.data-table-narrow {
-  min-width: 0;
-}
-
 /* CSS Grid gaps don't collapse with child margins the way block layout
    does, so without this the heading's own top margin stacked on top of the
    grid gap once the columns stack on mobile, making that gap much larger
@@ -1268,7 +1270,7 @@ body:has(dialog.modal[open]) {
   margin-top: 0;
 }
 
-.dashboard-col > .table-scroll:last-child {
+.dashboard-col > .dt:last-child {
   margin-bottom: 0;
 }
 
@@ -1322,191 +1324,364 @@ body:has(dialog.modal[open]) {
   }
 }
 
-/* Table */
-.table-scroll {
-  overflow-x: auto;
+/* Table (DataTable - see src/components/DataTable.jsx) - frozen header row
+   and frozen left/right columns that keep working while the *page*
+   scrolls, optional expandable sub rows, an optional totals row. Every
+   colour is taken from the app's own variables when they exist, with a
+   fallback so the component still renders standalone (e.g. in the lab
+   playground it was built and tested in). The <table> element itself
+   keeps the existing .data-table class - .dt only adds the wrapper and
+   the sticky/expand/footer mechanics around it. */
+.dt {
+  --dt-bg: var(--card-bg, #fff);
+  --dt-text: var(--text, #3f3f46);
+  --dt-muted: var(--muted, #71717a);
+  --dt-border: var(--border, #e4e4e7);
+  --dt-head-bg: var(--dt-bg);
+  /* What the pinned header's rounded corners are cut out against - the
+     page, normally; a table inside a modal sets it to the modal's own
+     card colour instead (see .modal-card .dt below). */
+  --dt-page-bg: var(--bg, #f7f7f8);
+  /* Opaque on purpose (mixed against the card colour, never transparent):
+     a frozen cell paints over the cells scrolling underneath it, so any
+     see-through tint would reveal them. */
+  --dt-hover-bg: var(--accent-faint, color-mix(in srgb, var(--dt-text) 5%, var(--dt-bg)));
+  --dt-sub-bg: color-mix(in srgb, var(--dt-text) 3%, var(--dt-bg));
+  --dt-sub-hover-bg: color-mix(in srgb, var(--dt-text) 3%, var(--dt-hover-bg));
+  --dt-shadow: rgba(0, 0, 0, 0.16);
+  --dt-radius: 10px;
+  --dt-font: 14px;
+  --dt-sub-font: 13px;
+  --dt-cell-py: 9px;
+  --dt-cell-px: 12px;
+  --dt-sub-py: 5px;
+  --dt-indent: 20px;
+  --dt-top: var(--sticky-top, 0px);
+
+  position: relative;
+  /* The header clone and the scroller share one grid cell so the clone
+     lies exactly over the real header without magic negative margins. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   margin: 8px 0 24px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--dt-border);
+  border-radius: var(--dt-radius);
+  background: var(--dt-bg);
+  color: var(--dt-text);
+  /* clip (not hidden) rounds off everything inside - stuck header, frozen
+     columns, hovered rows - without turning this box into a scroll
+     container, which would stop the clone sticking to the page. */
+  overflow: clip;
 }
 
-/* The floating header clone StickyTableScroll shows once a table has
-   scrolled up under the page's sticky header/toolbar - see that
-   component for why a real sticky <thead> can't do this job itself.
-   overflow: hidden (not auto) because its horizontal offset is driven by
-   setting .scrollLeft directly in JS, not by user-drag; no scrollbar
-   should ever show here. Below the header/toolbar (z-index 20/10) since
-   both stay visible above it; above ordinary page content and the matrix
-   tables' own frozen-column z-indexes (1-2) since it must fully occlude
-   the real header scrolling up behind it. */
-.sticky-thead-clone {
-  position: fixed;
-  top: var(--sticky-top, 0px);
-  overflow: hidden;
-  z-index: 15;
-  pointer-events: none;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
+@media (prefers-color-scheme: dark) {
+  .dt {
+    --dt-shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+.dt-scroller {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow-x: auto;
+  /* Never scrolls vertically in page mode - hidden rather than auto so a
+     focus ring on the last row can't summon a stray vertical scrollbar. */
+  overflow-y: hidden;
+}
+
+.dt-box .dt-scroller {
+  overflow: auto;
+}
+
+/* Page mode's sticky header: a second copy of the header row that sits on
+   top of the real one at rest and stays pinned below the page's own sticky
+   header while the table scrolls past. Its horizontal scroll position is
+   mirrored from the scroller (and back), so its frozen columns are real
+   position: sticky too. Two boxes: the outer one is what sticks, the inner
+   one is the (scrollbar-less) scroll container that mirrors the table. */
+.dt-clone {
+  grid-area: 1 / 1;
+  align-self: start;
+  position: sticky;
+  top: var(--dt-top);
+  z-index: 3;
+  min-width: 0;
+}
+
+.dt-clone-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: var(--dt-head-bg);
+}
+
+.dt-clone-scroll::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+/* Once it's actually pinned (the table's own rounded top has scrolled away
+   above it) the copy takes on the rounded corners and border of a card
+   top itself, so it never looks like a bare strip sitting on the rows.
+   The outer box paints the page colour, which is what shows in the corner
+   areas outside the rounding - at rest those are clipped away by the
+   table's own corners, so this never shows there. The border is an inset
+   outline rather than a real border: it follows the corners and costs no
+   layout, so the copy's columns stay exactly over the real ones. */
+.dt-clone.dt-stuck {
+  background: var(--dt-page-bg);
+}
+
+.dt-clone.dt-stuck .dt-clone-scroll {
+  border-radius: var(--dt-radius) var(--dt-radius) 0 0;
+  outline: 1px solid var(--dt-border);
+  outline-offset: -1px;
+}
+
+/* A table inside a modal scrolls against the modal card, not the page, so
+   its pinned header's corners are cut out against the card colour. */
+.modal-card .dt {
+  --dt-page-bg: var(--card-bg);
+}
+
+/* Keyboard focus lands in the real header (the clone is never in the tab
+   order), so get the clone out of the way while it does - otherwise the
+   focus ring would be hidden under the copy. */
+.dt:has(.dt-scroller thead:focus-within) .dt-clone {
+  visibility: hidden;
 }
 
 .data-table {
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
-  min-width: 480px;
-  border-collapse: collapse;
-  background: var(--card-bg);
+  /* No blanket floor here on purpose - a table with only 2-3 short
+     columns (e.g. the dashboard's per-division cert tables) should be
+     free to stay narrow; give a wide table's name/text column its own
+     minWidth instead (see DataTable's columns API) if it needs one. */
+  font-size: var(--dt-font);
+  /* Whole pixels, so text-only rows get whole-pixel heights. */
+  line-height: 20px;
+  color: var(--dt-text);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .data-table th,
 .data-table td {
-  padding: 10px 12px;
+  padding: var(--dt-cell-py) var(--dt-cell-px);
   text-align: left;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
+  vertical-align: middle;
+  /* One background rule for every cell, frozen or not: the row decides the
+     colour through --dt-row-bg, so a hovered/sub row can't look different
+     in its frozen cells. */
+  background: var(--dt-row-bg, var(--dt-bg));
+  /* Row separators are inset shadows along the TOP of each body cell (and
+     the bottom of header cells, which paint above everything). Rows often
+     have fractional heights, and a frozen cell can end up on its own
+     compositor layer, snapped to whole pixels - a line on a cell's bottom
+     edge then gets lapped over by the next row's opaque background. A
+     cell's own top edge is painted after everything above it, so nothing
+     can cover it. */
+  box-shadow: var(--dt-edge-shadow, 0 0 0 0 transparent), inset 0 1px 0 var(--dt-line, var(--dt-border));
 }
 
 .data-table th {
-  color: var(--muted);
+  --dt-row-bg: var(--dt-head-bg);
+  color: var(--dt-muted);
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
-}
-
-/* Table headers don't stick via CSS position: sticky here - see
-   StickyTableScroll.jsx for why (overflow-x: auto on .table-scroll, needed
-   for wide tables, always makes IT the sticky containing block for
-   anything inside it, not the page) and how the header row stays visible
-   instead. */
-
-.data-table tr:last-child td {
-  border-bottom: none;
-}
-
-/* The last body row already loses its own border-bottom via the rule
-   above (tfoot's row is *its* parent's last child too) - without its own
-   top border the totals row would run straight into it with no divider. */
-.data-table tfoot td {
-  border-top: 1px solid var(--border);
-  border-bottom: none;
-}
-
-.data-table tbody tr:hover td {
-  background: var(--accent-faint);
-}
-
-/* Matrix variant (Attendance, Trainings): the same table as everywhere
-   else, plus frozen columns at both edges - the name column on the left,
-   progress/actions on the right - so the per-student columns scroll
-   between them. Column widths come from useMatrixLayout (see the
-   --student-col / --actions-col variables below), which is also why the
-   table is its natural width rather than the 100% other tables use: the
-   hook fills the container itself, without letting the browser stretch
-   the fixed columns.
-   border-collapse: collapse has a long-standing Chromium bug when combined
-   with position: sticky cells - row backgrounds/borders can paint offset
-   from the sticky column, producing misaligned-line artifacts. separate
-   with 0 spacing avoids it and looks identical here, since every cell
-   already draws its own border-bottom. */
-.data-table.matrix {
-  width: auto;
-  min-width: 0;
-  border-collapse: separate;
-  border-spacing: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.data-table.matrix th,
-.data-table.matrix td {
+  letter-spacing: 0.02em;
   white-space: nowrap;
-  vertical-align: middle;
+  box-shadow: var(--dt-edge-shadow, 0 0 0 0 transparent), inset 0 -1px 0 var(--dt-border);
 }
 
-/* Fixed rather than min-width so Attendance and Trainings end up with the
-   same first column regardless of how long their names run - which also
-   needs the nowrap above overridden here (at higher specificity) so a long
-   name wraps inside the 220px instead of forcing the column wider. */
-.data-table.matrix .matrix-name-col {
-  width: 220px;
-  min-width: 220px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+/* The header already draws the line above the first row. */
+.data-table tbody tr:first-child > td {
+  --dt-line: transparent;
 }
 
-.matrix-name-col,
-.matrix-progress-col,
-.matrix-actions-col {
-  position: sticky;
-  z-index: 1;
-  background: var(--card-bg);
-  /* Forces its own compositing layer so mobile browsers don't let scrolled
-     content bleed through the frozen columns. will-change (not
-     transform: translateZ(0)) avoids the subpixel rounding that misaligned
-     these columns against the rest of the row. */
-  will-change: transform;
-  /* At fractional row heights the next frozen cell's opaque background
-     laps over the previous row's 1px border-bottom, so the separator
-     visibly stops where the column ends. Drawing it as an inset shadow
-     keeps it inside the cell, where nothing can paint over it. */
-  border-bottom-color: transparent;
-  box-shadow: inset 0 -1px 0 var(--border);
+.data-table tbody tr {
+  --dt-row-bg: var(--dt-bg);
 }
 
-.matrix-name-col {
-  left: 0;
+.data-table tbody tr.dt-sub {
+  --dt-row-bg: var(--dt-sub-bg);
+  font-size: var(--dt-sub-font);
+  line-height: 18px;
 }
 
-/* Both right-hand frozen columns are nudged rightwards so each overlaps
-   its neighbour by exactly 1px: sticky cells land on fractional positions,
-   which otherwise leaves a hairline seam between them - and at the
-   scrollport's edge - where the cells scrolling underneath show through.
-   The actions cell goes 1px past the edge (clipped by the scroll
-   container, costing only padding); the progress cell follows that 1px
-   and adds 1px of its own, hidden under the actions cell since later DOM
-   order paints on top. */
-.matrix-actions-col {
-  right: -1px;
+.data-table tbody tr.dt-sub > td {
+  padding-top: var(--dt-sub-py);
+  padding-bottom: var(--dt-sub-py);
 }
 
-.data-table.matrix .matrix-progress-col {
-  right: calc(var(--actions-col, 0px) - 2px);
-  text-align: center;
-}
-
-.data-table.matrix tbody tr:last-child .matrix-name-col,
-.data-table.matrix tbody tr:last-child .matrix-progress-col,
-.data-table.matrix tbody tr:last-child .matrix-actions-col {
+.data-table tfoot td {
+  border-top: 1px solid var(--dt-border);
   box-shadow: none;
 }
 
-thead .matrix-name-col,
-thead .matrix-progress-col,
-thead .matrix-actions-col {
+@media (hover: hover) {
+  .dt-hover .data-table tbody tr:hover {
+    --dt-row-bg: var(--dt-hover-bg);
+  }
+
+  .dt-hover .data-table tbody tr.dt-sub:hover {
+    --dt-row-bg: var(--dt-sub-hover-bg);
+  }
+}
+
+.dt-clickable {
+  cursor: pointer;
+}
+
+.dt-empty > td {
+  text-align: center;
+  color: var(--dt-muted);
+  padding: 28px 12px;
+}
+
+.dt-dense {
+  --dt-cell-py: 5px;
+  --dt-sub-py: 3px;
+}
+
+/* Frozen columns. Offsets come inline from the component (measured column
+   widths). Deliberately no will-change: transform here - a layer per cell
+   gets snapped to whole pixels independently of its neighbours, which
+   visibly shifts text and separators against the rest of the row. */
+.dt-sticky-l,
+.dt-sticky-r {
+  position: sticky;
+  z-index: 1;
+}
+
+/* Box mode: the real header is the sticky one, above frozen body cells;
+   the corner cells (frozen column AND header) above everything. */
+.dt-box.dt-sticky-head thead th {
+  position: sticky;
+  top: 0;
   z-index: 2;
 }
 
-/* Higher specificity than `.data-table th/td { text-align: left }`, which
-   was otherwise winning and leaving names and checkboxes left-aligned. */
-.data-table.matrix .matrix-student-col {
+.dt-box.dt-sticky-head thead th.dt-sticky-l,
+.dt-box.dt-sticky-head thead th.dt-sticky-r {
+  z-index: 3;
+}
+
+/* Optional divider where the frozen columns meet the scrolling ones - the
+   default everywhere, so sticky and non-sticky cells are never mistaken
+   for one continuous table. Only shown while there's actually something
+   to scroll. */
+.dt-edge-line.dt-overflow .dt-edge-l {
+  --dt-edge-shadow: inset -1px 0 0 var(--dt-border);
+}
+
+.dt-edge-line.dt-overflow .dt-edge-r {
+  --dt-edge-shadow: inset 1px 0 0 var(--dt-border);
+}
+
+/* Optional shadow instead of a line, only while content is actually
+   tucked under the frozen column. clip-path lets the shadow spill
+   sideways but not into the rows above/below, which would otherwise show
+   as breaks at every row. */
+.dt-edge-shadow .dt-edge-l {
+  clip-path: inset(0 -24px 0 0);
+}
+
+.dt-edge-shadow .dt-edge-r {
+  clip-path: inset(0 0 0 -24px);
+}
+
+.dt-edge-shadow.dt-scrolled-l .dt-edge-l {
+  --dt-edge-shadow: 6px 0 10px -4px var(--dt-shadow);
+}
+
+.dt-edge-shadow.dt-scrolled-r .dt-edge-r {
+  --dt-edge-shadow: -6px 0 10px -4px var(--dt-shadow);
+}
+
+.data-table .dt-align-center {
   text-align: center;
-  width: var(--student-col, auto);
-  min-width: var(--student-col, 44px);
 }
 
-.data-table.matrix .matrix-student-col input[type='checkbox'] {
-  width: 20px;
-  height: 20px;
+.data-table .dt-align-right {
+  text-align: right;
 }
 
-/* Trainings whose due date has passed with students still missing. Opaque
-   (mixed against the card colour) for the same reason as --accent-faint:
-   the frozen columns can't be see-through. */
-.row-overdue td {
-  background: var(--danger-faint);
+.data-table .dt-nowrap {
+  white-space: nowrap;
 }
 
-.data-table tbody tr.row-overdue:hover td {
-  background: var(--danger-soft);
+.data-table .dt-wrap {
+  white-space: normal;
+}
+
+/* Expander column: arrow (or an equally wide spacer, so text lines up
+   across rows) followed by the cell's own content. Sub rows indent by
+   their depth. */
+.dt-lead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: calc(var(--dt-depth, 0) * var(--dt-indent));
+}
+
+.dt-lead-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dt-expander,
+.dt-expander-space {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+
+.dt-expander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dt-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.dt-expander:hover {
+  background: color-mix(in srgb, var(--dt-text) 8%, transparent);
+  color: var(--dt-text);
+}
+
+.dt-expander svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+
+.dt-expander[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* Trainings/certs whose due date has passed with students still missing -
+   --dt-row-bg (not a plain background) so it still reaches frozen cells,
+   which paint over anything set on the row itself. Specificity has to at
+   least match .data-table tbody tr (element+element+class) or that rule's
+   own --dt-row-bg wins regardless of source order - same trap as .dt-sub
+   above, so this follows the same shape. */
+.data-table tbody tr.row-overdue {
+  --dt-row-bg: var(--danger-faint);
+}
+
+@media (hover: hover) {
+  .dt-hover .data-table tbody tr.row-overdue:hover {
+    --dt-row-bg: var(--danger-soft);
+  }
 }
 
 .row-overdue .due-cell {
@@ -1558,12 +1733,6 @@ th.col-inactive {
 .move-btn:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-.empty-cell {
-  text-align: center;
-  color: var(--muted);
-  padding: 24px;
 }
 
 /* Badges */
@@ -1807,6 +1976,20 @@ th.col-inactive {
   font-size: 14px;
 }
 
+/* Certifications' required-trainings picker: one heading + checklist per
+   division/subdivision, matching how Trainings.jsx itself groups them. */
+.required-trainings-group {
+  margin-top: 10px;
+}
+
+.required-trainings-group-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
 /* Student profile: one division/subdivision's certs + other trainings */
 .scope-section {
   margin-bottom: 28px;
@@ -1992,26 +2175,10 @@ th.col-inactive {
     padding: 14px;
   }
 
-  .data-table.matrix .matrix-name-col {
-    width: 140px;
-    min-width: 140px;
-  }
-
-  .matrix-name-col,
-  .matrix-name-col strong {
-    font-size: 12px;
-  }
-
-  /* Freezing the progress/actions columns too leaves almost no room for the
-     per-student checkbox columns on a narrow phone screen - only the name
-     column stays pinned here; the rest scrolls past normally, same as any
-     other table. */
-  .matrix-progress-col,
-  .matrix-actions-col {
-    position: static;
-    box-shadow: none;
-    border-bottom-color: var(--border);
-  }
+  /* DataTable's own stickyBudget (see src/components/DataTable.jsx)
+     replaces what used to be a fixed breakpoint here: on a narrow screen
+     it drops the least important frozen columns itself, generically, for
+     every table - not just the matrix ones this used to single out. */
 
   .page-header {
     flex-direction: column;

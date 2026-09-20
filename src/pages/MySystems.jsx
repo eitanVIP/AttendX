@@ -83,19 +83,14 @@ export default function MySystems() {
   // stays exactly what was entered.
   async function handleSubmit(e) {
     e.preventDefault()
-    for (const { product, max, shortfall } of overallocatedNeeds(
-      form.needs,
-      products,
-      usedQuantities,
-      verified.consumableCategories
-    )) {
+    for (const { product, max, shortfall } of overallocatedNeeds(form.needs, products, usedQuantities)) {
       const ok = confirm(
         `Only ${max} ${product.name} available - this needs ${shortfall} more than that. Automatically request an order for the difference?`
       )
       if (ok) await handleRequestOrder(product, shortfall)
     }
     const payload = { studentId, name: form.name.trim(), needs: form.needs }
-    const inventoryDeltas = consumableInventoryDeltas(editingSystem?.needs, form.needs, products, verified.consumableCategories)
+    const inventoryDeltas = consumableInventoryDeltas(editingSystem?.needs, form.needs, products)
     if (editingId) {
       await commitSystemWrite(doc(communityDb, 'teams', verified.teamId, 'systems', editingId), payload, false, inventoryDeltas)
       await logStudentChange(verified.teamId, 'system', 'update', `Updated system "${payload.name}"`, student?.fullName)
@@ -108,7 +103,7 @@ export default function MySystems() {
 
   async function handleDelete(system) {
     if (!confirm('Delete this system?')) return
-    const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products, verified.consumableCategories)
+    const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products)
     const batch = writeBatch(communityDb)
     batch.delete(doc(communityDb, 'teams', verified.teamId, 'systems', system.id))
     for (const { productId, delta } of inventoryDeltas) {
@@ -167,7 +162,6 @@ export default function MySystems() {
           categories={verified.categories}
           needs={form.needs}
           usedQuantities={usedQuantities}
-          consumableCategories={verified.consumableCategories}
           onChange={(needs) => setForm({ ...form, needs })}
         />
         <div className="form-actions">

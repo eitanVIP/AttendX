@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import FormPanel from './FormPanel'
-import StickyTableScroll from './StickyTableScroll'
+import DataTable from './DataTable'
 import StreakBadge from './StreakBadge'
 import StreakTabs from './StreakTabs'
 import {
@@ -10,8 +10,10 @@ import {
   attendanceStreak,
   describeStudentDivisions,
   effectiveStreak,
+  formatDate,
   formatLocalDateTime,
   groupByScope,
+  isCountableTraining,
   streakContributionsField,
   streakResetHours,
   studentCommunityHours,
@@ -101,7 +103,7 @@ export default function StudentProfileView({
     return { division: summarizeAttendance(division), general: summarizeAttendance(general) }
   }, [attendanceRecords, sessionById])
 
-  const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
+  const regularTrainings = useMemo(() => trainings.filter(isCountableTraining), [trainings])
   // Order preserved from useTrainings (sorted by `order`, same as the
   // Certifications/Trainings pages) rather than re-sorted by name here.
   const certifications = useMemo(() => trainings.filter((t) => t.category === 'professional'), [trainings])
@@ -265,81 +267,50 @@ export default function StudentProfileView({
       {attendanceLoading ? (
         <p className="muted">Loading history…</p>
       ) : (
-        <StickyTableScroll>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Session</th>
-                <th>Status</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.session.date}</td>
-                  <td>{r.session.name}</td>
-                  <td>
-                    <span className={`badge status-badge-${r.status}`}>{r.status}</span>
-                  </td>
-                  <td className="muted">{r.session.notes || '—'}</td>
-                </tr>
-              ))}
-              {history.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="empty-cell">
-                    No attendance recorded yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </StickyTableScroll>
+        <DataTable
+          columns={[
+            { key: 'date', header: 'Date', nowrap: true, cell: (r) => formatDate(r.session.date) },
+            { key: 'session', header: 'Session', spread: true, cell: (r) => r.session.name },
+            {
+              key: 'status',
+              header: 'Status',
+              cell: (r) => <span className={`badge status-badge-${r.status}`}>{r.status}</span>,
+            },
+            { key: 'notes', header: 'Notes', cellClassName: 'muted', cell: (r) => r.session.notes || '—' },
+          ]}
+          rows={history}
+          emptyMessage="No attendance recorded yet."
+        />
       )}
 
       {communitySettings.hoursTarget > 0 && (
         <>
           <h2>Community hours log</h2>
-          <StickyTableScroll>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Hours</th>
-                  <th>Notes</th>
-                  {onDeleteLog && <th></th>}
-                </tr>
-              </thead>
-              <tbody>
-                {studentCommunityLogs.map((l) => (
-                  <tr key={l.id}>
-                    <td>{l.date}</td>
-                    <td>{l.type}</td>
-                    <td>{l.hours}</td>
-                    <td className="muted">{l.notes || '—'}</td>
-                    {onDeleteLog && (
-                      <td>
+          <DataTable
+            columns={[
+              { key: 'date', header: 'Date', nowrap: true, cell: (l) => formatDate(l.date) },
+              { key: 'type', header: 'Type', spread: true, cell: (l) => l.type },
+              { key: 'hours', header: 'Hours', cell: (l) => l.hours },
+              { key: 'notes', header: 'Notes', cellClassName: 'muted', cell: (l) => l.notes || '—' },
+              ...(onDeleteLog
+                ? [
+                    {
+                      key: 'actions',
+                      header: '',
+                      cell: (l) => (
                         <div className="row-actions">
                           <button className="link-btn danger" onClick={() => onDeleteLog(l)}>
                             Delete
                           </button>
                         </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                {studentCommunityLogs.length === 0 && (
-                  <tr>
-                    <td colSpan={onDeleteLog ? 5 : 4} className="empty-cell">
-                      No hours logged yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </StickyTableScroll>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+            rows={studentCommunityLogs}
+            emptyMessage="No hours logged yet."
+          />
         </>
       )}
 
@@ -446,40 +417,26 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
         {badge}
       </div>
       {open && (
-        <StickyTableScroll>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Training</th>
-                <th>Category</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trainings.map((t) => {
+        <DataTable
+          columns={[
+            { key: 'name', header: 'Training', spread: true, cell: (t) => t.name },
+            { key: 'category', header: 'Category', cellClassName: 'muted', cell: (t) => t.category },
+            {
+              key: 'status',
+              header: 'Status',
+              cell: (t) => {
                 const completed = t.completedStudentIds?.includes(studentId)
                 return (
-                  <tr key={t.id}>
-                    <td>{t.name}</td>
-                    <td className="muted">{t.category}</td>
-                    <td>
-                      <span className={`badge ${completed ? 'badge-ok' : 'badge-warn'}`}>
-                        {completed ? 'Completed' : 'Not yet'}
-                      </span>
-                    </td>
-                  </tr>
+                  <span className={`badge ${completed ? 'badge-ok' : 'badge-warn'}`}>
+                    {completed ? 'Completed' : 'Not yet'}
+                  </span>
                 )
-              })}
-              {trainings.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="empty-cell">
-                    {emptyText}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </StickyTableScroll>
+              },
+            },
+          ]}
+          rows={trainings}
+          emptyMessage={emptyText}
+        />
       )}
     </div>
   )

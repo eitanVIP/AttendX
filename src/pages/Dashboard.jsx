@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import PieChart from '../components/PieChart'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
 import {
@@ -23,6 +23,8 @@ import {
   budgetRemainingSlices,
   certProgress,
   eventCountdown,
+  formatDate,
+  isCountableTraining,
   spentByCategory,
   streakBoard,
   studentCommunityHours,
@@ -111,7 +113,7 @@ export default function Dashboard() {
         overdueCount: rows.filter((r) => r.overdue).length,
       }))
   }, [trainings, students, team?.divisions])
-  const regularTrainings = useMemo(() => trainings.filter((t) => t.category !== 'professional'), [trainings])
+  const regularTrainings = useMemo(() => trainings.filter(isCountableTraining), [trainings])
 
   const completionByGrade = useMemo(
     () => trainingCompletionByGrade(students, regularTrainings, team?.divisions || []),
@@ -297,44 +299,32 @@ export default function Dashboard() {
       </div>
 
       <h3>By division</h3>
-      <StickyTableScroll>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Division</th>
-              <th>Students</th>
-              <th>Avg. attendance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {divisionStats.map((d) => (
-              <tr key={d.division}>
-                <td>{d.division}</td>
-                <td>{d.count}</td>
-                <td>
-                  {d.avgAttendance === null ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    <span className="table-bar">
-                      <span className="bar-row-track">
-                        <span className="bar-row-fill" style={{ width: `${d.avgAttendance}%` }} />
-                      </span>
-                      <span className="bar-row-value">{d.avgAttendance}%</span>
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {divisionStats.length === 0 && (
-              <tr>
-                <td colSpan={3} className="empty-cell">
-                  No divisions set up.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      <DataTable
+        columns={[
+          { key: 'division', header: 'Division', cell: (d) => d.division },
+          { key: 'count', header: 'Students', cell: (d) => d.count },
+          {
+            key: 'avg',
+            header: 'Avg. attendance',
+            // The bar takes whatever width Division/Students leave over.
+            spread: true,
+            cell: (d) =>
+              d.avgAttendance === null ? (
+                <span className="muted">—</span>
+              ) : (
+                <span className="table-bar">
+                  <span className="bar-row-track">
+                    <span className="bar-row-fill" style={{ width: `${d.avgAttendance}%` }} />
+                  </span>
+                  <span className="bar-row-value">{d.avgAttendance}%</span>
+                </span>
+              ),
+          },
+        ]}
+        rows={divisionStats}
+        getRowId={(d) => d.division}
+        emptyMessage="No divisions set up."
+      />
 
       <div className="dashboard-columns">
         <div className="dashboard-col">
@@ -431,42 +421,37 @@ export default function Dashboard() {
                   </span>
                 )}
               </h3>
-              {/* Capped height with its own scrollbar rather than
-                  StickyTableScroll: these sit two-up in a grid row, so one
-                  division with a long list would otherwise stretch that
-                  whole row. Scrolling inside a fixed-height box is also the
-                  one case plain position:sticky handles correctly (the box
-                  itself is the scroll container), so the header can stay put
-                  without the floating-clone machinery. */}
-              <div className="table-scroll cert-table-scroll">
-                <table className="data-table data-table-narrow">
-                  <thead>
-                    <tr>
-                      <th>Certification</th>
-                      <th>Target date</th>
-                      <th>Certified</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.rows.map(({ cert, progress, overdue }) => (
-                      <tr key={cert.id} className={overdue ? 'row-overdue' : ''}>
-                        <td>{cert.name}</td>
-                        <td
-                          className="muted due-cell"
-                          title={overdue ? 'Past due with the target still unmet' : undefined}
-                        >
-                          {cert.targetDate || '—'}
-                        </td>
-                        <td>
-                          <span className={progress.onTarget ? 'badge badge-ok' : 'badge badge-warn'}>
-                            {progress.completed}/{progress.target}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Capped height with its own scrollbar (maxHeight - box
+                  mode): these sit two-up in a grid row, so one division
+                  with a long list would otherwise stretch that whole row. */}
+              <DataTable
+                columns={[
+                  { key: 'name', header: 'Certification', cell: ({ cert }) => cert.name },
+                  {
+                    key: 'targetDate',
+                    header: 'Target date',
+                    cellClassName: 'muted due-cell',
+                    cell: ({ cert, overdue }) => (
+                      <span title={overdue ? 'Past due with the target still unmet' : undefined}>
+                        {formatDate(cert.targetDate)}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'certified',
+                    header: 'Certified',
+                    cell: ({ progress }) => (
+                      <span className={progress.onTarget ? 'badge badge-ok' : 'badge badge-warn'}>
+                        {progress.completed}/{progress.target}
+                      </span>
+                    ),
+                  },
+                ]}
+                rows={group.rows}
+                getRowId={({ cert }) => cert.id}
+                rowClassName={({ overdue }) => (overdue ? 'row-overdue' : '')}
+                maxHeight={390}
+              />
             </div>
           ))}
         </div>
@@ -593,7 +578,7 @@ function EventCard({ event, hero }) {
           </>
         )}
       </span>
-      <span className="muted">{event.date}</span>
+      <span className="muted">{formatDate(event.date)}</span>
     </div>
   )
 }

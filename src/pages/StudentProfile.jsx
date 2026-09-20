@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import StudentProfileView from '../components/StudentProfileView'
+import { formatDate } from '../lib/calc'
 import {
   useCommunityLogs,
   useCommunitySettings,
@@ -28,7 +29,7 @@ export default function StudentProfile() {
   const student = students.find((s) => s.id === studentId)
 
   async function handleDeleteLog(log) {
-    if (!confirm(`Delete this entry (${log.hours}h, ${log.type}, ${log.date})?`)) return
+    if (!confirm(`Delete this entry (${log.hours}h, ${log.type}, ${formatDate(log.date)})?`)) return
     await deleteCommunityLog(team.id, log)
   }
 

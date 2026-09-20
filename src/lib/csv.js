@@ -76,7 +76,7 @@ export function parseCSV(text) {
 
 // The exact columns Inventory's own "Export CSV" produces (see Inventory.jsx)
 // - Import CSV expects the same file back, in any column order.
-export const PRODUCT_IMPORT_HEADERS = ['Name', 'SKU', 'Category', 'Price', 'Currency', 'Supplier', 'In stock', 'Wanted']
+export const PRODUCT_IMPORT_HEADERS = ['Name', 'SKU', 'Category', 'Price', 'Currency', 'Supplier', 'Link', 'In stock', 'Wanted']
 
 // Parses and fully validates a product-import CSV before anything is
 // written anywhere: `categories`/`currencyCodes` are the team's own valid
@@ -151,6 +151,7 @@ export function parseProductImport(text, { categories, currencyCodes }) {
       price,
       currency,
       supplier: get('Supplier'),
+      link: get('Link'),
       countInInventory: stock,
       wantedCount: wanted,
     })

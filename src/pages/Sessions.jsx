@@ -1,12 +1,11 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import { useAllAttendance, useSessions, useStudents } from '../lib/firestore-hooks'
-import { useMatrixLayout } from '../lib/useMatrixLayout'
-import { ATTENDANCE_STATUSES, isSessionRelevantToStudent, movedWithinGroup, swappedRows, todayISO } from '../lib/calc'
+import { ATTENDANCE_STATUSES, formatDate, isSessionRelevantToStudent, movedWithinGroup, swappedRows, todayISO } from '../lib/calc'
 import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
@@ -226,89 +225,91 @@ function SessionGroupTable({
   onMoveTo,
   onStatusChange,
 }) {
-  const tableRef = useRef(null)
-  useMatrixLayout(tableRef, students.map((s) => s.fullName).join(' '))
+  const columns = useMemo(
+    () => [
+      {
+        key: 'session',
+        header: 'Session',
+        sticky: 'left',
+        // See ProductTable.jsx's Name column for why this needs to be
+        // explicit and high, not left at its default.
+        stickyPriority: 2000,
+        nowrap: true,
+        cell: (session) => (
+          <>
+            <strong>{session.name}</strong>
+            <div className="muted">{formatDate(session.date)}</div>
+            {session.notes && (
+              <div className="muted session-notes" title={session.notes}>
+                {session.notes}
+              </div>
+            )}
+          </>
+        ),
+      },
+      ...students.map((s) => ({
+        key: `student-${s.id}`,
+        header: s.active ? s.fullName : <span title="Inactive">{s.fullName}</span>,
+        headerAlign: 'center',
+        align: 'center',
+        nowrap: true,
+        // An even grid: every student column the same width, sharing
+        // whatever the frozen session/actions columns leave over.
+        spread: true,
+        className: s.active ? undefined : 'col-inactive',
+        cell: (session) => {
+          if (!isSessionRelevantToStudent(session, s)) return <span className="muted">–</span>
+          const status = statusBySessionAndStudent[`${session.id}_${s.id}`]
+          return (
+            <select
+              className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
+              value={status || ''}
+              onChange={(e) => onStatusChange(session, s, e.target.value || null)}
+            >
+              <option value="">–</option>
+              {ATTENDANCE_STATUSES.map((st) => (
+                <option key={st} value={st}>
+                  {STATUS_LABELS[st]}
+                </option>
+              ))}
+            </select>
+          )
+        },
+      })),
+      {
+        key: 'actions',
+        header: '',
+        sticky: 'right',
+        nowrap: true,
+        cell: (session, { index }) => (
+          <div className="row-actions">
+            <MoveButtons
+              onUp={() => onMove(index, -1)}
+              onDown={() => onMove(index, 1)}
+              canUp={index > 0}
+              canDown={index < sessions.length - 1}
+              index={index}
+              count={sessions.length}
+              onMoveTo={(toIndex) => onMoveTo(index, toIndex)}
+              label="session"
+            />
+            <button className="link-btn" onClick={() => onEdit(session)}>
+              Edit
+            </button>
+            <button className="link-btn danger" onClick={() => onDelete(session)}>
+              Delete
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [students, statusBySessionAndStudent, onStatusChange, onMove, onMoveTo, onEdit, onDelete, sessions.length]
+  )
 
   return (
     <>
       <h2>{title}</h2>
-      <StickyTableScroll>
-        <table className="data-table matrix" ref={tableRef}>
-          <thead>
-            <tr>
-              <th className="matrix-name-col">Session</th>
-              {students.map((s) => (
-                <th key={s.id} className={`matrix-student-col ${s.active ? '' : 'col-inactive'}`} title={s.active ? undefined : 'Inactive'}>
-                  {s.fullName}
-                </th>
-              ))}
-              <th className="matrix-actions-col"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session, i) => (
-              <tr key={session.id}>
-                <td className="matrix-name-col">
-                  <strong>{session.name}</strong>
-                  <div className="muted">{session.date}</div>
-                  {session.notes && (
-                    <div className="muted session-notes" title={session.notes}>
-                      {session.notes}
-                    </div>
-                  )}
-                </td>
-                {students.map((s) => {
-                  const cellClass = `matrix-student-col ${s.active ? '' : 'col-inactive'}`
-                  if (!isSessionRelevantToStudent(session, s)) {
-                    return (
-                      <td key={s.id} className={`${cellClass} muted`}>
-                        –
-                      </td>
-                    )
-                  }
-                  const status = statusBySessionAndStudent[`${session.id}_${s.id}`]
-                  return (
-                    <td key={s.id} className={cellClass}>
-                      <select
-                        className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
-                        value={status || ''}
-                        onChange={(e) => onStatusChange(session, s, e.target.value || null)}
-                      >
-                        <option value="">–</option>
-                        {ATTENDANCE_STATUSES.map((st) => (
-                          <option key={st} value={st}>
-                            {STATUS_LABELS[st]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  )
-                })}
-                <td className="matrix-actions-col">
-                  <div className="row-actions">
-                    <MoveButtons
-                      onUp={() => onMove(i, -1)}
-                      onDown={() => onMove(i, 1)}
-                      canUp={i > 0}
-                      canDown={i < sessions.length - 1}
-                      index={i}
-                      count={sessions.length}
-                      onMoveTo={(toIndex) => onMoveTo(i, toIndex)}
-                      label="session"
-                    />
-                    <button className="link-btn" onClick={() => onEdit(session)}>
-                      Edit
-                    </button>
-                    <button className="link-btn danger" onClick={() => onDelete(session)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      <DataTable columns={columns} rows={sessions} />
     </>
   )
 }

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import { useStudents } from '../lib/firestore-hooks'
 import { GRADES, activityLabel, movedWithinGroup, swappedRows } from '../lib/calc'
 import { addStudent, deleteStudent, reorderDocs, updateStudent } from '../lib/actions'
@@ -208,71 +208,72 @@ export default function Students() {
         </div>
       </FormPanel>
 
-      <StickyTableScroll>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Division</th>
-            <th>Subdivision</th>
-            <th>Grade</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((s, i) => (
-            <tr key={s.id} className={s.active ? '' : 'row-inactive'}>
-              <td>
-                <Link to={`/students/${s.id}`}>{s.fullName}</Link>
-              </td>
-              <td>{s.divisions.join(', ')}</td>
-              <td>{s.divisions.flatMap((d) => s.subdivisions[d] || []).join(', ')}</td>
-              <td>{s.grade}</td>
-              <td>
-                <span
-                  className={`badge ${s.active ? 'badge-ok' : 'badge-muted'}`}
-                  title={
-                    s.autoInactive
-                      ? `Attendance ${s.attendancePercent}% is under the team's ${team.minAttendancePercent}% minimum`
-                      : undefined
-                  }
-                >
-                  {activityLabel(s)}
-                </span>
-              </td>
-              <td>
-                <div className="row-actions">
-                  <MoveButtons
-                    onUp={() => move(i, -1)}
-                    onDown={() => move(i, 1)}
-                    canUp={i > 0}
-                    canDown={i < filtered.length - 1}
-                    index={i}
-                    count={filtered.length}
-                    onMoveTo={(toIndex) => moveTo(i, toIndex)}
-                    label="student"
-                  />
-                  <button className="link-btn" onClick={() => startEdit(s)}>
-                    Edit
-                  </button>
-                  <button className="link-btn danger" onClick={() => handleDelete(s)}>
-                    Delete
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {filtered.length === 0 && (
-            <tr>
-              <td colSpan={6} className="empty-cell">
-                No students yet.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      </StickyTableScroll>
+      <DataTable
+        columns={[
+          {
+            key: 'name',
+            header: 'Name',
+            sticky: 'left',
+            nowrap: true,
+            // See ProductTable.jsx's Name column for why this needs to be
+            // explicit and high, not left at its default.
+            stickyPriority: 2000,
+            cell: (s) => <Link to={`/students/${s.id}`}>{s.fullName}</Link>,
+          },
+          { key: 'division', header: 'Division', cell: (s) => s.divisions.join(', ') },
+          {
+            key: 'subdivision',
+            header: 'Subdivision',
+            cell: (s) => s.divisions.flatMap((d) => s.subdivisions[d] || []).join(', '),
+          },
+          { key: 'grade', header: 'Grade', cell: (s) => s.grade },
+          {
+            key: 'status',
+            header: 'Status',
+            cell: (s) => (
+              <span
+                className={`badge ${s.active ? 'badge-ok' : 'badge-muted'}`}
+                title={
+                  s.autoInactive
+                    ? `Attendance ${s.attendancePercent}% is under the team's ${team.minAttendancePercent}% minimum`
+                    : undefined
+                }
+              >
+                {activityLabel(s)}
+              </span>
+            ),
+          },
+          {
+            key: 'actions',
+            header: '',
+            sticky: 'right',
+            nowrap: true,
+            cell: (s, { index }) => (
+              <div className="row-actions">
+                <MoveButtons
+                  onUp={() => move(index, -1)}
+                  onDown={() => move(index, 1)}
+                  canUp={index > 0}
+                  canDown={index < filtered.length - 1}
+                  index={index}
+                  count={filtered.length}
+                  onMoveTo={(toIndex) => moveTo(index, toIndex)}
+                  label="student"
+                />
+                <button className="link-btn" onClick={() => startEdit(s)}>
+                  Edit
+                </button>
+                <button className="link-btn danger" onClick={() => handleDelete(s)}>
+                  Delete
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={filtered}
+        rowClassName={(s) => (s.active ? '' : 'row-inactive')}
+        emptyMessage="No students yet."
+      />
     </div>
   )
 }

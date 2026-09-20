@@ -4,22 +4,32 @@ import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
 import MoveButtons from '../components/MoveButtons'
 import PasswordInput, { RevealButton } from '../components/PasswordInput'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import { DEFAULT_ACCENT } from '../lib/theme'
-import { useCommunitySettings, useEvents } from '../lib/firestore-hooks'
-import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, movedTo, todayISO } from '../lib/calc'
+import { useCommunitySettings, useEvents, useProducts, useTrainings } from '../lib/firestore-hooks'
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import { exportOfflineSite } from '../lib/offlineExport'
 import {
   addEvent,
   deleteEvent,
+  migrateConsumableCategoriesToProducts,
   setCommunitySettings,
+  syncAllDatesToCalendar,
   updateCategories,
   updateEvent,
+  updateProductTypes,
   updateTeam,
   updateTeamStructure,
 } from '../lib/actions'
+import {
+  connectGoogleCalendar,
+  disconnectGoogleCalendar,
+  getGoogleCalendarState,
+  isGoogleCalendarConfigured,
+  subscribeGoogleCalendar,
+} from '../lib/googleCalendar'
 
 // Returns a copy of `list` with the item matching `isTarget` swapped with
 // its neighbour in `direction` (-1 up, +1 down); unchanged at the ends.
@@ -294,6 +304,7 @@ export default function Settings() {
         <CurrenciesSection team={team} />
         <CodesSection team={team} />
         <CommunityHoursSection teamId={team?.id} />
+        <GoogleCalendarSection teamId={team?.id} />
 
         <div className="settings-section">
           <h2>Team number</h2>
@@ -416,7 +427,7 @@ function EventsSection({ teamId }) {
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (editingId) updateEvent(teamId, editingId, form)
+    if (editingId) updateEvent(teamId, editingId, form, events.find((e) => e.id === editingId))
     else addEvent(teamId, form)
     setShowForm(false)
   }
@@ -426,6 +437,25 @@ function EventsSection({ teamId }) {
     await deleteEvent(teamId, event)
   }
 
+  const columns = [
+    { key: 'name', header: 'Event', spread: true, cell: (event) => event.name },
+    { key: 'date', header: 'Date', cellClassName: 'muted', cell: (event) => formatDate(event.date) },
+    {
+      key: 'actions',
+      header: '',
+      cell: (event) => (
+        <div className="row-actions">
+          <button type="button" className="link-btn" onClick={() => startEdit(event)}>
+            Edit
+          </button>
+          <button type="button" className="link-btn danger" onClick={() => handleDelete(event)}>
+            Delete
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="settings-section">
       <h2>Events</h2>
@@ -433,42 +463,13 @@ function EventsSection({ teamId }) {
         Upcoming events count down on the dashboard, nearest first. Past ones drop off the dashboard
         but stay here until you delete them.
       </p>
-      <StickyTableScroll style={{ maxWidth: 560 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Date</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((event) => (
-              <tr key={event.id} className={event.date < today ? 'row-inactive' : ''}>
-                <td>{event.name}</td>
-                <td className="muted">{event.date}</td>
-                <td>
-                  <div className="row-actions">
-                    <button type="button" className="link-btn" onClick={() => startEdit(event)}>
-                      Edit
-                    </button>
-                    <button type="button" className="link-btn danger" onClick={() => handleDelete(event)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {events.length === 0 && (
-              <tr>
-                <td colSpan={3} className="empty-cell">
-                  No events yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      <DataTable
+        columns={columns}
+        rows={events}
+        rowClassName={(event) => (event.date < today ? 'row-inactive' : '')}
+        emptyMessage="No events yet."
+        style={{ maxWidth: 560 }}
+      />
       <button type="button" className="secondary" onClick={startNew}>
         + Add event
       </button>
@@ -502,13 +503,11 @@ function EventsSection({ teamId }) {
 }
 
 function teamToCategoryRows(team) {
-  const consumable = team?.consumableCategories || []
   return (team?.categories || []).map((name, i) => ({
     key: `${name}-${i}`,
     original: name,
     name,
     budget: String(team?.categoryBudgets?.[name] || ''),
-    consumable: consumable.includes(name),
   }))
 }
 
@@ -520,6 +519,11 @@ function CategoriesSection({ team }) {
   const [input, setInput] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [migrating, setMigrating] = useState(false)
+  // Only teams that had the old category-level flag set need this at all -
+  // see migrateConsumableCategoriesToProducts in actions.js.
+  const { data: products } = useProducts(team?.id)
+  const legacyConsumableCategories = team?.consumableCategories || []
 
   useEffect(() => {
     setRows(teamToCategoryRows(team))
@@ -529,7 +533,7 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '', consumable: false }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '' }])
     setInput('')
   }
 
@@ -539,10 +543,6 @@ function CategoriesSection({ team }) {
 
   function setBudget(key, value) {
     setRows(rows.map((r) => (r.key === key ? { ...r, budget: value } : r)))
-  }
-
-  function setConsumable(key, value) {
-    setRows(rows.map((r) => (r.key === key ? { ...r, consumable: value } : r)))
   }
 
   function removeCategory(key) {
@@ -577,19 +577,16 @@ function CategoriesSection({ team }) {
     const categoryBudgets = Object.fromEntries(
       cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
     )
-    const consumableCategories = cleanRows.filter((r) => r.consumable).map((r) => r.name)
-    await updateCategories(team.id, categories, renames, categoryBudgets, consumableCategories)
-    setRows(
-      categories.map((name, i) => ({
-        key: `${name}-${i}`,
-        original: name,
-        name,
-        budget: String(categoryBudgets[name] || ''),
-        consumable: consumableCategories.includes(name),
-      }))
-    )
+    await updateCategories(team.id, categories, renames, categoryBudgets)
+    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name, budget: String(categoryBudgets[name] || '') })))
     setSaving(false)
     setSaved(true)
+  }
+
+  async function handleMigrateConsumable() {
+    setMigrating(true)
+    await migrateConsumableCategoriesToProducts(team.id, products, legacyConsumableCategories)
+    setMigrating(false)
   }
 
   return (
@@ -599,12 +596,23 @@ function CategoriesSection({ team }) {
         The categories offered when adding a product in Inventory or Orders. Edit a name in place,
         or remove it with Remove - changes save when you click Save below, and reach every product
         already using that category. Budget is optional and isn't a hard limit - it's just what the
-        dashboard's budget section compares spending against; leave it blank for "no budget".
-        Consumable marks a category as actually used up once a system claims it (glue, zip ties,
-        sheet stock) - adding it to a system lowers the product's real stock, and removing it (or
-        deleting the system) gives that stock back. Leave it off for reusable parts (motors,
-        sensors), which stay in stock and are only reserved against.
+        dashboard's budget section compares spending against; leave it blank for "no budget". Whether
+        a product is consumable - actually used up once a system claims it, rather than merely
+        reserved - is set per product now, in Inventory/Orders' own product form, not here.
       </p>
+      {legacyConsumableCategories.length > 0 && (
+        <p className="card form-card" style={{ maxWidth: 520, marginBottom: 12, fontSize: 13 }}>
+          Consumable used to be set per category here - {legacyConsumableCategories.join(', ')} still{' '}
+          {legacyConsumableCategories.length === 1 ? 'is' : 'are'} flagged the old way. Run this once to
+          carry that onto every product already in {legacyConsumableCategories.length === 1 ? 'it' : 'them'}, so
+          nothing needs to be re-ticked by hand.
+          <span className="form-actions" style={{ marginTop: 8 }}>
+            <button type="button" className="secondary" onClick={handleMigrateConsumable} disabled={migrating}>
+              {migrating ? 'Migrating…' : 'Migrate to per-product Consumable'}
+            </button>
+          </span>
+        </p>
+      )}
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.length === 0 && <span className="muted">None yet</span>}
@@ -635,14 +643,6 @@ function CategoriesSection({ team }) {
                 title="Budget"
                 style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
               />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, whiteSpace: 'nowrap' }}>
-                <input
-                  type="checkbox"
-                  checked={r.consumable}
-                  onChange={(e) => setConsumable(r.key, e.target.checked)}
-                />
-                Consumable
-              </label>
               <button
                 type="button"
                 className="link-btn danger"
@@ -712,10 +712,17 @@ function validateFormula(source) {
 // only ever stores which type it is (by name) and its own field values -
 // never a copy of the formulas - so editing a formula here changes every
 // product of that type immediately (see computeToBuy/computeTotalPrice in
-// calc.js). Renaming a type breaks that link for products already using
-// the old name, the same as it always has for their field values; deleting
-// one just leaves those products with no type match, so they fall back to
-// the plain math and keep their stored field values.
+// calc.js). Renaming a type, or renaming one of its fields, carries every
+// product already using it over to the new name (see updateProductTypes)
+// so their custom field values stay attached instead of silently
+// disappearing from the form; deleting a type or a field still just leaves
+// those products' stored values as-is, unreferenced, the same as it always
+// has. Fields are tracked in `form.fields` as { key, original, name } (key
+// is a stable identity for reordering, `original` is the field's saved
+// name or null for one just added in this edit) rather than plain strings,
+// the same reason CategoriesSection's rows aren't - a plain string array
+// can't tell "renamed in place" apart from "removed one, added another"
+// once fields have also been reordered.
 function ProductTypesSection({ team }) {
   const types = team?.productTypes || []
   const [showForm, setShowForm] = useState(false)
@@ -735,7 +742,12 @@ function ProductTypesSection({ team }) {
   function startEdit(index) {
     const t = types[index]
     setEditingIndex(index)
-    setForm({ name: t.name, fields: [...t.fields], toBuyFormula: t.toBuyFormula || '', totalPriceFormula: t.totalPriceFormula || '' })
+    setForm({
+      name: t.name,
+      fields: t.fields.map((f, i) => ({ key: `${f}-${i}`, original: f, name: f })),
+      toBuyFormula: t.toBuyFormula || '',
+      totalPriceFormula: t.totalPriceFormula || '',
+    })
     setFieldInput('')
     setError('')
     setShowForm(true)
@@ -743,7 +755,7 @@ function ProductTypesSection({ team }) {
 
   function addField() {
     const trimmed = fieldInput.trim()
-    if (!trimmed || form.fields.includes(trimmed)) return
+    if (!trimmed || form.fields.some((r) => r.name === trimmed)) return
     if (isReservedFieldName(trimmed)) {
       setError(`"${trimmed}" is reserved for the to-buy/total-price formulas below - pick another name.`)
       return
@@ -752,31 +764,32 @@ function ProductTypesSection({ team }) {
       setError(`"${trimmed}" isn't a valid field name - it can't start and end with "__", or contain "/".`)
       return
     }
-    setForm({ ...form, fields: [...form.fields, trimmed] })
+    setForm({ ...form, fields: [...form.fields, { key: `new-${Date.now()}`, original: null, name: trimmed }] })
     setFieldInput('')
     setError('')
   }
 
-  function renameField(index, value) {
-    setForm({ ...form, fields: form.fields.map((f, i) => (i === index ? value : f)) })
+  function renameField(key, value) {
+    setForm({ ...form, fields: form.fields.map((r) => (r.key === key ? { ...r, name: value } : r)) })
   }
 
-  function removeField(index) {
-    setForm({ ...form, fields: form.fields.filter((_, i) => i !== index) })
+  function removeField(key) {
+    setForm({ ...form, fields: form.fields.filter((r) => r.key !== key) })
   }
 
-  function moveField(index, direction) {
-    setForm({ ...form, fields: swapNeighbours(form.fields, (_, i) => i === index, direction) })
+  function moveField(key, direction) {
+    setForm({ ...form, fields: swapNeighbours(form.fields, (r) => r.key === key, direction) })
   }
 
-  function moveFieldTo(index, toIndex) {
-    setForm({ ...form, fields: movedTo(form.fields, index, toIndex) })
+  function moveFieldTo(key, toIndex) {
+    setForm({ ...form, fields: movedTo(form.fields, form.fields.findIndex((r) => r.key === key), toIndex) })
   }
 
   function handleSubmit(e) {
     e.preventDefault()
     const name = form.name.trim()
-    const fields = form.fields.map((f) => f.trim()).filter(Boolean)
+    const cleanFields = form.fields.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
+    const fields = cleanFields.map((r) => r.name)
     const others = types.filter((_, i) => i !== editingIndex)
     if (others.some((t) => t.name === name)) {
       setError('A product type with this name already exists.')
@@ -806,9 +819,18 @@ function ProductTypesSection({ team }) {
     if (toBuyFormula) nextType.toBuyFormula = toBuyFormula
     if (totalPriceFormula) nextType.totalPriceFormula = totalPriceFormula
     const nextTypes = [...types]
+    // Only editing an existing type (not adding a new one) can have
+    // products already pointing at it - `typeName` is what they're
+    // currently keyed under, so it still matches even when the type's own
+    // name is also changing in this same edit (see updateProductTypes).
+    const originalTypeName = editingIndex !== null ? types[editingIndex].name : null
+    const rename = originalTypeName && originalTypeName !== name ? { from: originalTypeName, to: name } : null
+    const fieldRenames = Object.fromEntries(
+      cleanFields.filter((r) => r.original && r.original !== r.name).map((r) => [r.original, r.name])
+    )
     if (editingIndex === null) nextTypes.push(nextType)
     else nextTypes[editingIndex] = nextType
-    updateTeam(team.id, { productTypes: nextTypes })
+    updateProductTypes(team.id, nextTypes, { typeName: originalTypeName, rename, fieldRenames })
     setShowForm(false)
   }
 
@@ -835,42 +857,30 @@ function ProductTypesSection({ team }) {
         student sign-in - see Codes below for that link. Accept or decline what they submit from the
         "Student requests" table on Orders.
       </p>
-      <StickyTableScroll style={{ maxWidth: 420 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Fields</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {types.map((t, i) => (
-              <tr key={t.name}>
-                <td>{t.name}</td>
-                <td className="muted">{t.fields.join(', ') || '—'}</td>
-                <td>
-                  <div className="row-actions">
-                    <button type="button" className="link-btn" onClick={() => startEdit(i)}>
-                      Edit
-                    </button>
-                    <button type="button" className="link-btn danger" onClick={() => handleDelete(i)}>
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {types.length === 0 && (
-              <tr>
-                <td colSpan={3} className="empty-cell">
-                  No custom product types yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+      <DataTable
+        columns={[
+          { key: 'name', header: 'Type', cell: (t) => t.name },
+          { key: 'fields', header: 'Fields', spread: true, cellClassName: 'muted', cell: (t) => t.fields.join(', ') || '—' },
+          {
+            key: 'actions',
+            header: '',
+            cell: (t, { index }) => (
+              <div className="row-actions">
+                <button type="button" className="link-btn" onClick={() => startEdit(index)}>
+                  Edit
+                </button>
+                <button type="button" className="link-btn danger" onClick={() => handleDelete(index)}>
+                  Delete
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={types}
+        getRowId={(t) => t.name}
+        emptyMessage="No custom product types yet."
+        style={{ maxWidth: 420 }}
+      />
       <button type="button" className="secondary" onClick={startNew}>
         + New product type
       </button>
@@ -892,24 +902,24 @@ function ProductTypesSection({ team }) {
         <label style={{ marginTop: 10 }}>Fields</label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {form.fields.length === 0 && <span className="muted">None yet</span>}
-          {form.fields.map((f, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {form.fields.map((r, i) => (
+            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <MoveButtons
-                onUp={() => moveField(i, -1)}
-                onDown={() => moveField(i, 1)}
+                onUp={() => moveField(r.key, -1)}
+                onDown={() => moveField(r.key, 1)}
                 canUp={i > 0}
                 canDown={i < form.fields.length - 1}
                 index={i}
                 count={form.fields.length}
-                onMoveTo={(toIndex) => moveFieldTo(i, toIndex)}
+                onMoveTo={(toIndex) => moveFieldTo(r.key, toIndex)}
                 label="field"
               />
               <input
-                value={f}
-                onChange={(e) => renameField(i, e.target.value)}
+                value={r.name}
+                onChange={(e) => renameField(r.key, e.target.value)}
                 style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
               />
-              <button type="button" className="link-btn danger" onClick={() => removeField(i)} aria-label={`Remove ${f}`}>
+              <button type="button" className="link-btn danger" onClick={() => removeField(r.key)} aria-label={`Remove ${r.name}`}>
                 Remove
               </button>
             </div>
@@ -1377,6 +1387,107 @@ function CommunityHoursSection({ teamId }) {
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+// Client-side only (see googleCalendar.js) - connecting signs into
+// whichever Google account should own the events (the team's own shared
+// account, not each admin's personal one) and keeps the token in memory
+// for this tab only, never persisted. That means it has to be reconnected
+// once a session (or once it expires, roughly an hour) before automatic
+// sync on create/edit reaches Google again - "Add every existing date" is
+// the reliable catch-up for whatever was created while nobody was
+// connected, run it any time after reconnecting to be sure everything's
+// caught up.
+function GoogleCalendarSection({ teamId }) {
+  const [calendarState, setCalendarState] = useState(getGoogleCalendarState())
+  const [connecting, setConnecting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState('')
+  const [syncedMessage, setSyncedMessage] = useState('')
+  const { data: events } = useEvents(teamId)
+  const { data: allTrainings } = useTrainings(teamId)
+
+  useEffect(() => subscribeGoogleCalendar(setCalendarState), [])
+
+  const configured = isGoogleCalendarConfigured()
+  const connected = !!calendarState.accessToken
+
+  async function handleConnect() {
+    setError('')
+    setConnecting(true)
+    try {
+      await connectGoogleCalendar()
+    } catch (e) {
+      setError(e.message)
+    }
+    setConnecting(false)
+  }
+
+  async function handleSyncAll() {
+    setError('')
+    setSyncedMessage('')
+    setSyncing(true)
+    const trainings = allTrainings.filter((t) => !t.parentTrainingId)
+    try {
+      await syncAllDatesToCalendar(teamId, { events, trainings })
+      const count = events.filter((e) => e.date).length + trainings.filter((t) => t.targetDate).length
+      setSyncedMessage(`Added/updated ${count} date${count === 1 ? '' : 's'} on the calendar.`)
+    } catch (e) {
+      setError(e.message)
+    }
+    setSyncing(false)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Google Calendar</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        Once connected, every event, training due date, and certification target date automatically
+        gets an all-day entry on the connected Google account's calendar as it's created or edited -
+        and comes off it again if it's deleted or its date is cleared. Connect using the team's own
+        shared Google account, not a personal one, so everything lands in one place.
+      </p>
+      {!configured ? (
+        <p className="card form-card" style={{ maxWidth: 520, fontSize: 13 }}>
+          This deployment doesn't have a Google Calendar client ID set up yet
+          (<code>VITE_GOOGLE_CLIENT_ID</code>). In Google Cloud Console, for this same project: enable the
+          Google Calendar API, configure the OAuth consent screen (add the team's Google account as a test
+          user if it stays in Testing), then create an OAuth 2.0 Client ID (Web application) with this
+          site's URL under Authorized JavaScript origins. Put the resulting client ID in the deploy's{' '}
+          <code>.env.local</code> as <code>VITE_GOOGLE_CLIENT_ID</code> and rebuild.
+        </p>
+      ) : (
+        <div className="card form-card" style={{ maxWidth: 520 }}>
+          <p style={{ margin: 0 }}>
+            {connected ? (
+              <>
+                Connected{calendarState.email ? ` as ${calendarState.email}` : ''}.{' '}
+                <span className="muted">Reconnect if this session logs out or the token expires.</span>
+              </>
+            ) : (
+              <span className="muted">Not connected - nothing syncs to a calendar right now.</span>
+            )}
+          </p>
+          {error && <p className="form-error">{error}</p>}
+          {syncedMessage && <p className="muted">{syncedMessage}</p>}
+          <div className="form-actions" style={{ justifyContent: 'flex-start', marginTop: 10 }}>
+            {connected ? (
+              <button type="button" className="secondary" onClick={disconnectGoogleCalendar}>
+                Disconnect
+              </button>
+            ) : (
+              <button type="button" onClick={handleConnect} disabled={connecting}>
+                {connecting ? 'Connecting…' : 'Connect Google Calendar'}
+              </button>
+            )}
+            <button type="button" className="secondary" onClick={handleSyncAll} disabled={!connected || syncing}>
+              {syncing ? 'Adding…' : 'Add every existing date'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

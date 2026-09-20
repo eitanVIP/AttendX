@@ -65,7 +65,8 @@ export default function ProductForm({
         </label>
         <label>
           Price
-          <input type="number" min="0" step="0.01" value={form.price} onChange={set('price')} required />
+          {/* step="any": "0.01" made the browser reject submission past 2 decimals - rounding is display-only (ProductTable). */}
+          <input type="number" min="0" step="any" value={form.price} onChange={set('price')} required />
         </label>
         <label>
           Currency
@@ -122,6 +123,16 @@ export default function ProductForm({
         <label>
           Wanted count
           <input type="number" min="0" step="any" value={form.wantedCount} onChange={set('wantedCount')} />
+        </label>
+        <label className="span-2 checkbox-field">
+          <input
+            type="checkbox"
+            checked={!!form.consumable}
+            onChange={(e) => setForm({ ...form, consumable: e.target.checked })}
+          />
+          Consumable - claiming it on a system actually uses it up (glue, zip ties, sheet stock), lowering
+          this count in inventory. Leave off for reusable parts (motors, sensors), which stay in stock and
+          are only reserved against.
         </label>
       </div>
       <div className="form-actions">

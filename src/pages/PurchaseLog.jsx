@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import FormPanel from '../components/FormPanel'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import { usePurchases } from '../lib/firestore-hooks'
-import { todayISO, totalSpent } from '../lib/calc'
+import { formatDate, todayISO, totalSpent } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { logFakePurchase, revertPurchase } from '../lib/actions'
 
@@ -137,7 +137,7 @@ export default function PurchaseLog() {
             <input
               type="number"
               min="0"
-              step="0.01"
+              step="any"
               value={form.unitPrice}
               onChange={(e) => setForm({ ...form, unitPrice: e.target.value })}
               required
@@ -162,50 +162,45 @@ export default function PurchaseLog() {
         </div>
       </FormPanel>
 
-      <StickyTableScroll>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Item</th>
-              <th>Category</th>
-              <th>Quantity</th>
-              <th>Cost</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {purchases.map((p) => {
+      <DataTable
+        columns={[
+          { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date) },
+          {
+            key: 'item',
+            header: 'Item',
+            sticky: 'left',
+            cell: (p) => (
+              <>
+                {p.productName}
+                {!p.productId && <span className="muted"> (manual)</span>}
+              </>
+            ),
+          },
+          { key: 'category', header: 'Category', cellClassName: 'muted', cell: (p) => p.category || 'Uncategorized' },
+          { key: 'quantity', header: 'Quantity', cell: (p) => p.quantity },
+          {
+            key: 'cost',
+            header: 'Cost',
+            cell: (p) => {
               const converted = convertPrice(p.unitPrice, p.currency, preferred, rates)
               const cost = converted !== null ? converted * p.quantity : null
-              return (
-                <tr key={p.id}>
-                  <td>{p.date}</td>
-                  <td>
-                    {p.productName}
-                    {!p.productId && <span className="muted"> (manual)</span>}
-                  </td>
-                  <td className="muted">{p.category || 'Uncategorized'}</td>
-                  <td>{p.quantity}</td>
-                  <td>{cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'}</td>
-                  <td>
-                    <button className="link-btn danger" onClick={() => handleRemove(p)}>
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-            {purchases.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty-cell">
-                  Nothing logged yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+              return cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'
+            },
+          },
+          {
+            key: 'actions',
+            header: '',
+            sticky: 'right',
+            cell: (p) => (
+              <button className="link-btn danger" onClick={() => handleRemove(p)}>
+                Remove
+              </button>
+            ),
+          },
+        ]}
+        rows={purchases}
+        emptyMessage="Nothing logged yet."
+      />
     </div>
   )
 }

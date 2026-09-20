@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import StickyTableScroll from './StickyTableScroll'
+import { useMemo, useState } from 'react'
+import DataTable from './DataTable'
 import FormPanel from './FormPanel'
 import { NO_PRODUCT_TYPES, computeToBuy, computeTotalPrice, hasCustomData } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
@@ -22,6 +22,7 @@ export default function ProductTable({
   showCurrency = true,
   showInStock = true,
   showWanted = true,
+  showConsumable = true,
   showToBuy,
   showTotal,
   showRequestedBy,
@@ -41,150 +42,184 @@ export default function ProductTable({
   // A product's type can replace either of these with its own formula,
   // looked up live from productTypes every render (see computeToBuy/
   // computeTotalPrice in calc.js) - falls back to the plain math for every
-  // regular product.
-  const rowValues = (p) => {
-    const converted = convertPrice(p.price, p.currency, preferred, rates)
-    const toBuy = computeToBuy(p, productTypes)
-    const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
-    return { converted, toBuy, total }
-  }
-  const grandTotal = showTotal ? products.reduce((sum, p) => sum + (rowValues(p).total.value || 0), 0) : 0
-  // 5 always-shown columns (Name, SKU, Category, Price, Supplier) + whichever
-  // of Currency/In stock/Wanted/To buy/Total/Requested by apply + Info + the
-  // trailing actions column. Total, when shown, always ends up right before
-  // Requested by/Info/Actions regardless of which of the others are on - see
-  // trailingAfterTotal below, which relies on that.
-  const colCount =
-    5 +
-    (showCurrency ? 1 : 0) +
-    (showInStock ? 1 : 0) +
-    (showWanted ? 1 : 0) +
-    (showToBuy ? 1 : 0) +
-    (showTotal ? 1 : 0) +
-    (showRequestedBy ? 1 : 0) +
-    1 +
-    1
-  // Columns after Total's own value cell, for the footer's trailing colSpan.
-  const trailingAfterTotal = 2 + (showRequestedBy ? 1 : 0)
+  // regular product. Computed once per product (not once per cell that
+  // needs it) and looked up by id from the cells below.
+  const rowValuesById = useMemo(() => {
+    const map = new Map()
+    for (const p of products) {
+      const converted = convertPrice(p.price, p.currency, preferred, rates)
+      const toBuy = computeToBuy(p, productTypes)
+      const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
+      map.set(p.id, { converted, toBuy, total })
+    }
+    return map
+  }, [products, productTypes, rates, preferred])
+
+  const grandTotal = showTotal
+    ? products.reduce((sum, p) => sum + (rowValuesById.get(p.id)?.total.value || 0), 0)
+    : 0
+
+  const columns = useMemo(() => {
+    const cols = [
+      {
+        key: 'name',
+        header: 'Name',
+        sticky: 'left',
+        // Higher than the right columns' own default priority (~500), so
+        // on a narrow screen the name is the last thing to unfreeze, not
+        // the first - a bare 'left' column would otherwise default to
+        // exactly the right scale too and could lose to a wide Actions
+        // column depending on column count.
+        stickyPriority: 2000,
+        // minWidth, not width: in table-layout: auto, a plain `width` is
+        // only a flexible hint the browser happily shrinks back down to
+        // the content's own size once the table's columns don't all fit
+        // their specified widths (which is why raising it 3 times did
+        // nothing - every actual name was already shorter than it).
+        // minWidth is a hard floor - the table scrolls instead of shrinking
+        // it, same as Price's own minWidth just below. Paired with
+        // maxWidth so a long name still wraps to a couple of lines instead
+        // of stretching the column (and everything after it) out further.
+        minWidth: 240,
+        maxWidth: 340,
+        footerCell: () => (showTotal ? <strong>Total</strong> : null),
+        cell: (p) =>
+          p.link ? (
+            <a href={p.link} target="_blank" rel="noreferrer">
+              {p.name}
+            </a>
+          ) : (
+            p.name
+          ),
+      },
+      { key: 'sku', header: 'SKU', cell: (p) => p.sku },
+      { key: 'category', header: 'Category', cell: (p) => p.category },
+      {
+        key: 'price',
+        header: 'Price',
+        minWidth: 110,
+        cell: (p) => {
+          const { converted } = rowValuesById.get(p.id) || {}
+          const label = converted !== null ? `${converted.toFixed(2)} ${preferred}` : p.price ? `${p.price} ${p.currency}` : '—'
+          return <span title={converted !== null ? `Stored as ${p.price} ${p.currency}` : undefined}>{label}</span>
+        },
+      },
+    ]
+    if (showCurrency) cols.push({ key: 'currency', header: 'Currency', cell: (p) => p.currency })
+    cols.push({ key: 'supplier', header: 'Supplier', cell: (p) => p.supplier })
+    if (showInStock) cols.push({ key: 'inStock', header: 'In stock', cell: (p) => p.countInInventory })
+    if (showWanted) cols.push({ key: 'wanted', header: 'Wanted', cell: (p) => p.wantedCount })
+    if (showToBuy)
+      cols.push({
+        key: 'toBuy',
+        header: 'To buy',
+        cell: (p) => {
+          const { toBuy } = rowValuesById.get(p.id) || {}
+          return <span title={toBuy?.error || undefined}>{toBuy?.value !== null ? toBuy.value : '—'}</span>
+        },
+      })
+    if (showTotal)
+      cols.push({
+        key: 'total',
+        header: 'Total',
+        cell: (p) => {
+          const { total } = rowValuesById.get(p.id) || {}
+          return (
+            <span title={total?.error || undefined}>
+              {total?.value !== null ? `${total.value.toFixed(2)} ${preferred}` : '—'}
+            </span>
+          )
+        },
+        footerCell: () => (
+          <strong>
+            {grandTotal.toFixed(2)} {preferred}
+          </strong>
+        ),
+      })
+    if (showRequestedBy) cols.push({ key: 'requestedBy', header: 'Requested by', cell: (p) => p.requestedBy })
+    if (showConsumable)
+      cols.push({
+        key: 'consumable',
+        header: 'Consumable',
+        align: 'center',
+        cell: (p) => (
+          <input
+            type="checkbox"
+            checked={!!p.consumable}
+            disabled
+            title="Consumable - claiming it on a system lowers its real stock. Change it from Edit."
+          />
+        ),
+      })
+    cols.push({
+      key: 'info',
+      header: 'Info',
+      cell: (p) => (
+        <div className="row-actions">
+          {p.notes && (
+            <button type="button" className="link-btn" onClick={() => setViewingNotes(p)}>
+              Notes
+            </button>
+          )}
+          {hasCustomData(p) && (
+            <button type="button" className="link-btn" onClick={() => setViewingData(p)}>
+              Data
+            </button>
+          )}
+        </div>
+      ),
+    })
+    cols.push({
+      key: 'actions',
+      header: '',
+      sticky: 'right',
+      nowrap: true,
+      cell: (p) => (
+        <div className="row-actions">
+          {onAccept ? (
+            <>
+              <button className="link-btn" onClick={() => onAccept(p)}>
+                Accept
+              </button>
+              <button className="link-btn danger" onClick={() => onDecline(p)}>
+                Decline
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="link-btn" onClick={() => onEdit(p)}>
+                Edit
+              </button>
+              <button className="link-btn danger" onClick={() => onDelete(p)}>
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      ),
+    })
+    return cols
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    showCurrency,
+    showInStock,
+    showWanted,
+    showConsumable,
+    showToBuy,
+    showTotal,
+    showRequestedBy,
+    rowValuesById,
+    grandTotal,
+    preferred,
+    onAccept,
+    onDecline,
+    onEdit,
+    onDelete,
+  ])
 
   return (
     <>
-      <StickyTableScroll>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>SKU</th>
-              <th>Category</th>
-              <th>Price</th>
-              {showCurrency && <th>Currency</th>}
-              <th>Supplier</th>
-              {showInStock && <th>In stock</th>}
-              {showWanted && <th>Wanted</th>}
-              {showToBuy && <th>To buy</th>}
-              {showTotal && <th>Total</th>}
-              {showRequestedBy && <th>Requested by</th>}
-              <th>Info</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => {
-              const { converted, toBuy, total } = rowValues(p)
-              const priceLabel =
-                converted !== null ? `${converted.toFixed(2)} ${preferred}` : p.price ? `${p.price} ${p.currency}` : '—'
-              return (
-                <tr key={p.id}>
-                  <td>
-                    {p.link ? (
-                      <a href={p.link} target="_blank" rel="noreferrer">
-                        {p.name}
-                      </a>
-                    ) : (
-                      p.name
-                    )}
-                  </td>
-                  <td>{p.sku}</td>
-                  <td>{p.category}</td>
-                  <td title={converted !== null ? `Stored as ${p.price} ${p.currency}` : undefined}>{priceLabel}</td>
-                  {showCurrency && <td>{p.currency}</td>}
-                  <td>{p.supplier}</td>
-                  {showInStock && <td>{p.countInInventory}</td>}
-                  {showWanted && <td>{p.wantedCount}</td>}
-                  {showToBuy && (
-                    <td title={toBuy.error || undefined}>{toBuy.value !== null ? toBuy.value : '—'}</td>
-                  )}
-                  {showTotal && (
-                    <td title={total.error || undefined}>
-                      {total.value !== null ? `${total.value.toFixed(2)} ${preferred}` : '—'}
-                    </td>
-                  )}
-                  {showRequestedBy && <td>{p.requestedBy}</td>}
-                  <td>
-                    <div className="row-actions">
-                      {p.notes && (
-                        <button type="button" className="link-btn" onClick={() => setViewingNotes(p)}>
-                          Notes
-                        </button>
-                      )}
-                      {hasCustomData(p) && (
-                        <button type="button" className="link-btn" onClick={() => setViewingData(p)}>
-                          Data
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      {onAccept ? (
-                        <>
-                          <button className="link-btn" onClick={() => onAccept(p)}>
-                            Accept
-                          </button>
-                          <button className="link-btn danger" onClick={() => onDecline(p)}>
-                            Decline
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button className="link-btn" onClick={() => onEdit(p)}>
-                            Edit
-                          </button>
-                          <button className="link-btn danger" onClick={() => onDelete(p)}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {products.length === 0 && (
-              <tr>
-                <td colSpan={colCount} className="empty-cell">
-                  {emptyMessage}
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {showTotal && products.length > 0 && (
-            <tfoot>
-              <tr>
-                <td colSpan={colCount - 1 - trailingAfterTotal}>
-                  <strong>Total</strong>
-                </td>
-                <td>
-                  <strong>
-                    {grandTotal.toFixed(2)} {preferred}
-                  </strong>
-                </td>
-                <td colSpan={trailingAfterTotal}></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </StickyTableScroll>
+      <DataTable columns={columns} rows={products} emptyMessage={emptyMessage} footer={showTotal} />
 
       <FormPanel
         open={!!viewingNotes}
@@ -212,24 +247,16 @@ export default function ProductTable({
         <h2>
           {viewingData?.name} - {viewingData?.customData?.type}
         </h2>
-        <table className="data-table" style={{ margin: 0, minWidth: 0 }}>
-          <thead>
-            <tr>
-              <th>Field</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(viewingData?.customData || {})
-              .filter(([field]) => field !== 'type')
-              .map(([field, value]) => (
-                <tr key={field}>
-                  <td>{field}</td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
+        <DataTable
+          stickyHeader={false}
+          style={{ margin: 0 }}
+          columns={[
+            { key: 'field', header: 'Field', cell: ([field]) => field },
+            { key: 'value', header: 'Value', cell: ([, value]) => value },
+          ]}
+          rows={Object.entries(viewingData?.customData || {}).filter(([field]) => field !== 'type')}
+          getRowId={([field]) => field}
+        />
         <div className="form-actions">
           <button type="submit">Close</button>
         </div>

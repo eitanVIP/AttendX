@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, updateDoc } from 'firebase/firestore'
 import { communityDb } from '../firebase'
-import { effectiveStreak, studentCommunityHours, todayISO } from '../lib/calc'
+import { effectiveStreak, formatDate, studentCommunityHours, todayISO } from '../lib/calc'
 import { logStudentChange } from '../lib/communityLog'
 import { useStudentAuth } from '../context/StudentAuthContext'
 
@@ -75,7 +75,7 @@ export default function CommunityHours() {
         verified.teamId,
         'communityLog',
         'create',
-        `Logged ${entry.hours}h of ${entry.type} (${entry.date})`,
+        `Logged ${entry.hours}h of ${entry.type} (${formatDate(entry.date)})`,
         student?.fullName
       )
 

@@ -25,8 +25,10 @@ import {
   streakAfterRemoving,
   streakContributionsField,
   todayISO,
+  trainingCompletionCascade,
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
+import { deleteCalendarEvent, isGoogleCalendarConnected, upsertCalendarEvent } from './googleCalendar'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -40,6 +42,32 @@ import { DEFAULT_CURRENCY_RATES } from './currency'
 function logEntry(entity, action, summary) {
   const user = auth.currentUser
   return { at: new Date().toISOString(), uid: user?.uid || '', email: user?.email || '', entity, action, summary }
+}
+
+// --- Google Calendar -----------------------------------------------------
+// Keeps a Firestore doc's linked Google Calendar event (see
+// upsertCalendarEvent/deleteCalendarEvent in googleCalendar.js) in step
+// with whatever its own due date just became - creates one the first time
+// a date is set, updates it in place while the date keeps changing, and
+// removes it if the date is cleared. A no-op whenever nobody's connected
+// Google Calendar in this session (see isGoogleCalendarConnected) - and
+// never throws even when it does run, since a slow or failed Calendar API
+// call must never block or break the real Firestore save every caller
+// below already made before this runs. `ref` is the doc to write
+// googleCalendarEventId back onto once an event is created or replaced.
+async function syncDocCalendarEvent(ref, { title, date, description, previousEventId }) {
+  if (!isGoogleCalendarConnected()) return
+  try {
+    if (date) {
+      const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, description })
+      if (id && id !== previousEventId) await updateDoc(ref, { googleCalendarEventId: id })
+    } else if (previousEventId) {
+      await deleteCalendarEvent(previousEventId)
+      await updateDoc(ref, { googleCalendarEventId: deleteField() })
+    }
+  } catch (e) {
+    console.error('Google Calendar sync failed', e)
+  }
 }
 
 function logChange(teamId, entity, action, summary) {
@@ -132,12 +160,11 @@ export function updateTeam(teamId, changes) {
 // from the same rows `categories` comes from) - it's just written as-is,
 // alongside `categories`, on the team doc only (the dashboard budget
 // section is admin-only, so it has no need for the student-facing mirror).
-export async function updateCategories(teamId, categories, renames, categoryBudgets, consumableCategories) {
+export async function updateCategories(teamId, categories, renames, categoryBudgets) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets, consumableCategories }),
-    (batch) =>
-      batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories, consumableCategories }, { merge: true }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
   for (const d of snap.docs) {
@@ -146,6 +173,73 @@ export async function updateCategories(teamId, categories, renames, categoryBudg
     const next = renames[current] || ''
     writes.push((batch) => batch.update(d.ref, { category: next }))
   }
+  await commitAll(writes)
+}
+
+// Saving a product type has to reach every product already using it
+// whenever the type's own name or one of its field names changes -
+// otherwise a rename orphans every product still keyed to the old name:
+// `rename` (the type itself, { from, to } or null) breaks the
+// customData.type match so ProductForm can't find `selectedType` for it
+// any more, and an unmigrated field rename leaves a product's value sitting
+// under a key the type's own field list no longer has, so it just stops
+// showing up. `typeName` is the name products currently reference (the
+// type's name BEFORE this save, so it still matches what's stored even
+// when the type itself is also being renamed in the same edit);
+// `fieldRenames` is { oldFieldName: newFieldName } for fields renamed in
+// place. Both are looked up against one shared snapshot so a type rename
+// and its field renames land in the same write per product. Deleting a
+// type, or a field, still leaves affected products' stored values alone on
+// purpose (see the comment on ProductTypesSection) - only an actual rename
+// gets migrated.
+export async function updateProductTypes(teamId, productTypes, { typeName = null, rename = null, fieldRenames = {} } = {}) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), { productTypes }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { productTypes }, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('productType', 'update', 'Updated product types')),
+  ]
+  const fieldEntries = Object.entries(fieldRenames)
+  if (rename || fieldEntries.length > 0) {
+    const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
+    for (const d of snap.docs) {
+      const customData = d.data().customData || {}
+      if (customData.type !== typeName) continue
+      // A whole-map replace, not dotted `customData.<field>` paths - a
+      // field name is free-form (see isValidFieldName) and could itself
+      // contain a dot, which Firestore's dotted-path update would parse as
+      // a nested field instead of the literal key.
+      const nextCustomData = { ...customData }
+      for (const [from, to] of fieldEntries) {
+        if (from in nextCustomData) {
+          nextCustomData[to] = nextCustomData[from]
+          delete nextCustomData[from]
+        }
+      }
+      if (rename) nextCustomData.type = rename.to
+      writes.push((batch) => batch.update(d.ref, { customData: nextCustomData }))
+    }
+  }
+  await commitAll(writes)
+}
+
+// One-time cleanup for a team whose "Consumable" flag used to live on the
+// category (team.consumableCategories, since replaced by a per-product
+// checkbox in ProductForm - see isConsumableProduct in calc.js): flags
+// every product whose OWN category was in that list, then clears the list
+// itself so this only ever needs to run once. Shown as a button in
+// Settings' CategoriesSection only while team.consumableCategories still
+// has something in it.
+export async function migrateConsumableCategoriesToProducts(teamId, products, consumableCategories) {
+  const writes = products
+    .filter((p) => consumableCategories.includes(p.category) && !p.consumable)
+    .map((p) => (batch) => batch.update(doc(db, 'teams', teamId, 'products', p.id), { consumable: true }))
+  writes.push((batch) => batch.update(doc(db, 'teams', teamId), { consumableCategories: deleteField() }))
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('category', 'update', `Migrated ${writes.length - 1} product${writes.length - 1 === 1 ? '' : 's'} to the per-product Consumable flag`)
+    )
+  )
   await commitAll(writes)
 }
 
@@ -280,26 +374,40 @@ export function deleteCommunityLog(teamId, log) {
   ])
 }
 
-export function addEvent(teamId, event) {
-  return Promise.all([
-    addDoc(collection(db, 'teams', teamId, 'events'), event),
+export async function addEvent(teamId, event) {
+  const ref = await addDoc(collection(db, 'teams', teamId, 'events'), event)
+  await Promise.all([
     logChange(teamId, 'event', 'create', `Added event "${event.name}" (${event.date})`),
+    syncDocCalendarEvent(ref, { title: event.name, date: event.date }),
   ])
+  return ref
 }
 
-export function updateEvent(teamId, eventId, changes) {
+// `previous` (the event as it was before this edit) is what lets a date
+// change follow its already-linked Google Calendar event instead of
+// creating a second one - Settings.jsx passes the row it's editing, same
+// as deleteEvent below already takes the whole event rather than an id.
+export function updateEvent(teamId, eventId, changes, previous) {
+  const ref = doc(db, 'teams', teamId, 'events', eventId)
   return Promise.all([
-    updateDoc(doc(db, 'teams', teamId, 'events', eventId), changes),
+    updateDoc(ref, changes),
     logChange(teamId, 'event', 'update', `Updated event "${changes.name || eventId}"`),
+    syncDocCalendarEvent(ref, {
+      title: changes.name ?? previous?.name,
+      date: 'date' in changes ? changes.date : previous?.date,
+      previousEventId: previous?.googleCalendarEventId,
+    }),
   ])
 }
 
 // Takes the whole event (not just its id) - Settings.jsx already has it at
-// the call site, so the log can name it without an extra read.
+// the call site, so the log can name it without an extra read, and its
+// linked Google Calendar event (if any) can be cleaned up right alongside.
 export function deleteEvent(teamId, event) {
   return Promise.all([
     deleteDoc(doc(db, 'teams', teamId, 'events', event.id)),
     logChange(teamId, 'event', 'delete', `Deleted event "${event.name}"`),
+    deleteCalendarEvent(event.googleCalendarEventId),
   ])
 }
 
@@ -353,22 +461,75 @@ export function deleteStudent(teamId, student) {
   ])
 }
 
-export function addTraining(teamId, training) {
+// Sub-trainings (training.parentTrainingId) never get their own calendar
+// event - they're a detail view under their parent's own row, not a
+// deadline of their own the team needs a reminder for (see
+// isCountableTraining in calc.js for the same exclusion elsewhere).
+export async function addTraining(teamId, training) {
+  const ref = await addDoc(collection(db, 'teams', teamId, 'trainings'), {
+    completedStudentIds: [],
+    ...training,
+    order: Date.now(),
+  })
+  const kind = training.category === 'professional' ? 'certification' : 'training'
+  await Promise.all([
+    logChange(teamId, 'training', 'create', `Added ${kind} "${training.name}"`),
+    training.parentTrainingId
+      ? null
+      : syncDocCalendarEvent(ref, { title: `${kind === 'certification' ? 'Certification' : 'Training'} due: ${training.name}`, date: training.targetDate }),
+  ])
+  return ref
+}
+
+// `previous` (the training as it was before this edit) is what lets a date
+// change follow its already-linked Google Calendar event, same as
+// updateEvent above - Certifications.jsx/Trainings.jsx both already have
+// the row they're editing at the call site.
+export function updateTraining(teamId, trainingId, changes, previous) {
+  const ref = doc(db, 'teams', teamId, 'trainings', trainingId)
+  const kind = (changes.category ?? previous?.category) === 'professional' ? 'Certification' : 'Training'
   return Promise.all([
-    addDoc(collection(db, 'teams', teamId, 'trainings'), {
-      completedStudentIds: [],
-      ...training,
-      order: Date.now(),
-    }),
-    logChange(teamId, 'training', 'create', `Added ${training.category === 'professional' ? 'certification' : 'training'} "${training.name}"`),
+    updateDoc(ref, changes),
+    logChange(teamId, 'training', 'update', `Updated training "${changes.name || trainingId}"`),
+    previous?.parentTrainingId
+      ? null
+      : syncDocCalendarEvent(ref, {
+          title: `${kind} due: ${changes.name ?? previous?.name}`,
+          date: 'targetDate' in changes ? changes.targetDate : previous?.targetDate,
+          previousEventId: previous?.googleCalendarEventId,
+        }),
   ])
 }
 
-export function updateTraining(teamId, trainingId, changes) {
-  return Promise.all([
-    updateDoc(doc(db, 'teams', teamId, 'trainings', trainingId), changes),
-    logChange(teamId, 'training', 'update', `Updated training "${changes.name || trainingId}"`),
-  ])
+// Catches up every event/training/certification that already has a due
+// date onto the now-connected Google Calendar - the "Add every existing
+// date" button in Settings, for turning the feature on after some dates
+// already exist, or for anything created while nobody happened to be
+// connected (see syncDocCalendarEvent above for why that can happen with
+// a client-side-only connection). Safe to run again later too: an item
+// that already has a googleCalendarEventId gets that same event updated
+// in place rather than a duplicate. Skips sub-trainings, same as every
+// other write above.
+export async function syncAllDatesToCalendar(teamId, { events, trainings }) {
+  const eventSyncs = events
+    .filter((e) => e.date)
+    .map((e) =>
+      syncDocCalendarEvent(doc(db, 'teams', teamId, 'events', e.id), {
+        title: e.name,
+        date: e.date,
+        previousEventId: e.googleCalendarEventId,
+      })
+    )
+  const trainingSyncs = trainings
+    .filter((t) => t.targetDate && !t.parentTrainingId)
+    .map((t) =>
+      syncDocCalendarEvent(doc(db, 'teams', teamId, 'trainings', t.id), {
+        title: `${t.category === 'professional' ? 'Certification' : 'Training'} due: ${t.name}`,
+        date: t.targetDate,
+        previousEventId: t.googleCalendarEventId,
+      })
+    )
+  await Promise.all([...eventSyncs, ...trainingSyncs])
 }
 
 // Takes the whole training (not an id) for two reasons: the log can name it
@@ -382,9 +543,20 @@ export function updateTraining(teamId, trainingId, changes) {
 // arrays of objects can't be queried that specifically - so this is the
 // same full-roster-scan pattern updateTeamStructure already uses to fix up
 // students on a structural change.
-export async function deleteTraining(teamId, training) {
+//
+// `subTrainings` (a training's own children, if it has any - the caller
+// already has the full collection live from useTrainings) fall with their
+// parent rather than being left behind as orphans nothing can reach any
+// more. None of them need their own streak-contribution check: a
+// sub-training's own completion never earns credit directly (see
+// trainingCompletionCascade in calc.js), only `training`'s own id can
+// appear in a contribution, whether or not it has sub-trainings.
+export async function deleteTraining(teamId, training, subTrainings = []) {
   const studentsSnap = await getDocs(collection(db, 'teams', teamId, 'students'))
   const writes = [(batch) => batch.delete(doc(db, 'teams', teamId, 'trainings', training.id))]
+  for (const sub of subTrainings) {
+    writes.push((batch) => batch.delete(doc(db, 'teams', teamId, 'trainings', sub.id)))
+  }
   for (const d of studentsSnap.docs) {
     const student = { id: d.id, ...d.data() }
     const contribution = findStreakContribution(
@@ -401,13 +573,15 @@ export async function deleteTraining(teamId, training) {
       })
     )
   }
+  const kind = training.category === 'professional' ? 'certification' : training.parentTrainingId ? 'sub-training' : 'training'
+  const withSubs = subTrainings.length > 0 ? ` and its ${subTrainings.length} sub-training${subTrainings.length === 1 ? '' : 's'}` : ''
   writes.push((batch) =>
-    batch.set(
-      doc(collection(db, 'teams', teamId, 'log')),
-      logEntry('training', 'delete', `Deleted ${training.category === 'professional' ? 'certification' : 'training'} "${training.name}"`)
-    )
+    batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('training', 'delete', `Deleted ${kind} "${training.name}"${withSubs}`))
   )
-  await commitAll(writes)
+  // Sub-trainings never have their own calendar event (see addTraining) -
+  // only `training`'s own id needs cleaning up here even when it's
+  // bringing subTrainings down with it.
+  await Promise.all([commitAll(writes), deleteCalendarEvent(training.googleCalendarEventId)])
 }
 
 // Checking a training off also advances the student's training streak (see
@@ -421,15 +595,37 @@ export async function deleteTraining(teamId, training) {
 // transaction, and Firestore transactions skip the local-cache optimistic
 // echo plain updateDoc gets, which would make the checkbox itself feel
 // laggy.
-export function setTrainingCompletion(teamId, training, student, completed, resetDays = DEFAULT_STREAK_RESET_DAYS) {
-  const trainingRef = doc(db, 'teams', teamId, 'trainings', training.id)
-  const writes = [updateDoc(trainingRef, { completedStudentIds: completed ? arrayUnion(student.id) : arrayRemove(student.id) })]
-  if (completed) {
+//
+// `allTrainings` (every training/sub-training this team has, also already
+// in hand from useTrainings) is what lets a sub-training and its parent
+// stay in sync - see trainingCompletionCascade in calc.js, which this just
+// turns into the actual writes: every training whose completedStudentIds
+// changes as a result, and which single one of those (if any - toggling a
+// sub-training that doesn't happen to finish or unfinish every sibling
+// changes nothing else) is the training whose streak contribution should
+// change. Omitting it (or passing just [training]) falls back to the
+// pre-sub-trainings behaviour of only ever touching `training` itself.
+export function setTrainingCompletion(
+  teamId,
+  training,
+  student,
+  completed,
+  resetDays = DEFAULT_STREAK_RESET_DAYS,
+  allTrainings = [training]
+) {
+  const { changes, streakTarget } = trainingCompletionCascade(allTrainings, training, student, completed)
+  const writes = changes.map(({ training: t, completed: c }) =>
+    updateDoc(doc(db, 'teams', teamId, 'trainings', t.id), {
+      completedStudentIds: c ? arrayUnion(student.id) : arrayRemove(student.id),
+    })
+  )
+  if (streakTarget?.completed) {
+    const { training: earned } = streakTarget
     const contribution = {
       id: crypto.randomUUID(),
       type: 'training',
-      trainingId: training.id,
-      trainingName: training.name,
+      trainingId: earned.id,
+      trainingName: earned.name,
       at: new Date().toISOString(),
     }
     writes.push(
@@ -439,15 +635,16 @@ export function setTrainingCompletion(teamId, training, student, completed, rese
         streakContributions: arrayUnion(contribution),
       })
     )
-    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Marked ${student.fullName} as completing "${training.name}"`))
-  } else {
+    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Marked ${student.fullName} as completing "${earned.name}"`))
+  } else if (streakTarget) {
+    const { training: reverted } = streakTarget
     // Only reverts the streak if this training is actually still one of
     // this student's contributions - toggling a checkbox that's already in
     // whatever state it's headed to (a stale click, a race between two
     // admins) shouldn't silently eat another streak day it didn't earn.
     const contribution = findStreakContribution(
       student.streakContributions,
-      (c) => c.type === 'training' && c.trainingId === training.id
+      (c) => c.type === 'training' && c.trainingId === reverted.id
     )
     if (contribution) {
       const { streak, lastAt } = streakAfterRemoving(student.streakContributions, contribution)
@@ -459,7 +656,16 @@ export function setTrainingCompletion(teamId, training, student, completed, rese
         })
       )
     }
-    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Unmarked ${student.fullName}'s completion of "${training.name}"`))
+    writes.push(logChange(teamId, 'trainingCompletion', 'update', `Unmarked ${student.fullName}'s completion of "${reverted.name}"`))
+  } else {
+    writes.push(
+      logChange(
+        teamId,
+        'trainingCompletion',
+        'update',
+        `${completed ? 'Marked' : 'Unmarked'} ${student.fullName}${completed ? ' as completing' : "'s completion of"} "${training.name}"`
+      )
+    )
   }
   return Promise.all(writes)
 }

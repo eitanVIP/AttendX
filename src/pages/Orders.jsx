@@ -5,7 +5,7 @@ import FormPanel from '../components/FormPanel'
 import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
-import StickyTableScroll from '../components/StickyTableScroll'
+import DataTable from '../components/DataTable'
 import { usePurchases, useOrderRequests, useProducts } from '../lib/firestore-hooks'
 import {
   DEFAULT_PRODUCT,
@@ -13,6 +13,7 @@ import {
   computeToBuy,
   computeTotalPrice,
   findDuplicateProduct,
+  formatDate,
   productMatchesSearch,
 } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
@@ -243,6 +244,7 @@ export default function Orders() {
         showCurrency={false}
         showInStock={false}
         showWanted={false}
+        showConsumable={false}
         showToBuy
         showTotal
       />
@@ -262,52 +264,39 @@ export default function Orders() {
         Logged by hand - each one restocks the product and counts toward its category's spend on the
         dashboard. Dismiss just hides a row here; revert undoes it entirely.
       </p>
-      <StickyTableScroll>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Product</th>
-              <th>Category</th>
-              <th>Quantity</th>
-              <th>Cost</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {visiblePurchases.map((p) => {
+      <DataTable
+        columns={[
+          { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date) },
+          { key: 'product', header: 'Product', sticky: 'left', cell: (p) => p.productName },
+          { key: 'category', header: 'Category', cellClassName: 'muted', cell: (p) => p.category || 'Uncategorized' },
+          { key: 'quantity', header: 'Quantity', cell: (p) => p.quantity },
+          {
+            key: 'cost',
+            header: 'Cost',
+            cell: (p) => {
               const converted = convertPrice(p.unitPrice, p.currency, preferred, rates)
               const cost = converted !== null ? converted * p.quantity : null
-              return (
-                <tr key={p.id}>
-                  <td>{p.date}</td>
-                  <td>{p.productName}</td>
-                  <td className="muted">{p.category || 'Uncategorized'}</td>
-                  <td>{p.quantity}</td>
-                  <td>{cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="link-btn" onClick={() => handleDismissPurchase(p)}>
-                        Dismiss
-                      </button>
-                      <button className="link-btn danger" onClick={() => handleRevertPurchase(p)}>
-                        Revert
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {visiblePurchases.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty-cell">
-                  Nothing here yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </StickyTableScroll>
+              return cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'
+            },
+          },
+          {
+            key: 'actions',
+            header: '',
+            sticky: 'right',
+            cell: (p) => (
+              <div className="row-actions">
+                <button className="link-btn" onClick={() => handleDismissPurchase(p)}>
+                  Dismiss
+                </button>
+                <button className="link-btn danger" onClick={() => handleRevertPurchase(p)}>
+                  Revert
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={visiblePurchases}
+      />
 
       <FormPanel open={showBoughtForm} onClose={() => setShowBoughtForm(false)} onSubmit={handleLogPurchase}>
         <h2>Log a purchase</h2>
@@ -357,6 +346,7 @@ export default function Orders() {
         showCurrency={false}
         showInStock={false}
         showWanted={false}
+        showConsumable={false}
         showToBuy
         showTotal
         showRequestedBy

@@ -8,7 +8,7 @@ import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, findDuplicateProduct, productMatches
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { addProduct, deleteProduct, importProducts, updateProduct } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
-import { downloadCSV, parseProductImport } from '../lib/csv'
+import { downloadCSV, parseProductImport, PRODUCT_IMPORT_HEADERS } from '../lib/csv'
 
 export default function Inventory() {
   const { team } = useAuth()
@@ -87,7 +87,6 @@ export default function Inventory() {
   // USD), and this same file is what Import CSV reads back in, so it has to
   // round-trip losslessly.
   function handleExport() {
-    const headers = ['Name', 'SKU', 'Category', 'Price', 'Currency', 'Supplier', 'In stock', 'Wanted']
     const rows = filtered.map((p) => [
       p.name,
       p.sku,
@@ -95,10 +94,11 @@ export default function Inventory() {
       p.price,
       p.currency,
       p.supplier,
+      p.link,
       p.countInInventory,
       p.wantedCount,
     ])
-    downloadCSV('inventory.csv', headers, rows)
+    downloadCSV('inventory.csv', PRODUCT_IMPORT_HEADERS, rows)
   }
 
   // Validates the whole file before writing anything - if any row is wrong,

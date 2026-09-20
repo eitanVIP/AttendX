@@ -6,7 +6,9 @@ import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import {
   certHolders,
   certProgress,
+  formatDate,
   groupByScope,
+  isCountableTraining,
   movedWithinGroup,
   swappedRows,
   trainingAppliesToScope,
@@ -59,7 +61,7 @@ export default function Certifications() {
   // requiring a Controls training a Mechanical student would never even
   // see, and a Mechanical/Design cert can't require a Mechanical/
   // Manufacturing-only training either.
-  const requirableTrainings = useMemo(() => allTrainings.filter((t) => t.category !== 'professional'), [allTrainings])
+  const requirableTrainings = useMemo(() => allTrainings.filter(isCountableTraining), [allTrainings])
   const formRequirableTrainings = useMemo(
     () => requirableTrainingsFor(requirableTrainings, form.scopeDivision, form.scopeSubdivision, form.requiredTrainingIds),
     [requirableTrainings, form.scopeDivision, form.scopeSubdivision, form.requiredTrainingIds]
@@ -209,6 +211,8 @@ export default function Certifications() {
         </div>
         <RequiredTrainingsPicker
           trainings={formRequirableTrainings}
+          divisions={divisions}
+          subdivisionsByDivision={subdivisionsByDivision}
           selected={form.requiredTrainingIds}
           onChange={(ids) => setForm({ ...form, requiredTrainingIds: ids })}
         />
@@ -251,7 +255,21 @@ export default function Certifications() {
   )
 }
 
-function RequiredTrainingsPicker({ trainings, selected, onChange }) {
+// Grouped the same way Trainings.jsx groups its own table (same function,
+// same divisions/subdivisionsByDivision) so a training sits under the same
+// heading, in the same relative order, here as it does on that page -
+// rather than one flat list ordered by raw doc-creation order, which could
+// easily disagree with what an admin sees on the Trainings tab.
+function RequiredTrainingsPicker({ trainings, divisions, subdivisionsByDivision, selected, onChange }) {
+  const groups = useMemo(
+    () =>
+      groupByScope(trainings, divisions, subdivisionsByDivision).map((g) => ({
+        ...g,
+        title: g.division ? (g.subdivision ? `${g.division} / ${g.subdivision}` : g.division) : 'General',
+      })),
+    [trainings, divisions, subdivisionsByDivision]
+  )
+
   function toggle(id) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
   }
@@ -262,22 +280,22 @@ function RequiredTrainingsPicker({ trainings, selected, onChange }) {
       {trainings.length === 0 ? (
         <p className="muted">No trainings exist yet - add some under Trainings first.</p>
       ) : (
-        <ul className="checklist">
-          {trainings.map((t) => (
-            <li key={t.id}>
-              <label>
-                <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
-                {t.name}
-                {t.outOfScope && (
-                  <span className="muted">
-                    {' '}
-                    (from {t.scopeDivision ? (t.scopeSubdivision ? `${t.scopeDivision} / ${t.scopeSubdivision}` : t.scopeDivision) : 'General'})
-                  </span>
-                )}
-              </label>
-            </li>
-          ))}
-        </ul>
+        groups.map((group) => (
+          <div key={group.key} className="required-trainings-group">
+            <span className="required-trainings-group-title muted">{group.title}</span>
+            <ul className="checklist">
+              {group.items.map((t) => (
+                <li key={t.id}>
+                  <label>
+                    <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
+                    {t.name}
+                    {t.outOfScope && <span className="muted"> (out of scope - won't be offered once unchecked)</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
       )}
     </div>
   )
@@ -333,14 +351,19 @@ function CertCard({
 
   function saveEdit(e) {
     e.preventDefault()
-    updateTraining(teamId, cert.id, {
-      name: editForm.name,
-      targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.active).length,
-      targetDate: editForm.targetDate || null,
-      scopeDivision: editForm.scopeDivision || null,
-      scopeSubdivision: editForm.scopeSubdivision || null,
-      requiredTrainingIds: editForm.requiredTrainingIds,
-    })
+    updateTraining(
+      teamId,
+      cert.id,
+      {
+        name: editForm.name,
+        targetCount: editForm.targetCount ? Number(editForm.targetCount) : students.filter((s) => s.active).length,
+        targetDate: editForm.targetDate || null,
+        scopeDivision: editForm.scopeDivision || null,
+        scopeSubdivision: editForm.scopeSubdivision || null,
+        requiredTrainingIds: editForm.requiredTrainingIds,
+      },
+      cert
+    )
     setMode('view')
   }
 
@@ -404,6 +427,8 @@ function CertCard({
         </label>
         <RequiredTrainingsPicker
           trainings={editFormRequirableTrainings}
+          divisions={divisions}
+          subdivisionsByDivision={subdivisionsByDivision}
           selected={editForm.requiredTrainingIds}
           onChange={(ids) => setEditForm({ ...editForm, requiredTrainingIds: ids })}
         />
@@ -428,7 +453,7 @@ function CertCard({
         </svg>
         <div className="cert-title">
           <h3>{cert.name}</h3>
-          {cert.targetDate && <span className="muted">Target {cert.targetDate}</span>}
+          {cert.targetDate && <span className="muted">Target {formatDate(cert.targetDate)}</span>}
         </div>
       </div>
 
