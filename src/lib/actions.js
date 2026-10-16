@@ -95,6 +95,7 @@ export async function purgeOldLogEntries(teamId, retentionDays) {
 // lets a student read while the team doc stays admin-only.
 const PRODUCT_SETTINGS_FIELDS = [
   'categories',
+  'subcategories',
   'productTypes',
   'currencyRates',
   'name',
@@ -126,6 +127,7 @@ export async function ensureProductSettingsMirror(team) {
     ref,
     {
       categories: team.categories || [],
+      subcategories: team.subcategories || {},
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -160,18 +162,32 @@ export function updateTeam(teamId, changes) {
 // from the same rows `categories` comes from) - it's just written as-is,
 // alongside `categories`, on the team doc only (the dashboard budget
 // section is admin-only, so it has no need for the student-facing mirror).
-export async function updateCategories(teamId, categories, renames, categoryBudgets) {
+//
+// `subcategories` ({ categoryName: [subcategoryName, ...] }, keyed by the
+// new category names) gets the same treatment one level down:
+// `subcategoryRenames` is { newCategoryName: { oldSub: newSub } }, and a
+// product whose subcategory is neither still listed under its (possibly
+// renamed) category nor a rename's old name has it cleared - the product
+// stays in its category, it just isn't narrowed any further.
+export async function updateCategories(teamId, categories, renames, categoryBudgets, subcategories = {}, subcategoryRenames = {}) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
-    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets, subcategories }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories, subcategories }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
   for (const d of snap.docs) {
     const current = d.data().category || ''
-    if (!current || categories.includes(current)) continue
-    const next = renames[current] || ''
-    writes.push((batch) => batch.update(d.ref, { category: next }))
+    const currentSub = d.data().subcategory || ''
+    if (!current) {
+      if (currentSub) writes.push((batch) => batch.update(d.ref, { subcategory: '' }))
+      continue
+    }
+    const next = categories.includes(current) ? current : renames[current] || ''
+    const subs = (next && subcategories[next]) || []
+    const nextSub = !currentSub || subs.includes(currentSub) ? currentSub : subcategoryRenames[next]?.[currentSub] || ''
+    if (next === current && nextSub === currentSub) continue
+    writes.push((batch) => batch.update(d.ref, { category: next, subcategory: nextSub }))
   }
   await commitAll(writes)
 }
@@ -850,6 +866,7 @@ export function logPurchase(teamId, product, quantity) {
     productId: product.id,
     productName: product.name,
     category: product.category || '',
+    subcategory: product.subcategory || '',
     quantity,
     unitPrice: product.price || 0,
     currency: product.currency || 'NIS',

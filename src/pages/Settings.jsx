@@ -502,18 +502,26 @@ function EventsSection({ teamId }) {
   )
 }
 
+function subsToRows(names) {
+  return (names || []).map((name, i) => ({ key: `${name}-${i}`, original: name, name }))
+}
+
 function teamToCategoryRows(team) {
   return (team?.categories || []).map((name, i) => ({
     key: `${name}-${i}`,
     original: name,
     name,
     budget: String(team?.categoryBudgets?.[name] || ''),
+    subs: subsToRows(team?.subcategories?.[name]),
+    subInput: '',
   }))
 }
 
-// Mirrors the flat community-types editor below, not the nested division
-// one - categories have no subcategories. Renaming or removing one here
-// rewrites every product that used the old name (see updateCategories).
+// Mirrors the flat community-types editor below, with each category
+// optionally holding its own short list of subcategories (team.subcategories,
+// { category: [names] }) - one level only, no sub-subcategories. Renaming or
+// removing either here rewrites every product that used the old name (see
+// updateCategories).
 function CategoriesSection({ team }) {
   const [rows, setRows] = useState(teamToCategoryRows(team))
   const [input, setInput] = useState('')
@@ -533,8 +541,28 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '', subs: [], subInput: '' }])
     setInput('')
+  }
+
+  function updateRow(key, update) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...update(r) } : r)))
+  }
+
+  function addSubcategory(key) {
+    updateRow(key, (r) => {
+      const trimmed = r.subInput.trim()
+      if (!trimmed || r.subs.some((s) => s.name === trimmed)) return {}
+      return { subs: [...r.subs, { key: `new-${Date.now()}`, original: null, name: trimmed }], subInput: '' }
+    })
+  }
+
+  function renameSubcategory(key, subKey, value) {
+    updateRow(key, (r) => ({ subs: r.subs.map((s) => (s.key === subKey ? { ...s, name: value } : s)) }))
+  }
+
+  function removeSubcategory(key, subKey) {
+    updateRow(key, (r) => ({ subs: r.subs.filter((s) => s.key !== subKey) }))
   }
 
   function renameCategory(key, value) {
@@ -577,8 +605,31 @@ function CategoriesSection({ team }) {
     const categoryBudgets = Object.fromEntries(
       cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
     )
-    await updateCategories(team.id, categories, renames, categoryBudgets)
-    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name, budget: String(categoryBudgets[name] || '') })))
+    // Same idea one level down, keyed by the category's NEW name. A
+    // category with no subcategories is left out of the map entirely.
+    const subcategories = {}
+    const subcategoryRenames = {}
+    for (const r of cleanRows) {
+      const subs = r.subs.map((s) => ({ ...s, name: s.name.trim() })).filter((s) => s.name)
+      const names = [...new Set(subs.map((s) => s.name))]
+      if (names.length) subcategories[r.name] = names
+      for (const s of subs) {
+        if (s.original && s.original !== s.name) {
+          subcategoryRenames[r.name] = { ...subcategoryRenames[r.name], [s.original]: s.name }
+        }
+      }
+    }
+    await updateCategories(team.id, categories, renames, categoryBudgets, subcategories, subcategoryRenames)
+    setRows(
+      categories.map((name, i) => ({
+        key: `${name}-${i}`,
+        original: name,
+        name,
+        budget: String(categoryBudgets[name] || ''),
+        subs: subsToRows(subcategories[name]),
+        subInput: '',
+      }))
+    )
     setSaving(false)
     setSaved(true)
   }
@@ -595,7 +646,9 @@ function CategoriesSection({ team }) {
       <p className="muted" style={{ marginBottom: 12 }}>
         The categories offered when adding a product in Inventory or Orders. Edit a name in place,
         or remove it with Remove - changes save when you click Save below, and reach every product
-        already using that category. Budget is optional and isn't a hard limit - it's just what the
+        already using that category. Each category can optionally have subcategories (one level) -
+        they show up as an extra dropdown in the product form and as filter chips once that category
+        is picked. Budget is optional and isn't a hard limit - it's just what the
         dashboard's budget section compares spending against; leave it blank for "no budget". Whether
         a product is consumable - actually used up once a system claims it, rather than merely
         reserved - is set per product now, in Inventory/Orders' own product form, not here.
@@ -617,40 +670,82 @@ function CategoriesSection({ team }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.length === 0 && <span className="muted">None yet</span>}
           {rows.map((r, i) => (
-            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <MoveButtons
-                onUp={() => moveCategory(r.key, -1)}
-                onDown={() => moveCategory(r.key, 1)}
-                canUp={i > 0}
-                canDown={i < rows.length - 1}
-                index={i}
-                count={rows.length}
-                onMoveTo={(toIndex) => moveCategoryTo(r.key, toIndex)}
-                label="category"
-              />
-              <input
-                value={r.name}
-                onChange={(e) => renameCategory(r.key, e.target.value)}
-                style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
-              />
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={r.budget}
-                onChange={(e) => setBudget(r.key, e.target.value)}
-                placeholder="Budget"
-                title="Budget"
-                style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
-              />
-              <button
-                type="button"
-                className="link-btn danger"
-                onClick={() => removeCategory(r.key)}
-                aria-label={`Remove ${r.name}`}
-              >
-                Remove
-              </button>
+            <div key={r.key}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <MoveButtons
+                  onUp={() => moveCategory(r.key, -1)}
+                  onDown={() => moveCategory(r.key, 1)}
+                  canUp={i > 0}
+                  canDown={i < rows.length - 1}
+                  index={i}
+                  count={rows.length}
+                  onMoveTo={(toIndex) => moveCategoryTo(r.key, toIndex)}
+                  label="category"
+                />
+                <input
+                  value={r.name}
+                  onChange={(e) => renameCategory(r.key, e.target.value)}
+                  style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={r.budget}
+                  onChange={(e) => setBudget(r.key, e.target.value)}
+                  placeholder="Budget"
+                  title="Budget"
+                  style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
+                />
+                <button
+                  type="button"
+                  className="link-btn danger"
+                  onClick={() => removeCategory(r.key)}
+                  aria-label={`Remove ${r.name}`}
+                >
+                  Remove
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '4px 0 4px 32px' }}>
+                {r.subs.map((s) => (
+                  <div key={s.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className="muted" aria-hidden="true">↳</span>
+                    <input
+                      value={s.name}
+                      onChange={(e) => renameSubcategory(r.key, s.key, e.target.value)}
+                      aria-label={`Subcategory of ${r.name}`}
+                      style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 0 }}
+                    />
+                    <button
+                      type="button"
+                      className="link-btn danger"
+                      onClick={() => removeSubcategory(r.key, s.key)}
+                      aria-label={`Remove ${s.name}`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="muted" aria-hidden="true">↳</span>
+                  <input
+                    value={r.subInput}
+                    onChange={(e) => updateRow(r.key, () => ({ subInput: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addSubcategory(r.key)
+                      }
+                    }}
+                    placeholder="Add subcategory (optional)"
+                    aria-label={`New subcategory of ${r.name}`}
+                    style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 0 }}
+                  />
+                  <button type="button" className="link-btn" onClick={() => addSubcategory(r.key)}>
+                    Add
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
         </div>

@@ -303,6 +303,8 @@ export function trainingCompletionCascade(allTrainings, training, student, compl
 // fixed array rather than a fresh `[]` literal every render, or the hook
 // would never actually skip recomputing.
 export const NO_PRODUCT_TYPES = []
+// Same reason, for team?.subcategories ({ category: [names] }).
+export const NO_SUBCATEGORIES = {}
 
 // Inventory and Orders are two views of the same teams/{teamId}/products
 // collection - adding a product from either page just leaves the other
@@ -314,6 +316,10 @@ export const DEFAULT_PRODUCT = {
   countInInventory: 0,
   wantedCount: 0,
   category: '',
+  // Optional - one of team.subcategories[category] (see CategoriesSection in
+  // Settings). Blank means "just the category", same as before subcategories
+  // existed, so older products need no migration.
+  subcategory: '',
   price: 0,
   currency: 'NIS',
   supplier: '',
@@ -396,7 +402,7 @@ export function computeTotalPrice(product, productTypes, convertedPrice, toBuy) 
 // product live - a purchase is a historical fact ("this is what we paid on
 // this date"), so it shouldn't silently change if the product is later
 // renamed, recategorized, repriced, or deleted outright.
-export const DEFAULT_PURCHASE = { productId: '', productName: '', category: '', quantity: 0, unitPrice: 0, currency: 'NIS', date: '', dismissed: false }
+export const DEFAULT_PURCHASE = { productId: '', productName: '', category: '', subcategory: '', quantity: 0, unitPrice: 0, currency: 'NIS', date: '', dismissed: false }
 
 // Every logged purchase's cost, in the team's preferred currency, bucketed
 // by the category it was bought under (an empty/missing one groups as '' -
@@ -581,7 +587,7 @@ export function consumableInventoryDeltas(oldNeeds, newNeeds, products) {
 // Free-text search across every field a search box could plausibly mean by
 // "this product" - not just the name. customData is deliberately left out:
 // its fields vary per product type, so there's no fixed set to search.
-const PRODUCT_SEARCH_FIELDS = ['name', 'sku', 'category', 'supplier', 'currency', 'notes', 'link']
+const PRODUCT_SEARCH_FIELDS = ['name', 'sku', 'category', 'subcategory', 'supplier', 'currency', 'notes', 'link']
 
 // `rates`/`preferred` (the team's currency settings) are optional so this
 // still works with no conversion info at all - but when given, the price

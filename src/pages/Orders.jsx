@@ -10,6 +10,7 @@ import { usePurchases, useOrderRequests, useProducts } from '../lib/firestore-ho
 import {
   DEFAULT_PRODUCT,
   NO_PRODUCT_TYPES,
+  NO_SUBCATEGORIES,
   computeToBuy,
   computeTotalPrice,
   findDuplicateProduct,
@@ -40,12 +41,14 @@ export default function Orders() {
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_PRODUCT)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [subcategoryFilter, setSubcategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showBoughtForm, setShowBoughtForm] = useState(false)
   const [boughtProductId, setBoughtProductId] = useState('')
   const [boughtQuantity, setBoughtQuantity] = useState('1')
 
   const categories = team?.categories || []
+  const subcategories = team?.subcategories || NO_SUBCATEGORIES
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
@@ -60,8 +63,9 @@ export default function Orders() {
     () =>
       products
         .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter)
         .filter((p) => productMatchesSearch(p, search, { rates, preferred })),
-    [products, categoryFilter, search, rates, preferred]
+    [products, categoryFilter, subcategoryFilter, search, rates, preferred]
   )
   const needsBuying = useMemo(
     () => filtered.filter((p) => computeToBuy(p, productTypes).value !== 0),
@@ -75,16 +79,24 @@ export default function Orders() {
     () =>
       purchases
         .filter((p) => !p.dismissed)
-        .filter((p) => !categoryFilter || p.category === categoryFilter),
-    [purchases, categoryFilter]
+        .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter),
+    [purchases, categoryFilter, subcategoryFilter]
   )
   const filteredRequests = useMemo(
     () =>
       requests
         .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter)
         .filter((p) => productMatchesSearch(p, search, { rates, preferred })),
-    [requests, categoryFilter, search, rates, preferred]
+    [requests, categoryFilter, subcategoryFilter, search, rates, preferred]
   )
+
+  // A subcategory pick only means anything inside the category it belongs to.
+  function handleCategoryFilter(category) {
+    setCategoryFilter(category)
+    setSubcategoryFilter('')
+  }
 
   function startNew() {
     setEditingId(null)
@@ -218,7 +230,10 @@ export default function Orders() {
           products={products}
           categories={categories}
           categoryFilter={categoryFilter}
-          onCategoryFilter={setCategoryFilter}
+          onCategoryFilter={handleCategoryFilter}
+          subcategories={subcategories}
+          subcategoryFilter={subcategoryFilter}
+          onSubcategoryFilter={setSubcategoryFilter}
           search={search}
           onSearch={setSearch}
         />
@@ -232,6 +247,7 @@ export default function Orders() {
         setForm={setForm}
         editing={!!editingId}
         categories={categories}
+        subcategories={subcategories}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
       />

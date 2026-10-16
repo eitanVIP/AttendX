@@ -13,10 +13,19 @@ export default function ProductForm({
   setForm,
   editing,
   categories,
+  subcategories = {},
   currencyCodes,
   productTypes,
 }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
+
+  // Subcategories belong to one category each, so switching category drops
+  // the old pick rather than leaving a subcategory the new category doesn't
+  // have. The dropdown only appears when the chosen category has any.
+  const categorySubs = subcategories[form.category] || []
+  function setCategory(e) {
+    setForm({ ...form, category: e.target.value, subcategory: '' })
+  }
 
   // The selected type lives entirely in customData.type - there's no
   // separate "productType" field on the product itself (see hasCustomData
@@ -52,7 +61,7 @@ export default function ProductForm({
         </label>
         <label>
           Category
-          <select value={form.category} onChange={set('category')} required>
+          <select value={form.category} onChange={setCategory} required>
             <option value="" disabled>
               {categories.length ? 'Choose…' : 'Set up categories in Settings first'}
             </option>
@@ -63,6 +72,19 @@ export default function ProductForm({
             ))}
           </select>
         </label>
+        {categorySubs.length > 0 && (
+          <label>
+            Subcategory (optional)
+            <select value={form.subcategory || ''} onChange={set('subcategory')}>
+              <option value="">None</option>
+              {categorySubs.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Price
           {/* step="any": "0.01" made the browser reject submission past 2 decimals - rounding is display-only (ProductTable). */}
