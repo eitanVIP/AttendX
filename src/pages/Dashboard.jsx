@@ -20,19 +20,19 @@ import {
 } from '../lib/firestore-hooks'
 import {
   NO_PRODUCT_TYPES,
-  budgetRemainingSlices,
+  NO_SUPPLIERS,
   certProgress,
   eventCountdown,
   formatDate,
   isCountableTraining,
+  plannedSpendByCategory,
   spentByCategory,
   streakBoard,
   studentCommunityHours,
   summarizeAttendance,
-  totalBudget,
   todayISO,
+  toBuyCostByCategory,
   totalSpent,
-  totalToBuyCost,
   trainingCompletionByGrade,
 } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
@@ -184,15 +184,22 @@ export default function Dashboard() {
   // from whatever each product/purchase was actually priced in - see
   // spentByCategory/totalToBuyCost in calc.js.
   const spending = useMemo(() => spentByCategory(purchases, rates, preferred), [purchases, rates, preferred])
-  const budget = useMemo(() => totalBudget(team?.categoryBudgets), [team?.categoryBudgets])
-  const spent = useMemo(() => totalSpent(purchases, rates, preferred), [purchases, rates, preferred])
-  const toBuyCost = useMemo(
-    () => totalToBuyCost(products, productTypes, rates, preferred),
-    [products, productTypes, rates, preferred]
+  const suppliers = team?.suppliers || NO_SUPPLIERS
+  const toBuyByCategory = useMemo(
+    () => toBuyCostByCategory(products, productTypes, suppliers, rates, preferred),
+    [products, productTypes, suppliers, rates, preferred]
   )
+  // One total budget for the whole team (Settings -> Products); how it's
+  // being split across categories comes from the Orders tab instead - see
+  // plannedSpendByCategory in calc.js.
+  const budget = Number(team?.totalBudget) || 0
+  const plannedRows = useMemo(() => plannedSpendByCategory(spending, toBuyByCategory), [spending, toBuyByCategory])
+  const spent = useMemo(() => totalSpent(purchases, rates, preferred), [purchases, rates, preferred])
+  const toBuyCost = useMemo(() => Object.values(toBuyByCategory).reduce((a, b) => a + b, 0), [toBuyByCategory])
   const projectedSpent = spent + toBuyCost
   const spentPercentOfBudget = budget > 0 ? Math.round((spent / budget) * 100) : null
   const projectedPercentOfBudget = budget > 0 ? Math.round((projectedSpent / budget) * 100) : null
+  const overBudgetBy = budget > 0 ? projectedSpent - budget : 0
 
   const categoryColor = (name) => {
     if (!name) return UNCATEGORIZED_COLOR
@@ -200,27 +207,23 @@ export default function Dashboard() {
     return PIE_COLORS[(i === -1 ? 0 : i) % PIE_COLORS.length]
   }
 
-  // Raw per-category numbers (see budgetRemainingSlices in calc.js) - the
-  // combined chart below weights every category equally, but each
-  // category's OWN two-slice remaining/spent pie (further down) needs its
-  // real remainingPercent, not that shared weighting.
-  const categoryBudgetSlices = useMemo(
-    () => budgetRemainingSlices(team?.categoryBudgets, spending),
-    [team?.categoryBudgets, spending]
-  )
-
-  const remainingSlices = useMemo(() => {
-    return [
-      ...categoryBudgetSlices.slices.map((s) => ({
-        label: s.category,
-        percent: s.percent,
-        displayPercent: s.remainingPercent,
-        color: categoryColor(s.category),
-      })),
-      { label: 'Spent', percent: categoryBudgetSlices.spentPercent, color: 'var(--muted)' },
-    ]
+  // Each category's share of the total budget (planned = bought + still to
+  // buy). Whatever's left under budget is its own grey "Unallocated" wedge;
+  // over budget, the wedges just share the whole circle between them.
+  const plannedSlices = useMemo(() => {
+    const denominator = Math.max(budget, projectedSpent)
+    if (denominator <= 0) return []
+    const slices = plannedRows.map((r) => ({
+      label: r.category || 'Uncategorized',
+      percent: (r.planned / denominator) * 100,
+      color: categoryColor(r.category),
+    }))
+    if (budget > projectedSpent) {
+      slices.push({ label: 'Unallocated', percent: ((budget - projectedSpent) / denominator) * 100, color: 'var(--border)' })
+    }
+    return slices
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryBudgetSlices, categories])
+  }, [plannedRows, budget, projectedSpent, categories])
 
   const spentSlices = useMemo(() => {
     const total = Object.values(spending).reduce((a, b) => a + b, 0)
@@ -235,22 +238,6 @@ export default function Dashboard() {
       }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spending, categories])
-
-  // One small two-slice pie per budgeted category - unlike the combined
-  // chart above, each of these is scaled against just that category's own
-  // budget, not weighted against every other category's.
-  const perCategorySlices = useMemo(
-    () =>
-      categoryBudgetSlices.slices.map((s) => ({
-        category: s.category,
-        slices: [
-          { label: 'Left', percent: s.remainingPercent, color: categoryColor(s.category) },
-          { label: 'Spent', percent: 100 - s.remainingPercent, color: 'var(--muted)' },
-        ],
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categoryBudgetSlices, categories]
-  )
 
   const topStreaks = useMemo(() => {
     return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById)
@@ -480,29 +467,36 @@ export default function Dashboard() {
         <div className="card stat-card">
           <span className="stat-label">Total budget</span>
           <span className="stat-value">
-            {budget.toFixed(0)} {preferred}
+            {budget > 0 ? `${budget.toFixed(0)} ${preferred}` : 'Not set'}
           </span>
           <span className="muted">
-            across {Object.keys(team?.categoryBudgets || {}).length} budgeted categor
-            {Object.keys(team?.categoryBudgets || {}).length === 1 ? 'y' : 'ies'}
+            {budget > 0 ? 'The most the team plans to spend' : 'Set it in Settings → Products'}
           </span>
         </div>
         <div className="card stat-card">
           <span className="stat-label">Total spent</span>
           <span className="stat-value">
             {spent.toFixed(0)}
-            <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+            {budget > 0 && (
+              <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+            )}
           </span>
           <span className="muted">{spentPercentOfBudget === null ? 'No budget set yet' : `${spentPercentOfBudget}% of budget`}</span>
         </div>
         <div className="card stat-card">
           <span className="stat-label">Projected spent</span>
-          <span className="stat-value">
+          <span className="stat-value" style={overBudgetBy > 0 ? { color: 'var(--danger, #dc2626)' } : undefined}>
             {projectedSpent.toFixed(0)}
-            <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+            {budget > 0 && (
+              <span className="stat-value-sub"> / {budget.toFixed(0)} {preferred}</span>
+            )}
           </span>
           <span className="muted">
-            {projectedPercentOfBudget === null ? 'No budget set yet' : `${projectedPercentOfBudget}% of budget`}
+            {budget <= 0
+              ? 'No budget set yet'
+              : overBudgetBy > 0
+                ? `Over budget by ${overBudgetBy.toFixed(0)} ${preferred} (${projectedPercentOfBudget}%)`
+                : `${(budget - projectedSpent).toFixed(0)} ${preferred} left after everything on Orders (${projectedPercentOfBudget}%)`}
           </span>
           <span className="muted">
             {spent.toFixed(0)} spent + {toBuyCost.toFixed(0)} still to buy
@@ -512,8 +506,8 @@ export default function Dashboard() {
 
       <div className="dashboard-columns">
         <div className="dashboard-col">
-          <h3>Budget remaining by category</h3>
-          <PieChart slices={remainingSlices} />
+          <h3>Where the budget is going</h3>
+          <PieChart slices={plannedSlices} />
         </div>
         <div className="dashboard-col">
           <h3>Spent by category</h3>
@@ -521,19 +515,35 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {perCategorySlices.length > 0 && (
-        <>
-          <h3>By category</h3>
-          <div className="pie-chart-grid" style={spreadCols(perCategorySlices.length)}>
-            {perCategorySlices.map(({ category, slices }) => (
-              <div key={category}>
-                <p className="muted pie-chart-grid-label">{category}</p>
-                <PieChart slices={slices} size={110} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      <h3>Budget by category</h3>
+      <DataTable
+        columns={[
+          { key: 'category', header: 'Category', cell: (r) => r.category || 'Uncategorized', footerCell: () => <strong>Total</strong> },
+          { key: 'spent', header: 'Spent', cell: (r) => `${r.spent.toFixed(0)} ${preferred}`, footerCell: () => `${spent.toFixed(0)} ${preferred}` },
+          {
+            key: 'toBuy',
+            header: 'Still to buy',
+            cell: (r) => `${r.toBuy.toFixed(0)} ${preferred}`,
+            footerCell: () => `${toBuyCost.toFixed(0)} ${preferred}`,
+          },
+          {
+            key: 'planned',
+            header: 'Planned',
+            cell: (r) => `${r.planned.toFixed(0)} ${preferred}`,
+            footerCell: () => <strong>{projectedSpent.toFixed(0)} {preferred}</strong>,
+          },
+          {
+            key: 'share',
+            header: '% of budget',
+            cell: (r) => (budget > 0 ? `${Math.round((r.planned / budget) * 100)}%` : '—'),
+            footerCell: () => (projectedPercentOfBudget === null ? '—' : `${projectedPercentOfBudget}%`),
+          },
+        ]}
+        rows={plannedRows}
+        getRowId={(r) => r.category || 'uncategorized'}
+        footer
+        emptyMessage="Nothing bought or on the Orders list yet."
+      />
     </div>
   )
 }

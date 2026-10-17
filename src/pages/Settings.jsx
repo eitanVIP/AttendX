@@ -58,8 +58,38 @@ function teamToDivisionRows(team) {
   }))
 }
 
+// The page is split into tabs so it isn't one long scroll of a dozen
+// sections. The open tab lives in the URL hash (/settings#products), so a
+// link can point straight at one and a reload keeps your place.
+const SETTINGS_TABS = [
+  { id: 'team', label: 'Team' },
+  { id: 'products', label: 'Products' },
+  { id: 'schedule', label: 'Schedule' },
+  { id: 'account', label: 'Account & data' },
+]
+
+function tabFromHash() {
+  const id = window.location.hash.slice(1)
+  return SETTINGS_TABS.some((t) => t.id === id) ? id : 'team'
+}
+
 export default function Settings() {
   const { team } = useAuth()
+  const [tab, setTab] = useState(tabFromHash)
+
+  // Following a /settings#products link while already on Settings changes
+  // only the hash, which doesn't remount the page.
+  useEffect(() => {
+    const onHashChange = () => setTab(tabFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  function selectTab(id) {
+    setTab(id)
+    window.history.replaceState(null, '', `#${id}`)
+  }
+
   const [name, setName] = useState(team?.name || '')
   const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
   const [minAttendance, setMinAttendance] = useState(String(team?.minAttendancePercent || 0))
@@ -190,7 +220,25 @@ export default function Settings() {
         <h1>Team settings</h1>
       </div>
 
-      <div className="settings-columns">
+      <div className="settings-tabs" role="tablist">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? 'settings-tab active' : 'settings-tab'}
+            onClick={() => selectTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Every tab stays mounted and is just hidden: a section's unsaved
+          edits (rows typed into Suppliers, a half-edited division) survive
+          switching tabs instead of being thrown away. */}
+      <div className="settings-columns" hidden={tab !== 'team'}>
         <div className="settings-section">
           <form className="card form-card" onSubmit={handleSubmit} style={{ margin: 0 }}>
             <div className="form-grid">
@@ -299,15 +347,6 @@ export default function Settings() {
           </form>
         </div>
 
-        <EventsSection teamId={team?.id} />
-        <CategoriesSection team={team} />
-        <SuppliersSection team={team} />
-        <ProductTypesSection team={team} />
-        <CurrenciesSection team={team} />
-        <CodesSection team={team} />
-        <CommunityHoursSection teamId={team?.id} />
-        <GoogleCalendarSection teamId={team?.id} />
-
         <div className="settings-section">
           <h2>Team number</h2>
           <p className="muted">
@@ -316,7 +355,25 @@ export default function Settings() {
           </p>
         </div>
 
+        <CodesSection team={team} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'products'}>
+        <BudgetSection team={team} />
+        <CategoriesSection team={team} />
+        <SuppliersSection team={team} />
+        <ProductTypesSection team={team} />
+        <CurrenciesSection team={team} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'schedule'}>
+        <EventsSection teamId={team?.id} />
+        <CommunityHoursSection teamId={team?.id} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'account'}>
         <AccountSection />
+        <GoogleCalendarSection teamId={team?.id} />
         <OfflineExportSection />
       </div>
     </div>
@@ -513,7 +570,6 @@ function teamToCategoryRows(team) {
     key: `${name}-${i}`,
     original: name,
     name,
-    budget: String(team?.categoryBudgets?.[name] || ''),
     subs: subsToRows(team?.subcategories?.[name]),
     subInput: '',
   }))
@@ -543,7 +599,7 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '', subs: [], subInput: '' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, subs: [], subInput: '' }])
     setInput('')
   }
 
@@ -571,10 +627,6 @@ function CategoriesSection({ team }) {
     setRows(rows.map((r) => (r.key === key ? { ...r, name: value } : r)))
   }
 
-  function setBudget(key, value) {
-    setRows(rows.map((r) => (r.key === key ? { ...r, budget: value } : r)))
-  }
-
   function removeCategory(key) {
     setRows(rows.filter((r) => r.key !== key))
   }
@@ -600,13 +652,6 @@ function CategoriesSection({ team }) {
     for (const r of cleanRows) {
       if (r.original && r.original !== r.name) renames[r.original] = r.name
     }
-    // A blank or zero budget just means "no budget set" - left out of the
-    // map entirely rather than stored as 0, so the dashboard's budget
-    // section (and the "N budgeted categories" pie weighting) only ever
-    // sees categories an admin actually gave a number to.
-    const categoryBudgets = Object.fromEntries(
-      cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
-    )
     // Same idea one level down, keyed by the category's NEW name. A
     // category with no subcategories is left out of the map entirely.
     const subcategories = {}
@@ -621,13 +666,12 @@ function CategoriesSection({ team }) {
         }
       }
     }
-    await updateCategories(team.id, categories, renames, categoryBudgets, subcategories, subcategoryRenames)
+    await updateCategories(team.id, categories, renames, subcategories, subcategoryRenames)
     setRows(
       categories.map((name, i) => ({
         key: `${name}-${i}`,
         original: name,
         name,
-        budget: String(categoryBudgets[name] || ''),
         subs: subsToRows(subcategories[name]),
         subInput: '',
       }))
@@ -650,8 +694,8 @@ function CategoriesSection({ team }) {
         or remove it with Remove - changes save when you click Save below, and reach every product
         already using that category. Each category can optionally have subcategories (one level) -
         they show up as an extra dropdown in the product form and as filter chips once that category
-        is picked. Budget is optional and isn't a hard limit - it's just what the
-        dashboard's budget section compares spending against; leave it blank for "no budget". Whether
+        is picked. Categories don't get budgets of their own - the dashboard shows how the total
+        budget (set just above) is being split between them, from the Orders tab. Whether
         a product is consumable - actually used up once a system claims it, rather than merely
         reserved - is set per product now, in Inventory/Orders' own product form, not here.
       </p>
@@ -688,16 +732,6 @@ function CategoriesSection({ team }) {
                   value={r.name}
                   onChange={(e) => renameCategory(r.key, e.target.value)}
                   style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={r.budget}
-                  onChange={(e) => setBudget(r.key, e.target.value)}
-                  placeholder="Budget"
-                  title="Budget"
-                  style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
                 />
                 <button
                   type="button"
@@ -768,6 +802,62 @@ function CategoriesSection({ team }) {
             Add
           </button>
         </div>
+        <div className="form-actions" style={{ marginTop: 10 }}>
+          {saved && <span className="muted">Saved.</span>}
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// One total budget for the whole team, in the preferred currency. How it's
+// being split across categories isn't entered anywhere - the dashboard works
+// that out from the Orders tab (bought + still to buy) and shows whether the
+// total still fits under this number.
+function BudgetSection({ team }) {
+  const [value, setValue] = useState(String(team?.totalBudget || ''))
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const preferred = team?.preferredCurrency || 'NIS'
+
+  useEffect(() => {
+    setValue(String(team?.totalBudget || ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    // Blank or 0 just means "no budget set".
+    await updateTeam(team.id, { totalBudget: Math.max(0, Number(value) || 0) })
+    setSaving(false)
+    setSaved(true)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Budget</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        The most the team plans to spend in total, in {preferred}. The dashboard compares it with
+        what's been bought plus everything still on the Orders list, and warns when that goes over.
+        You don't split it between categories - that comes from Orders.
+      </p>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
+        <label>
+          Total budget ({preferred})
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="No budget set"
+          />
+        </label>
         <div className="form-actions" style={{ marginTop: 10 }}>
           {saved && <span className="muted">Saved.</span>}
           <button type="submit" disabled={saving}>

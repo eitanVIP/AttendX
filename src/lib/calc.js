@@ -317,7 +317,10 @@ export const NO_SUPPLIERS = []
 // (the product keeps its old name as plain text) just has no multiplier.
 export function supplierMultiplier(supplierName, suppliers) {
   if (!supplierName) return 1
-  const match = (suppliers || NO_SUPPLIERS).find((s) => s.name === supplierName)
+  // Case/space-insensitive: the supplier used to be free text, so existing
+  // products have "Saad Robot", "saad robot" and "Saad robot" for the same one.
+  const wanted = supplierName.trim().toLowerCase()
+  const match = (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)
   const multiplier = Number(match?.multiplier)
   return multiplier > 0 ? multiplier : 1
 }
@@ -450,13 +453,39 @@ export function totalSpent(purchases, rates, preferred) {
 // An individual product's broken formula (total.value === null) is left out
 // of the sum rather than poisoning it - Orders/Inventory already surface
 // that error on the product's own row.
-export function totalToBuyCost(products, productTypes, rates, preferred) {
-  return products.reduce((sum, p) => {
-    const converted = convertPrice(p.price, p.currency, preferred, rates)
+// Prices include each product's supplier markup (see effectivePrice).
+export function toBuyCostByCategory(products, productTypes, suppliers, rates, preferred) {
+  const totals = {}
+  for (const p of products) {
+    const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
     const toBuy = computeToBuy(p, productTypes)
     const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
-    return sum + (total.value || 0)
-  }, 0)
+    const key = p.category || ''
+    totals[key] = (totals[key] || 0) + (total.value || 0)
+  }
+  return totals
+}
+
+export function totalToBuyCost(products, productTypes, suppliers, rates, preferred) {
+  return Object.values(toBuyCostByCategory(products, productTypes, suppliers, rates, preferred)).reduce((a, b) => a + b, 0)
+}
+
+// How the one total budget is being split up, per category, as the Orders
+// tab sees it: what's already been bought (logged purchases) plus what's
+// still left to buy. Nobody types a per-category budget - the point is to
+// see where the money is going and whether the whole thing still fits
+// under the single team budget. Biggest category first; categories with
+// nothing on either side are left out.
+export function plannedSpendByCategory(spending, toBuyCosts) {
+  const keys = new Set([...Object.keys(spending), ...Object.keys(toBuyCosts)])
+  return [...keys]
+    .map((category) => {
+      const spent = spending[category] || 0
+      const toBuy = toBuyCosts[category] || 0
+      return { category, spent, toBuy, planned: spent + toBuy }
+    })
+    .filter((r) => r.planned > 0)
+    .sort((x, y) => y.planned - x.planned)
 }
 
 export function totalBudget(categoryBudgets) {

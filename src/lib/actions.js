@@ -161,10 +161,8 @@ export function updateTeam(teamId, changes) {
 // name, for rows that survived under a different name) - a product whose
 // category isn't in the new list AND isn't a rename's old name simply had
 // that category removed outright, so it's cleared rather than looked up.
-// `categoryBudgets` is already keyed by the new names (Settings computes it
-// from the same rows `categories` comes from) - it's just written as-is,
-// alongside `categories`, on the team doc only (the dashboard budget
-// section is admin-only, so it has no need for the student-facing mirror).
+// (Category budgets aren't stored any more - the dashboard derives them from
+// Orders, see ordersBudgetByCategory in calc.js.)
 //
 // `subcategories` ({ categoryName: [subcategoryName, ...] }, keyed by the
 // new category names) gets the same treatment one level down:
@@ -172,10 +170,10 @@ export function updateTeam(teamId, changes) {
 // product whose subcategory is neither still listed under its (possibly
 // renamed) category nor a rename's old name has it cleared - the product
 // stays in its category, it just isn't narrowed any further.
-export async function updateCategories(teamId, categories, renames, categoryBudgets, subcategories = {}, subcategoryRenames = {}) {
+export async function updateCategories(teamId, categories, renames, subcategories = {}, subcategoryRenames = {}) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets, subcategories }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, subcategories }),
     (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories, subcategories }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
