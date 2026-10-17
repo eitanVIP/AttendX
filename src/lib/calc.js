@@ -305,6 +305,27 @@ export function trainingCompletionCascade(allTrainings, training, student, compl
 export const NO_PRODUCT_TYPES = []
 // Same reason, for team?.subcategories ({ category: [names] }).
 export const NO_SUBCATEGORIES = {}
+// And for team?.suppliers ([{ name, multiplier }], see SuppliersSection).
+export const NO_SUPPLIERS = []
+
+// Some products can't be bought from their maker directly (WCP, VEX, CTRE,
+// SDS...) and go through a reseller who charges a multiple of the listed
+// price. A supplier's `multiplier` is that factor (1.6 = pay 1.6x the listed
+// price); a product's stored `price` stays the listed one, and everything
+// that totals up money goes through effectivePrice below instead. A blank
+// supplier, one that was never set up in Settings, or one removed since
+// (the product keeps its old name as plain text) just has no multiplier.
+export function supplierMultiplier(supplierName, suppliers) {
+  if (!supplierName) return 1
+  const match = (suppliers || NO_SUPPLIERS).find((s) => s.name === supplierName)
+  const multiplier = Number(match?.multiplier)
+  return multiplier > 0 ? multiplier : 1
+}
+
+// The price actually paid for one unit, still in the product's own currency.
+export function effectivePrice(product, suppliers) {
+  return (product.price || 0) * supplierMultiplier(product.supplier, suppliers)
+}
 
 // Inventory and Orders are two views of the same teams/{teamId}/products
 // collection - adding a product from either page just leaves the other

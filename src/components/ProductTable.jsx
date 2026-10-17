@@ -1,7 +1,15 @@
 import { useMemo, useState } from 'react'
 import DataTable from './DataTable'
 import FormPanel from './FormPanel'
-import { NO_PRODUCT_TYPES, computeToBuy, computeTotalPrice, hasCustomData } from '../lib/calc'
+import {
+  NO_PRODUCT_TYPES,
+  NO_SUPPLIERS,
+  computeToBuy,
+  computeTotalPrice,
+  effectivePrice,
+  hasCustomData,
+  supplierMultiplier,
+} from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
 
 // Shared by Inventory and Orders, but the two show different columns:
@@ -38,6 +46,7 @@ export default function ProductTable({
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
 
   // A product's type can replace either of these with its own formula,
   // looked up live from productTypes every render (see computeToBuy/
@@ -47,13 +56,13 @@ export default function ProductTable({
   const rowValuesById = useMemo(() => {
     const map = new Map()
     for (const p of products) {
-      const converted = convertPrice(p.price, p.currency, preferred, rates)
+      const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
       const toBuy = computeToBuy(p, productTypes)
       const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
       map.set(p.id, { converted, toBuy, total })
     }
     return map
-  }, [products, productTypes, rates, preferred])
+  }, [products, productTypes, suppliers, rates, preferred])
 
   const grandTotal = showTotal
     ? products.reduce((sum, p) => sum + (rowValuesById.get(p.id)?.total.value || 0), 0)
@@ -100,8 +109,15 @@ export default function ProductTable({
         minWidth: 110,
         cell: (p) => {
           const { converted } = rowValuesById.get(p.id) || {}
-          const label = converted !== null ? `${converted.toFixed(2)} ${preferred}` : p.price ? `${p.price} ${p.currency}` : '—'
-          return <span title={converted !== null ? `Stored as ${p.price} ${p.currency}` : undefined}>{label}</span>
+          const multiplier = supplierMultiplier(p.supplier, suppliers)
+          const paid = effectivePrice(p, suppliers)
+          const label = converted !== null ? `${converted.toFixed(2)} ${preferred}` : paid ? `${paid} ${p.currency}` : '—'
+          const markup = multiplier !== 1 ? ` ×${multiplier} via ${p.supplier}` : ''
+          return (
+            <span title={converted !== null || markup ? `Listed at ${p.price} ${p.currency}${markup}` : undefined}>
+              {label}
+            </span>
+          )
         },
       },
     ]

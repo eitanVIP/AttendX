@@ -20,6 +20,7 @@ import {
   updateCategories,
   updateEvent,
   updateProductTypes,
+  updateSuppliers,
   updateTeam,
   updateTeamStructure,
 } from '../lib/actions'
@@ -300,6 +301,7 @@ export default function Settings() {
 
         <EventsSection teamId={team?.id} />
         <CategoriesSection team={team} />
+        <SuppliersSection team={team} />
         <ProductTypesSection team={team} />
         <CurrenciesSection team={team} />
         <CodesSection team={team} />
@@ -763,6 +765,132 @@ function CategoriesSection({ team }) {
             style={{ fontSize: 13, padding: '5px 8px' }}
           />
           <button type="button" className="secondary" onClick={addCategory} style={{ fontSize: 13, padding: '5px 10px' }}>
+            Add
+          </button>
+        </div>
+        <div className="form-actions" style={{ marginTop: 10 }}>
+          {saved && <span className="muted">Saved.</span>}
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function teamToSupplierRows(team) {
+  return (team?.suppliers || []).map((s, i) => ({
+    key: `${s.name}-${i}`,
+    original: s.name,
+    name: s.name,
+    multiplier: String(s.multiplier ?? 1),
+  }))
+}
+
+// The list the product form's Supplier dropdown offers (team.suppliers,
+// [{ name, multiplier }]). Multiplier is what a reseller charges relative to
+// the listed price (1.6 = pay 1.6x) - applied automatically to every product
+// bought through that supplier (see effectivePrice in calc.js), so the price
+// on a product stays the manufacturer's own listed one. Renaming a supplier
+// here carries over to its products (see updateSuppliers).
+function SuppliersSection({ team }) {
+  const [rows, setRows] = useState(teamToSupplierRows(team))
+  const [input, setInput] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setRows(teamToSupplierRows(team))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id])
+
+  function addSupplier() {
+    const trimmed = input.trim()
+    if (!trimmed || rows.some((r) => r.name === trimmed)) return
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1' }])
+    setInput('')
+  }
+
+  function updateRow(key, changes) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...changes } : r)))
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    const cleanRows = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
+    // A blank, zero or negative multiplier just means "no markup".
+    const suppliers = cleanRows.map((r) => ({ name: r.name, multiplier: Number(r.multiplier) > 0 ? Number(r.multiplier) : 1 }))
+    const renames = {}
+    for (const r of cleanRows) {
+      if (r.original && r.original !== r.name) renames[r.original] = r.name
+    }
+    await updateSuppliers(team.id, suppliers, renames)
+    setRows(suppliers.map((s, i) => ({ key: `${s.name}-${i}`, original: s.name, name: s.name, multiplier: String(s.multiplier) })))
+    setSaving(false)
+    setSaved(true)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Suppliers</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        The suppliers offered when adding a product. Multiplier is what that supplier charges relative
+        to the listed price - for a reseller who sells you WCP, VEX or CTRE parts at 1.6x, enter 1.6
+        and keep each product's price as the manufacturer's listed one. Every total, the orders export
+        and logged purchases then include the markup automatically. Leave it at 1 for no markup.
+        Renaming a supplier updates its products; removing one leaves them with the old name as
+        plain text.
+      </p>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.length === 0 && <span className="muted">None yet</span>}
+          {rows.map((r) => (
+            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                value={r.name}
+                onChange={(e) => updateRow(r.key, { name: e.target.value })}
+                aria-label="Supplier name"
+                style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+              />
+              <span className="muted">×</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.multiplier}
+                onChange={(e) => updateRow(r.key, { multiplier: e.target.value })}
+                aria-label={`Price multiplier for ${r.name}`}
+                title="Price multiplier"
+                style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              />
+              <button
+                type="button"
+                className="link-btn danger"
+                onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${r.name}`}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addSupplier()
+              }
+            }}
+            placeholder="e.g. Saad Robot"
+            style={{ fontSize: 13, padding: '5px 8px' }}
+          />
+          <button type="button" className="secondary" onClick={addSupplier} style={{ fontSize: 13, padding: '5px 10px' }}>
             Add
           </button>
         </div>

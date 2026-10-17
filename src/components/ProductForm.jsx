@@ -1,4 +1,5 @@
 import FormPanel from './FormPanel'
+import { NO_SUPPLIERS, supplierMultiplier } from '../lib/calc'
 import { isReservedFieldName } from '../lib/formula'
 
 // Shared by Inventory and Orders. Both counts are always shown on either
@@ -14,10 +15,12 @@ export default function ProductForm({
   editing,
   categories,
   subcategories = {},
+  suppliers = NO_SUPPLIERS,
   currencyCodes,
   productTypes,
 }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
+  const multiplier = supplierMultiplier(form.supplier, suppliers)
 
   // Subcategories belong to one category each, so switching category drops
   // the old pick rather than leaving a subcategory the new category doesn't
@@ -102,7 +105,24 @@ export default function ProductForm({
         </label>
         <label>
           Supplier
-          <input value={form.supplier} onChange={set('supplier')} />
+          <select value={form.supplier || ''} onChange={set('supplier')}>
+            <option value="">None</option>
+            {suppliers.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name}
+                {Number(s.multiplier) > 0 && Number(s.multiplier) !== 1 ? ` (×${Number(s.multiplier)})` : ''}
+              </option>
+            ))}
+            {/* A product saved before suppliers became a list (or with a since-removed one) keeps its old name selectable. */}
+            {form.supplier && !suppliers.some((s) => s.name === form.supplier) && (
+              <option value={form.supplier}>{form.supplier} (not in list)</option>
+            )}
+          </select>
+          {multiplier !== 1 && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Price above is the listed one - ×{multiplier} is added automatically.
+            </span>
+          )}
         </label>
         <label className="span-2">
           Link

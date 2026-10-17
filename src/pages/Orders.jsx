@@ -11,8 +11,10 @@ import {
   DEFAULT_PRODUCT,
   NO_PRODUCT_TYPES,
   NO_SUBCATEGORIES,
+  NO_SUPPLIERS,
   computeToBuy,
   computeTotalPrice,
+  effectivePrice,
   findDuplicateProduct,
   formatDate,
   productMatchesSearch,
@@ -49,6 +51,7 @@ export default function Orders() {
 
   const categories = team?.categories || []
   const subcategories = team?.subcategories || NO_SUBCATEGORIES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
@@ -177,7 +180,7 @@ export default function Orders() {
     const product = products.find((p) => p.id === boughtProductId)
     const quantity = Math.max(0, Math.round(Number(boughtQuantity) || 0))
     if (!product || quantity <= 0) return
-    logPurchase(team.id, product, quantity)
+    logPurchase(team.id, product, quantity, suppliers)
     setShowBoughtForm(false)
   }
 
@@ -195,14 +198,14 @@ export default function Orders() {
   function handleExport() {
     const headers = ['Name', 'SKU', 'Category', 'Price', 'Supplier', 'To buy', 'Total']
     const rows = filtered.map((p) => {
-      const converted = convertPrice(p.price, p.currency, preferred, rates)
+      const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
       const toBuy = computeToBuy(p, productTypes)
       const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
       return [
         p.name,
         p.sku,
         p.category,
-        converted !== null ? converted.toFixed(2) : p.price,
+        converted !== null ? converted.toFixed(2) : effectivePrice(p, suppliers),
         p.supplier,
         toBuy.value !== null ? toBuy.value : '',
         total.value !== null ? total.value.toFixed(2) : '',
@@ -248,6 +251,7 @@ export default function Orders() {
         editing={!!editingId}
         categories={categories}
         subcategories={subcategories}
+        suppliers={suppliers}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
       />

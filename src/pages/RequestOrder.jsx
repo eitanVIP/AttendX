@@ -78,6 +78,7 @@ export default function RequestOrder() {
         countLabel="Wanted count"
         categories={verified.categories}
         subcategories={verified.subcategories}
+        suppliers={verified.suppliers}
         currencyCodes={verified.currencyCodes}
         productTypes={verified.productTypes}
       />

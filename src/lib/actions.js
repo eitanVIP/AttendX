@@ -18,6 +18,7 @@ import {
 import { auth, db } from '../firebase'
 import {
   DEFAULT_STREAK_RESET_DAYS,
+  effectivePrice,
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
@@ -96,6 +97,7 @@ export async function purgeOldLogEntries(teamId, retentionDays) {
 const PRODUCT_SETTINGS_FIELDS = [
   'categories',
   'subcategories',
+  'suppliers',
   'productTypes',
   'currencyRates',
   'name',
@@ -128,6 +130,7 @@ export async function ensureProductSettingsMirror(team) {
     {
       categories: team.categories || [],
       subcategories: team.subcategories || {},
+      suppliers: team.suppliers || [],
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -850,6 +853,27 @@ export function declineOrderRequest(teamId, request) {
   ])
 }
 
+// Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
+// Settings) only has to follow renames onto products - `renames` is old name
+// -> new name for rows that survived under a different one. A removed
+// supplier's products keep its name as plain text (no multiplier any more)
+// rather than being blanked, so nothing silently loses where it's bought.
+export async function updateSuppliers(teamId, suppliers, renames) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), { suppliers }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { suppliers }, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('supplier', 'update', 'Updated suppliers')),
+  ]
+  if (Object.keys(renames).length > 0) {
+    const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
+    for (const d of snap.docs) {
+      const next = renames[d.data().supplier]
+      if (next) writes.push((batch) => batch.update(d.ref, { supplier: next }))
+    }
+  }
+  await commitAll(writes)
+}
+
 // Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
 // product by however many were bought and drops a dated record of it - the
 // record snapshots the product's current name/category/price/currency
@@ -857,7 +881,11 @@ export function declineOrderRequest(teamId, request) {
 // calc.js), so it stays an accurate historical fact - and what the
 // dashboard's budget section sums up as "spent" - even if the product is
 // later renamed, recategorized, repriced, or deleted.
-export function logPurchase(teamId, product, quantity) {
+//
+// `unitPrice` snapshots what was actually paid per unit: the product's listed
+// price times its supplier's multiplier (see effectivePrice in calc.js), so
+// the dashboard's "spent" reflects reseller markups too.
+export function logPurchase(teamId, product, quantity, suppliers) {
   const batch = writeBatch(db)
   batch.update(doc(db, 'teams', teamId, 'products', product.id), {
     countInInventory: (product.countInInventory || 0) + quantity,
@@ -868,7 +896,7 @@ export function logPurchase(teamId, product, quantity) {
     category: product.category || '',
     subcategory: product.subcategory || '',
     quantity,
-    unitPrice: product.price || 0,
+    unitPrice: effectivePrice(product, suppliers),
     currency: product.currency || 'NIS',
     date: todayISO(),
     dismissed: false,

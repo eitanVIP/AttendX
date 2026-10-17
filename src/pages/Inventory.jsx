@@ -4,7 +4,7 @@ import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
 import { useProducts } from '../lib/firestore-hooks'
-import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, NO_SUBCATEGORIES, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
+import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, NO_SUBCATEGORIES, NO_SUPPLIERS, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { addProduct, deleteProduct, importProducts, updateProduct } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
@@ -25,6 +25,7 @@ export default function Inventory() {
 
   const categories = team?.categories || []
   const subcategories = team?.subcategories || NO_SUBCATEGORIES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
@@ -196,6 +197,7 @@ export default function Inventory() {
         editing={!!editingId}
         categories={categories}
         subcategories={subcategories}
+        suppliers={suppliers}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
       />
