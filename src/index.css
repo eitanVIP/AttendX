@@ -1290,6 +1290,29 @@ body:has(dialog.modal[open]) {
   column-gap: 28px;
 }
 
+/* Clickable column headers in the product tables (see ProductTable.jsx). */
+.dt-sort-btn {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dt-sort-btn:hover {
+  color: var(--accent);
+}
+
+.dt-sort-arrow {
+  color: var(--accent);
+}
+
 /* Tab bar above the settings sections. Scrolls sideways on a narrow screen
    instead of wrapping onto a second row. */
 .settings-tabs {

@@ -55,8 +55,19 @@ export function AuthProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(true)
 
   const refreshProfile = useCallback(async (uid) => {
-    const profileSnap = await getDoc(doc(db, 'users', uid))
-    setProfile(profileSnap.exists() ? profileSnap.data() : null)
+    const profileRef = doc(db, 'users', uid)
+    const profileSnap = await getDoc(profileRef)
+    if (profileSnap.exists()) {
+      setProfile(profileSnap.data())
+    } else {
+      // Sign-up writes this doc, but an account that exists without one (e.g.
+      // signed in against a fresh/empty database like the local emulator)
+      // would otherwise fail every later updateDoc({ activeTeamId }) - joining
+      // or creating a team - so make it here.
+      const email = auth.currentUser?.email
+      if (email) await setDoc(profileRef, { email })
+      setProfile(email ? { email } : null)
+    }
 
     const membershipsSnap = await getDocs(collection(db, 'users', uid, 'memberships'))
     setMemberships(membershipsSnap.docs.map((d) => d.id))

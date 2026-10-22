@@ -6,14 +6,15 @@ import MoveButtons from '../components/MoveButtons'
 import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import DataTable from '../components/DataTable'
 import { DEFAULT_ACCENT } from '../lib/theme'
-import { useCommunitySettings, useEvents, useProducts, useTrainings } from '../lib/firestore-hooks'
-import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, todayISO } from '../lib/calc'
+import { useCommunitySettings, useEvents, useProducts, usePurchases, useTrainings } from '../lib/firestore-hooks'
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, oldPackPurchases, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import { exportOfflineSite } from '../lib/offlineExport'
 import {
   addEvent,
   deleteEvent,
+  fixOldPackPurchases,
   migrateConsumableCategoriesToProducts,
   setCommunitySettings,
   syncAllDatesToCalendar,
@@ -875,6 +876,7 @@ function teamToSupplierRows(team) {
     original: s.name,
     name: s.name,
     multiplier: String(s.multiplier ?? 1),
+    shipping: s.shipping ? String(s.shipping) : '',
   }))
 }
 
@@ -889,6 +891,30 @@ function SuppliersSection({ team }) {
   const [input, setInput] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+  const { data: products } = useProducts(team?.id)
+
+  // Suppliers typed onto products before this became a list, that the list
+  // doesn't have yet in any spelling - each under its most common spelling.
+  const unlistedSuppliers = (() => {
+    const listed = new Set(rows.map((r) => r.name.trim().toLowerCase()))
+    const spellings = new Map()
+    for (const p of products) {
+      const name = (p.supplier || '').trim()
+      const key = name.toLowerCase()
+      if (!name || listed.has(key)) continue
+      const counts = spellings.get(key) || new Map()
+      counts.set(name, (counts.get(name) || 0) + 1)
+      spellings.set(key, counts)
+    }
+    return [...spellings.values()].map((counts) => [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0])
+  })()
+
+  function addUnlistedSuppliers() {
+    setRows([
+      ...rows,
+      ...unlistedSuppliers.map((name, i) => ({ key: `new-${Date.now()}-${i}`, original: null, name, multiplier: '1', shipping: '' })),
+    ])
+  }
 
   useEffect(() => {
     setRows(teamToSupplierRows(team))
@@ -898,7 +924,7 @@ function SuppliersSection({ team }) {
   function addSupplier() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1', shipping: '' }])
     setInput('')
   }
 
@@ -912,13 +938,26 @@ function SuppliersSection({ team }) {
     setSaved(false)
     const cleanRows = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
     // A blank, zero or negative multiplier just means "no markup".
-    const suppliers = cleanRows.map((r) => ({ name: r.name, multiplier: Number(r.multiplier) > 0 ? Number(r.multiplier) : 1 }))
+    // Shipping is optional: left off entirely when blank or 0.
+    const suppliers = cleanRows.map((r) => ({
+      name: r.name,
+      multiplier: Number(r.multiplier) > 0 ? Number(r.multiplier) : 1,
+      ...(Number(r.shipping) > 0 ? { shipping: Number(r.shipping) } : {}),
+    }))
     const renames = {}
     for (const r of cleanRows) {
       if (r.original && r.original !== r.name) renames[r.original] = r.name
     }
     await updateSuppliers(team.id, suppliers, renames)
-    setRows(suppliers.map((s, i) => ({ key: `${s.name}-${i}`, original: s.name, name: s.name, multiplier: String(s.multiplier) })))
+    setRows(
+      suppliers.map((s, i) => ({
+        key: `${s.name}-${i}`,
+        original: s.name,
+        name: s.name,
+        multiplier: String(s.multiplier),
+        shipping: s.shipping ? String(s.shipping) : '',
+      }))
+    )
     setSaving(false)
     setSaved(true)
   }
@@ -932,7 +971,10 @@ function SuppliersSection({ team }) {
         and keep each product's price as the manufacturer's listed one. Every total, the orders export
         and logged purchases then include the markup automatically. Leave it at 1 for no markup.
         Renaming a supplier updates its products; removing one leaves them with the old name as
-        plain text.
+        plain text. Saving also fixes products that spell a listed supplier differently (e.g.
+        "saad robot" becomes "Saad robot"). Shipping is optional - what one order from that
+        supplier usually costs to ship, in {team?.preferredCurrency || 'NIS'}; the dashboard adds it to
+        the projection once for every supplier you still have something to buy from.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -955,6 +997,17 @@ function SuppliersSection({ team }) {
                 aria-label={`Price multiplier for ${r.name}`}
                 title="Price multiplier"
                 style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.shipping}
+                onChange={(e) => updateRow(r.key, { shipping: e.target.value })}
+                placeholder="Shipping"
+                aria-label={`Shipping per order for ${r.name}`}
+                title="Shipping per order (optional)"
+                style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
               />
               <button
                 type="button"
@@ -984,6 +1037,14 @@ function SuppliersSection({ team }) {
             Add
           </button>
         </div>
+        {unlistedSuppliers.length > 0 && (
+          <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
+            Products also use {unlistedSuppliers.join(', ')}.{' '}
+            <button type="button" className="link-btn" onClick={addUnlistedSuppliers}>
+              Add {unlistedSuppliers.length === 1 ? 'it' : 'them'} to the list
+            </button>
+          </p>
+        )}
         <div className="form-actions" style={{ marginTop: 10 }}>
           {saved && <span className="muted">Saved.</span>}
           <button type="submit" disabled={saving}>
@@ -995,7 +1056,7 @@ function SuppliersSection({ team }) {
   )
 }
 
-const emptyProductType = { name: '', fields: [], toBuyFormula: '', totalPriceFormula: '' }
+const emptyProductType = { name: '', fields: [], toBuyFormula: '', totalPriceFormula: '', packSizeKey: '' }
 
 // Catches a genuine syntax error at save time without false-flagging a
 // legitimate custom.<field> reference - every possible custom field reads
@@ -1043,6 +1104,20 @@ function ProductTypesSection({ team }) {
   const [form, setForm] = useState(emptyProductType)
   const [fieldInput, setFieldInput] = useState('')
   const [error, setError] = useState('')
+  const { data: products } = useProducts(team?.id)
+  const { data: purchases } = usePurchases(team?.id)
+  const [fixing, setFixing] = useState(false)
+  // Purchases logged before a type had a pack size only added packs to stock
+  // - offered as a one-time fix once the pack size is set.
+  const oldPackFixes = oldPackPurchases(purchases, products, types)
+
+  async function handleFixOldPacks() {
+    const units = oldPackFixes.reduce((sum, f) => sum + f.purchase.quantity * (f.packSize - 1), 0)
+    if (!confirm(`Add the missing ${units} units to stock across ${oldPackFixes.length} purchase(s)? Only do this once - check below that these are right.`)) return
+    setFixing(true)
+    await fixOldPackPurchases(team.id, oldPackFixes)
+    setFixing(false)
+  }
 
   function startNew() {
     setEditingIndex(null)
@@ -1060,6 +1135,9 @@ function ProductTypesSection({ team }) {
       fields: t.fields.map((f, i) => ({ key: `${f}-${i}`, original: f, name: f })),
       toBuyFormula: t.toBuyFormula || '',
       totalPriceFormula: t.totalPriceFormula || '',
+      // Tracked by the field row's key, not its name, so renaming the field
+      // in this same edit keeps it selected.
+      packSizeKey: t.packSizeField ? `${t.packSizeField}-${t.fields.indexOf(t.packSizeField)}` : '',
     })
     setFieldInput('')
     setError('')
@@ -1131,6 +1209,8 @@ function ProductTypesSection({ team }) {
     const nextType = { name, fields }
     if (toBuyFormula) nextType.toBuyFormula = toBuyFormula
     if (totalPriceFormula) nextType.totalPriceFormula = totalPriceFormula
+    const packRow = cleanFields.find((r) => r.key === form.packSizeKey)
+    if (packRow) nextType.packSizeField = packRow.name
     const nextTypes = [...types]
     // Only editing an existing type (not adding a new one) can have
     // products already pointing at it - `typeName` is what they're
@@ -1170,6 +1250,27 @@ function ProductTypesSection({ team }) {
         student sign-in - see Codes below for that link. Accept or decline what they submit from the
         "Student requests" table on Orders.
       </p>
+      {oldPackFixes.length > 0 && (
+        <div className="card form-card" style={{ maxWidth: 520, marginBottom: 12, fontSize: 13 }}>
+          <p style={{ marginTop: 0 }}>
+            {oldPackFixes.length} purchase{oldPackFixes.length === 1 ? ' was' : 's were'} logged in packs before
+            pack sizes were set up, so they added packs to stock instead of units:
+          </p>
+          <ul style={{ margin: '0 0 8px', paddingLeft: 18, maxHeight: 160, overflowY: 'auto' }}>
+            {oldPackFixes.map(({ purchase, product, packSize }) => (
+              <li key={purchase.id}>
+                {product.name}: {purchase.quantity} pack{purchase.quantity === 1 ? '' : 's'} of {packSize} - adds the
+                missing {purchase.quantity * (packSize - 1)}
+              </li>
+            ))}
+          </ul>
+          <span className="form-actions">
+            <button type="button" className="secondary" onClick={handleFixOldPacks} disabled={fixing}>
+              {fixing ? 'Fixing…' : 'Fix their stock'}
+            </button>
+          </span>
+        </div>
+      )}
       <DataTable
         columns={[
           { key: 'name', header: 'Type', cell: (t) => t.name },
@@ -1255,6 +1356,26 @@ function ProductTypesSection({ team }) {
             Add
           </button>
         </div>
+
+        <label style={{ marginTop: 10 }}>
+          Pack size field (optional)
+          <select value={form.packSizeKey} onChange={(e) => setForm({ ...form, packSizeKey: e.target.value })}>
+            <option value="">None - bought one at a time</option>
+            {form.fields
+              .filter((r) => r.name.trim())
+              .map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+          For things bought in packs (e.g. screws in bags of 50): pick the field holding how many come
+          in one pack. Logging a purchase on Orders then counts in packs - the price is per pack, and
+          stock goes up by packs × that number. Your to-buy formula should count packs too, e.g.{' '}
+          <code>ceil(max(wanted - stock, 0) / int(custom.PackSize))</code>.
+        </p>
 
         <label style={{ marginTop: 10 }}>
           To buy formula (optional)

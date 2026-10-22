@@ -27,6 +27,7 @@ import {
   isCountableTraining,
   plannedSpendByCategory,
   spentByCategory,
+  supplierBudgetRows,
   streakBoard,
   studentCommunityHours,
   summarizeAttendance,
@@ -196,7 +197,22 @@ export default function Dashboard() {
   const plannedRows = useMemo(() => plannedSpendByCategory(spending, toBuyByCategory), [spending, toBuyByCategory])
   const spent = useMemo(() => totalSpent(purchases, rates, preferred), [purchases, rates, preferred])
   const toBuyCost = useMemo(() => Object.values(toBuyByCategory).reduce((a, b) => a + b, 0), [toBuyByCategory])
-  const projectedSpent = spent + toBuyCost
+  // Per supplier: spent / still to buy / expected shipping (see
+  // supplierBudgetRows in calc.js). Expected shipping also counts toward the
+  // overall projection, as its own line in the category table.
+  const supplierRows = useMemo(
+    () => supplierBudgetRows(purchases, products, productTypes, suppliers, rates, preferred),
+    [purchases, products, productTypes, suppliers, rates, preferred]
+  )
+  const expectedShipping = supplierRows.reduce((sum, r) => sum + r.expectedShipping, 0)
+  const projectedSpent = spent + toBuyCost + expectedShipping
+  const categoryTableRows = useMemo(
+    () =>
+      expectedShipping > 0
+        ? [...plannedRows, { category: 'Expected shipping', spent: 0, toBuy: expectedShipping, planned: expectedShipping, isShipping: true }]
+        : plannedRows,
+    [plannedRows, expectedShipping]
+  )
   const spentPercentOfBudget = budget > 0 ? Math.round((spent / budget) * 100) : null
   const projectedPercentOfBudget = budget > 0 ? Math.round((projectedSpent / budget) * 100) : null
   const overBudgetBy = budget > 0 ? projectedSpent - budget : 0
@@ -213,17 +229,17 @@ export default function Dashboard() {
   const plannedSlices = useMemo(() => {
     const denominator = Math.max(budget, projectedSpent)
     if (denominator <= 0) return []
-    const slices = plannedRows.map((r) => ({
+    const slices = categoryTableRows.map((r) => ({
       label: r.category || 'Uncategorized',
       percent: (r.planned / denominator) * 100,
-      color: categoryColor(r.category),
+      color: r.isShipping ? UNCATEGORIZED_COLOR : categoryColor(r.category),
     }))
     if (budget > projectedSpent) {
       slices.push({ label: 'Unallocated', percent: ((budget - projectedSpent) / denominator) * 100, color: 'var(--border)' })
     }
     return slices
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannedRows, budget, projectedSpent, categories])
+  }, [categoryTableRows, budget, projectedSpent, categories])
 
   const spentSlices = useMemo(() => {
     const total = Object.values(spending).reduce((a, b) => a + b, 0)
@@ -500,6 +516,7 @@ export default function Dashboard() {
           </span>
           <span className="muted">
             {spent.toFixed(0)} spent + {toBuyCost.toFixed(0)} still to buy
+            {expectedShipping > 0 && ` + ${expectedShipping.toFixed(0)} expected shipping`}
           </span>
         </div>
       </div>
@@ -524,7 +541,7 @@ export default function Dashboard() {
             key: 'toBuy',
             header: 'Still to buy',
             cell: (r) => `${r.toBuy.toFixed(0)} ${preferred}`,
-            footerCell: () => `${toBuyCost.toFixed(0)} ${preferred}`,
+            footerCell: () => `${(toBuyCost + expectedShipping).toFixed(0)} ${preferred}`,
           },
           {
             key: 'planned',
@@ -539,8 +556,43 @@ export default function Dashboard() {
             footerCell: () => (projectedPercentOfBudget === null ? '—' : `${projectedPercentOfBudget}%`),
           },
         ]}
-        rows={plannedRows}
-        getRowId={(r) => r.category || 'uncategorized'}
+        rows={categoryTableRows}
+        getRowId={(r) => (r.isShipping ? 'expected-shipping' : r.category || 'uncategorized')}
+        footer
+        emptyMessage="Nothing bought or on the Orders list yet."
+      />
+
+      <h3>Spending by supplier</h3>
+      <DataTable
+        columns={[
+          { key: 'supplier', header: 'Supplier', cell: (r) => r.supplier || 'No supplier', footerCell: () => <strong>Total</strong> },
+          {
+            key: 'spent',
+            header: 'Spent',
+            cell: (r) => `${r.spent.toFixed(0)} ${preferred}`,
+            footerCell: () => `${spent.toFixed(0)} ${preferred}`,
+          },
+          {
+            key: 'toBuy',
+            header: 'Still to buy',
+            cell: (r) => `${r.toBuy.toFixed(0)} ${preferred}`,
+            footerCell: () => `${toBuyCost.toFixed(0)} ${preferred}`,
+          },
+          {
+            key: 'shipping',
+            header: 'Expected shipping',
+            cell: (r) => (r.expectedShipping > 0 ? `${r.expectedShipping.toFixed(0)} ${preferred}` : '—'),
+            footerCell: () => `${expectedShipping.toFixed(0)} ${preferred}`,
+          },
+          {
+            key: 'projected',
+            header: 'Projected',
+            cell: (r) => `${r.projected.toFixed(0)} ${preferred}`,
+            footerCell: () => <strong>{projectedSpent.toFixed(0)} {preferred}</strong>,
+          },
+        ]}
+        rows={supplierRows}
+        getRowId={(r) => r.supplier || 'no-supplier'}
         footer
         emptyMessage="Nothing bought or on the Orders list yet."
       />

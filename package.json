@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "node scripts/emulators.mjs"
   },
   "dependencies": {
     "firebase": "^12.19.0",
@@ -19,6 +20,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
+    "firebase-tools": "^15.34.0",
     "oxlint": "^1.79.0",
     "vite": "^8.2.2"
   }

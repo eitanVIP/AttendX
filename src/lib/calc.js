@@ -219,10 +219,29 @@ export function trainingScopeStudents(training, students) {
   return students.filter((s) => s.active && trainingAppliesToStudent(training, s))
 }
 
-export function trainingProgress(training, students) {
+// How many people a training actually needs, judged by the certifications
+// that require it: the highest headcount any of them asks for (a cert with
+// no target of its own means every active student). A sub-training counts
+// as required whenever its parent is. Null when no certification needs it.
+export function certTargetForTraining(training, allTrainings, students) {
+  const ids = [training.id, training.parentTrainingId].filter(Boolean)
+  const certs = (allTrainings || []).filter(
+    (t) => t.category === 'professional' && (t.requiredTrainingIds || []).some((id) => ids.includes(id))
+  )
+  if (certs.length === 0) return null
+  const activeCount = students.filter((s) => s.active).length
+  return Math.max(...certs.map((c) => c.targetCount ?? activeCount))
+}
+
+// Target: a training's own explicit targetCount if it has one, otherwise
+// what the certifications requiring it need (see certTargetForTraining),
+// otherwise everyone in its division/subdivision scope.
+export function trainingProgress(training, students, allTrainings) {
   const completed = training.completedStudentIds?.length ?? 0
   const target =
-    training.targetCount ?? trainingScopeStudents(training, students).length
+    training.targetCount ??
+    certTargetForTraining(training, allTrainings, students) ??
+    trainingScopeStudents(training, students).length
   const percent = target > 0 ? Math.round((completed / target) * 100) : null
   return {
     completed,
@@ -325,6 +344,23 @@ export function supplierMultiplier(supplierName, suppliers) {
   return multiplier > 0 ? multiplier : 1
 }
 
+// The list's own spelling of a supplier name ("saad robot" -> "Saad robot"),
+// or the name as typed when it isn't on the list. '' stays ''.
+export function canonicalSupplier(name, suppliers) {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return ''
+  const wanted = trimmed.toLowerCase()
+  return (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)?.name ?? trimmed
+}
+
+// A supplier's expected shipping per order (team.suppliers[].shipping, in
+// the team's preferred currency) - 0 when none is set.
+export function supplierShipping(name, suppliers) {
+  const wanted = (name || '').trim().toLowerCase()
+  const match = wanted && (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)
+  return Number(match?.shipping) > 0 ? Number(match.shipping) : 0
+}
+
 // The price actually paid for one unit, still in the product's own currency.
 export function effectivePrice(product, suppliers) {
   return (product.price || 0) * supplierMultiplier(product.supplier, suppliers)
@@ -411,6 +447,41 @@ export function computeToBuy(product, productTypes) {
   return result.value === null ? result : { ...result, value: Math.ceil(result.value) }
 }
 
+// Some things are bought in packs (screws in bags of 50): Orders' to-buy and
+// a logged purchase's quantity count packs, but stock counts single units.
+// A product type can name one of its fields as the pack size
+// (`packSizeField`, set in Settings); this is that field's value for one
+// product, or 1 when the type has none or the value isn't a positive number.
+export function unitsPerPurchase(product, productTypes) {
+  const field = productType(product, productTypes)?.packSizeField
+  const size = field ? parseFloat(product.customData?.[field]) : NaN
+  return size > 0 ? size : 1
+}
+
+// Purchases logged before pack sizes existed: no `unitsPerPurchase` on the
+// record, for a product whose type now has a pack size above 1. Those added
+// packs to stock as if they were units - see fixOldPackPurchases in actions.js.
+export function oldPackPurchases(purchases, products, productTypes) {
+  const byId = new Map(products.map((p) => [p.id, p]))
+  return purchases.flatMap((purchase) => {
+    const product = purchase.productId && purchase.unitsPerPurchase === undefined && byId.get(purchase.productId)
+    const packSize = product ? unitsPerPurchase(product, productTypes) : 1
+    return packSize > 1 ? [{ purchase, product, packSize }] : []
+  })
+}
+
+// A logged purchase's quantity in real units (packs × pack size).
+export function purchasedUnits(purchase) {
+  return (purchase.quantity || 0) * (purchase.unitsPerPurchase || 1)
+}
+
+// "200 (4 × 50)" for a pack purchase, just "4" otherwise.
+export function formatPurchasedQuantity(purchase) {
+  if (purchase.discount || purchase.shipping) return '—'
+  const per = purchase.unitsPerPurchase || 1
+  return per === 1 ? String(purchase.quantity) : `${purchasedUnits(purchase)} (${purchase.quantity} × ${per})`
+}
+
 // `convertedPrice` is the price already converted to the team's preferred
 // currency (what the table actually shows) - `price` stays the product's
 // own raw stored value in both formulas, for consistency with the to-buy
@@ -486,6 +557,43 @@ export function plannedSpendByCategory(spending, toBuyCosts) {
     })
     .filter((r) => r.planned > 0)
     .sort((x, y) => y.planned - x.planned)
+}
+
+// The dashboard's per-supplier table, in the preferred currency:
+//   spent            - logged purchases, plus shipping and discounts logged
+//                      against that supplier. A purchase logged before
+//                      purchases recorded their supplier falls back to the
+//                      product's current one.
+//   toBuy            - what's still on Orders from that supplier.
+//   expectedShipping - the supplier's shipping per order (Settings), once,
+//                      only while something is still to buy from them.
+//   projected        - all three together.
+// A blank supplier is its own '' row (manual expenses, unassigned products).
+export function supplierBudgetRows(purchases, products, productTypes, suppliers, rates, preferred) {
+  const productsById = new Map(products.map((p) => [p.id, p]))
+  const rows = new Map()
+  const row = (name) => {
+    const supplier = canonicalSupplier(name, suppliers)
+    if (!rows.has(supplier)) rows.set(supplier, { supplier, spent: 0, toBuy: 0, expectedShipping: 0, projected: 0 })
+    return rows.get(supplier)
+  }
+  for (const p of purchases) {
+    const name = p.supplier ?? productsById.get(p.productId)?.supplier ?? ''
+    row(name).spent += (convertPrice(p.unitPrice, p.currency, preferred, rates) ?? 0) * (p.quantity || 0)
+  }
+  for (const p of products) {
+    const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
+    const toBuy = computeToBuy(p, productTypes)
+    const total = computeTotalPrice(p, productTypes, converted, toBuy.value).value || 0
+    if (total > 0) row(p.supplier).toBuy += total
+  }
+  for (const r of rows.values()) {
+    r.expectedShipping = r.toBuy > 0 ? supplierShipping(r.supplier, suppliers) : 0
+    r.projected = r.spent + r.toBuy + r.expectedShipping
+  }
+  return [...rows.values()]
+    .filter((r) => Math.abs(r.spent) > 0.005 || r.toBuy > 0)
+    .sort((a, b) => b.projected - a.projected)
 }
 
 export function totalBudget(categoryBudgets) {

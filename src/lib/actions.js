@@ -22,6 +22,7 @@ import {
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
+  purchasedUnits,
   remapStudentDivisions,
   streakAfterRemoving,
   streakContributionsField,
@@ -852,8 +853,8 @@ export function declineOrderRequest(teamId, request) {
 }
 
 // Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
-// Settings) only has to follow renames onto products - `renames` is old name
-// -> new name for rows that survived under a different one. A removed
+// Settings) follows renames onto products - `renames` is old name -> new
+// name for rows that survived under a different one. A removed
 // supplier's products keep its name as plain text (no multiplier any more)
 // rather than being blanked, so nothing silently loses where it's bought.
 export async function updateSuppliers(teamId, suppliers, renames) {
@@ -862,14 +863,41 @@ export async function updateSuppliers(teamId, suppliers, renames) {
     (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { suppliers }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('supplier', 'update', 'Updated suppliers')),
   ]
-  if (Object.keys(renames).length > 0) {
-    const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
-    for (const d of snap.docs) {
-      const next = renames[d.data().supplier]
-      if (next) writes.push((batch) => batch.update(d.ref, { supplier: next }))
-    }
+  // Supplier used to be free text, so the same one is often spelled several
+  // ways ("Saad Robot", "saad robot"). Every save also snaps any product
+  // whose supplier matches a listed one ignoring case/spacing onto the
+  // list's exact spelling.
+  const canonical = new Map(suppliers.map((s) => [s.name.trim().toLowerCase(), s.name]))
+  const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
+  for (const d of snap.docs) {
+    const current = d.data().supplier || ''
+    const renamed = renames[current] || current
+    const next = canonical.get(renamed.trim().toLowerCase()) || renamed
+    if (next !== current) writes.push((batch) => batch.update(d.ref, { supplier: next }))
   }
   await commitAll(writes)
+}
+
+// Purchases logged before pack sizes existed (see unitsPerPurchase in
+// calc.js) have no `unitsPerPurchase` and only added `quantity` - packs - to
+// stock. `fixes` comes from oldPackPurchases in calc.js: each one gets its
+// pack size recorded and the missing quantity × (packSize - 1) units added to
+// its product's stock, so 4 packs of 50 end up as the 200 they really were.
+export function fixOldPackPurchases(teamId, fixes) {
+  const writes = fixes.flatMap(({ purchase, packSize }) => [
+    (batch) => batch.update(doc(db, 'teams', teamId, 'purchases', purchase.id), { unitsPerPurchase: packSize }),
+    (batch) =>
+      batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
+        countInInventory: increment(purchase.quantity * (packSize - 1)),
+      }),
+  ])
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('purchase', 'update', `Fixed stock for ${fixes.length} purchase${fixes.length === 1 ? '' : 's'} logged in packs before pack sizes were set up`)
+    )
+  )
+  return commitAll(writes)
 }
 
 // Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
@@ -883,17 +911,23 @@ export async function updateSuppliers(teamId, suppliers, renames) {
 // `unitPrice` snapshots what was actually paid per unit: the product's listed
 // price times its supplier's multiplier (see effectivePrice in calc.js), so
 // the dashboard's "spent" reflects reseller markups too.
-export function logPurchase(teamId, product, quantity, suppliers) {
+//
+// `quantity` is in whatever unit Orders' to-buy counts (packs, for a product
+// type with a pack size - see unitsPerPurchase in calc.js): stock goes up by
+// quantity × unitsPer, the cost stays quantity × the pack's price.
+export function logPurchase(teamId, product, quantity, suppliers, unitsPer = 1) {
   const batch = writeBatch(db)
   batch.update(doc(db, 'teams', teamId, 'products', product.id), {
-    countInInventory: (product.countInInventory || 0) + quantity,
+    countInInventory: (product.countInInventory || 0) + quantity * unitsPer,
   })
   batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
     productId: product.id,
     productName: product.name,
     category: product.category || '',
     subcategory: product.subcategory || '',
+    supplier: product.supplier || '',
     quantity,
+    unitsPerPurchase: unitsPer,
     unitPrice: effectivePrice(product, suppliers),
     currency: product.currency || 'NIS',
     date: todayISO(),
@@ -929,7 +963,7 @@ export function revertPurchase(teamId, purchase) {
   batch.delete(doc(db, 'teams', teamId, 'purchases', purchase.id))
   if (purchase.productId) {
     batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
-      countInInventory: increment(-purchase.quantity),
+      countInInventory: increment(-purchasedUnits(purchase)),
     })
   }
   batch.set(
@@ -939,6 +973,14 @@ export function revertPurchase(teamId, purchase) {
   return batch.commit()
 }
 
+// Shipping (the "+ Add shipping" button there) is a plain positive one
+// flagged `shipping: true`, so the dashboard can show it per supplier.
+//
+// A discount (the "+ Add a discount" button there) is the same thing with a
+// negative price and `discount: true` - e.g. 575 off a whole order from a
+// supplier - so it comes straight off totalSpent/spentByCategory without
+// touching any product's price or stock.
+//
 // A manual expense (the "+ Add a manual expense" button on the Bought
 // items page) - money spent on something that was never a real product and
 // never needs to be. It's the same purchases doc shape logPurchase writes,
@@ -956,10 +998,21 @@ export function logFakePurchase(teamId, purchase) {
     currency: purchase.currency,
     date: purchase.date,
     dismissed: false,
+    supplier: purchase.supplier || '',
+    ...(purchase.discount ? { discount: true } : {}),
+    ...(purchase.shipping ? { shipping: true } : {}),
   })
   batch.set(
     doc(collection(db, 'teams', teamId, 'log')),
-    logEntry('purchase', 'create', `Logged a manual expense of ${purchase.quantity} × "${purchase.productName}"`)
+    logEntry(
+      'purchase',
+      'create',
+      purchase.discount
+        ? `Logged a discount of ${-purchase.unitPrice} ${purchase.currency} ("${purchase.productName}")`
+        : purchase.shipping
+          ? `Logged shipping of ${purchase.unitPrice} ${purchase.currency} ("${purchase.productName}")`
+          : `Logged a manual expense of ${purchase.quantity} × "${purchase.productName}"`
+    )
   )
   return batch.commit()
 }

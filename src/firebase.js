@@ -1,11 +1,30 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, inMemoryPersistence } from 'firebase/auth'
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
+import {
+  connectFirestoreEmulator,
+  getFirestore,
+  initializeFirestore,
+  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore'
+
+// `npm run dev` (localhost) talks to the local Firestore emulator (`npm run
+// emulators`); a production build (`npm run build`, i.e. whatever is deployed
+// to Firebase Hosting) always talks to the real Firestore. Set
+// VITE_USE_REAL_FIRESTORE=true in .env.local to point `npm run dev` at the
+// real database instead.
+const useEmulator = import.meta.env.DEV && import.meta.env.VITE_USE_REAL_FIRESTORE !== 'true'
+const EMULATOR_HOST = '127.0.0.1'
+const EMULATOR_PORT = 8080
+// Emulator project ids starting with "demo-" are guaranteed never to touch
+// a real Firebase project, whatever else is in the config.
+const EMULATOR_PROJECT_ID = 'demo-attendx'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  projectId: useEmulator ? EMULATOR_PROJECT_ID : import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
@@ -24,8 +43,10 @@ export const auth = getAuth(app)
 // Multi-tab so extra tabs share the cache and one connection rather than
 // each falling back to memory. Queued writes persist too, so an edit made
 // while the daily quota was out survives the reload the quota page does.
+// (Against the emulator the cache stays in memory instead: a persistent one
+// would keep showing documents from before the emulator's data was reset.)
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  localCache: useEmulator ? memoryLocalCache() : persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 })
 
 // The public community-hours page (src/pages/CommunityHours.jsx) signs in
@@ -45,3 +66,9 @@ export const communityApp = initializeApp(firebaseConfig, 'community')
 export const communityAuth = getAuth(communityApp)
 export const communityDb = getFirestore(communityApp)
 communityAuth.setPersistence(inMemoryPersistence)
+
+if (useEmulator) {
+  connectFirestoreEmulator(db, EMULATOR_HOST, EMULATOR_PORT)
+  connectFirestoreEmulator(communityDb, EMULATOR_HOST, EMULATOR_PORT)
+  console.info(`[firebase] Using the local Firestore emulator at ${EMULATOR_HOST}:${EMULATOR_PORT} (project ${EMULATOR_PROJECT_ID})`)
+}

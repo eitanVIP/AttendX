@@ -21,6 +21,13 @@ export default function ProductForm({
 }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const multiplier = supplierMultiplier(form.supplier, suppliers)
+  // An old product may spell a listed supplier differently ("saad robot") -
+  // show it as the listed one rather than as "not in list". (Saving the
+  // supplier list in Settings rewrites the stored spelling on every product.)
+  const listedSupplier = suppliers.find(
+    (s) => s.name.trim().toLowerCase() === (form.supplier || '').trim().toLowerCase()
+  )?.name
+  const supplierValue = listedSupplier ?? (form.supplier || '')
 
   // Subcategories belong to one category each, so switching category drops
   // the old pick rather than leaving a subcategory the new category doesn't
@@ -105,7 +112,7 @@ export default function ProductForm({
         </label>
         <label>
           Supplier
-          <select value={form.supplier || ''} onChange={set('supplier')}>
+          <select value={supplierValue} onChange={set('supplier')}>
             <option value="">None</option>
             {suppliers.map((s) => (
               <option key={s.name} value={s.name}>
@@ -114,7 +121,7 @@ export default function ProductForm({
               </option>
             ))}
             {/* A product saved before suppliers became a list (or with a since-removed one) keeps its old name selectable. */}
-            {form.supplier && !suppliers.some((s) => s.name === form.supplier) && (
+            {form.supplier && !listedSupplier && (
               <option value={form.supplier}>{form.supplier} (not in list)</option>
             )}
           </select>
