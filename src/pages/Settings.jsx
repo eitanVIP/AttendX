@@ -29,7 +29,9 @@ import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
   getGoogleCalendarState,
+  getRememberedGoogleAccount,
   isGoogleCalendarConfigured,
+  isGoogleCalendarConnected,
   subscribeGoogleCalendar,
 } from '../lib/googleCalendar'
 
@@ -1846,7 +1848,11 @@ function GoogleCalendarSection({ teamId }) {
   useEffect(() => subscribeGoogleCalendar(setCalendarState), [])
 
   const configured = isGoogleCalendarConfigured()
-  const connected = !!calendarState.accessToken
+  const connected = isGoogleCalendarConnected()
+  // Connected before this page load (or before the token's hour ran out) but
+  // no token right now - not the same as never connected: the next click
+  // renews it on its own (see ensureGoogleCalendarToken).
+  const remembered = !connected ? getRememberedGoogleAccount() : null
 
   async function handleConnect() {
     setError('')
@@ -1865,9 +1871,11 @@ function GoogleCalendarSection({ teamId }) {
     setSyncing(true)
     const trainings = allTrainings.filter((t) => !t.parentTrainingId)
     try {
-      await syncAllDatesToCalendar(teamId, { events, trainings })
-      const count = events.filter((e) => e.date).length + trainings.filter((t) => t.targetDate).length
-      setSyncedMessage(`Added/updated ${count} date${count === 1 ? '' : 's'} on the calendar.`)
+      const { synced, failed } = await syncAllDatesToCalendar(teamId, { events, trainings })
+      setSyncedMessage(
+        `Added/updated ${synced} date${synced === 1 ? '' : 's'} on the calendar.` +
+          (failed ? ` ${failed} failed - click again to retry just those (the rest won't be duplicated).` : '')
+      )
     } catch (e) {
       setError(e.message)
     }
@@ -1898,7 +1906,19 @@ function GoogleCalendarSection({ teamId }) {
             {connected ? (
               <>
                 Connected{calendarState.email ? ` as ${calendarState.email}` : ''}.{' '}
-                <span className="muted">Reconnect if this session logs out or the token expires.</span>
+                <span className="muted">
+                  Google's token lasts about an hour; after a reload or once it runs out it renews itself on
+                  your next click.
+                </span>
+              </>
+            ) : remembered ? (
+              <>
+                {calendarState.reconnecting ? 'Reconnecting…' : 'Waiting to reconnect.'}{' '}
+                <span className="muted">
+                  {remembered.email ? `${remembered.email} was connected. ` : ''}
+                  Syncing is paused until Google hands back a fresh token - that happens on your next click
+                  anywhere in the app, and any save renews it first. If it doesn't, use Connect below.
+                </span>
               </>
             ) : (
               <span className="muted">Not connected - nothing syncs to a calendar right now.</span>

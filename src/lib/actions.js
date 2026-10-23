@@ -31,7 +31,7 @@ import {
   trainingCompletionCascade,
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
-import { deleteCalendarEvent, isGoogleCalendarConnected, upsertCalendarEvent } from './googleCalendar'
+import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -53,13 +53,15 @@ function logEntry(entity, action, summary) {
 // with whatever its own due date just became - creates one the first time
 // a date is set, updates it in place while the date keeps changing, and
 // removes it if the date is cleared. A no-op whenever nobody's connected
-// Google Calendar in this session (see isGoogleCalendarConnected) - and
+// Google Calendar in this session (see ensureGoogleCalendarToken) - and
 // never throws even when it does run, since a slow or failed Calendar API
 // call must never block or break the real Firestore save every caller
 // below already made before this runs. `ref` is the doc to write
 // googleCalendarEventId back onto once an event is created or replaced.
+// Resolves true unless the Calendar call actually failed (so the bulk sync
+// can count failures).
 async function syncDocCalendarEvent(ref, { title, date, description, previousEventId }) {
-  if (!isGoogleCalendarConnected()) return
+  if (!(await ensureGoogleCalendarToken())) return true
   try {
     if (date) {
       const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, description })
@@ -68,8 +70,10 @@ async function syncDocCalendarEvent(ref, { title, date, description, previousEve
       await deleteCalendarEvent(previousEventId)
       await updateDoc(ref, { googleCalendarEventId: deleteField() })
     }
+    return true
   } catch (e) {
     console.error('Google Calendar sync failed', e)
+    return false
   }
 }
 
@@ -529,26 +533,33 @@ export function updateTraining(teamId, trainingId, changes, previous) {
 // that already has a googleCalendarEventId gets that same event updated
 // in place rather than a duplicate. Skips sub-trainings, same as every
 // other write above.
+// One at a time, not all at once: Google rate-limits calendar writes per
+// second, and a burst of dozens of parallel requests is what tripped it.
+// Returns how many were synced and how many failed.
 export async function syncAllDatesToCalendar(teamId, { events, trainings }) {
-  const eventSyncs = events
-    .filter((e) => e.date)
-    .map((e) =>
-      syncDocCalendarEvent(doc(db, 'teams', teamId, 'events', e.id), {
-        title: e.name,
-        date: e.date,
-        previousEventId: e.googleCalendarEventId,
-      })
-    )
-  const trainingSyncs = trainings
-    .filter((t) => t.targetDate && !t.parentTrainingId)
-    .map((t) =>
-      syncDocCalendarEvent(doc(db, 'teams', teamId, 'trainings', t.id), {
-        title: `${t.category === 'professional' ? 'Certification' : 'Training'} due: ${t.name}`,
-        date: t.targetDate,
-        previousEventId: t.googleCalendarEventId,
-      })
-    )
-  await Promise.all([...eventSyncs, ...trainingSyncs])
+  const jobs = [
+    ...events
+      .filter((e) => e.date)
+      .map((e) => [
+        doc(db, 'teams', teamId, 'events', e.id),
+        { title: e.name, date: e.date, previousEventId: e.googleCalendarEventId },
+      ]),
+    ...trainings
+      .filter((t) => t.targetDate && !t.parentTrainingId)
+      .map((t) => [
+        doc(db, 'teams', teamId, 'trainings', t.id),
+        {
+          title: `${t.category === 'professional' ? 'Certification' : 'Training'} due: ${t.name}`,
+          date: t.targetDate,
+          previousEventId: t.googleCalendarEventId,
+        },
+      ]),
+  ]
+  let failed = 0
+  for (const [ref, args] of jobs) {
+    if (!(await syncDocCalendarEvent(ref, args))) failed += 1
+  }
+  return { synced: jobs.length - failed, failed }
 }
 
 // Takes the whole training (not an id) for two reasons: the log can name it

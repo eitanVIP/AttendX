@@ -9,21 +9,19 @@
 // "Google Calendar" section of Settings for exactly what to set up and
 // where this ID goes (VITE_GOOGLE_CLIENT_ID in .env.local).
 //
-// Deliberately NOT persisted across sessions: the access token this gets
-// back lives in memory only (a module-level variable, not
-// localStorage/cookies), same as it not surviving a page reload is the
-// price of never having to store a Google credential anywhere at rest.
-// That means automatic sync on create/edit only actually reaches Google
-// while someone connected earlier in the current tab - see the "Add every
-// existing date" button in Settings for catching up anything that was
-// created while nobody was connected, or created before this feature was
-// ever turned on.
+// The access token itself is deliberately NOT persisted: it lives in memory
+// only (a module-level variable, not localStorage/cookies), so no Google
+// credential is ever stored at rest. Staying connected across reloads and
+// the token's hour-long lifetime is done by silently asking Google for a new
+// one instead - see ensureGoogleCalendarToken below. Anything created while
+// that couldn't happen (signed out of Google, popup blocked) is caught up by
+// the "Add every existing date" button in Settings.
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 const SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email'
 const EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
 
 let tokenClient = null
-let state = { accessToken: null, email: null, expiresAt: 0 }
+let state = { accessToken: null, email: null, expiresAt: 0, reconnecting: false }
 const listeners = new Set()
 
 function setState(next) {
@@ -63,13 +61,47 @@ function loadGoogleIdentityServices() {
   })
 }
 
-// Opens Google's own sign-in/consent popup. Resolves once a token comes
-// back (throws if the admin closes the popup or Google refuses it, e.g.
-// the OAuth client isn't configured for this origin yet).
-export async function connectGoogleCalendar() {
-  if (!CLIENT_ID) {
-    throw new Error("Google Calendar isn't set up for this deployment yet - see Settings for what's missing.")
+// Google only hands a browser-only app an access token that lasts about an
+// hour, and this one is never stored (see the top of the file) - so a page
+// reload or the hour running out would otherwise disconnect it. What IS
+// remembered, in localStorage, is just that someone connected (and the
+// account's email, as a sign-in hint): never a credential. While that flag
+// is set, the next click anywhere in the app quietly asks Google for a
+// fresh token with no consent prompt (Google already has the approval) -
+// it has to wait for a click because browsers block popups that aren't
+// started by one - and a save that needs Calendar waits for that to land
+// (see ensureGoogleCalendarToken).
+const REMEMBER_KEY = 'attendx-google-calendar'
+const RETRY_AFTER_FAILURE_MS = 60_000
+
+function readRemembered() {
+  try {
+    return JSON.parse(localStorage.getItem(REMEMBER_KEY))
+  } catch {
+    return null
   }
+}
+
+function remember(email) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email: email || null }))
+  } catch {
+    // Storage blocked (private window) - just means no auto-reconnect.
+  }
+}
+
+function forget() {
+  try {
+    localStorage.removeItem(REMEMBER_KEY)
+  } catch {
+    // See remember().
+  }
+}
+
+// `prompt: 'consent'` is the real connect (Google's sign-in/consent popup);
+// `prompt: ''` is the silent refresh, which only shows anything if Google
+// needs the person to sign in again.
+async function requestToken({ prompt, hint }) {
   await loadGoogleIdentityServices()
   return new Promise((resolve, reject) => {
     tokenClient = window.google.accounts.oauth2.initTokenClient({
@@ -82,17 +114,19 @@ export async function connectGoogleCalendar() {
         }
         setState({
           accessToken: response.access_token,
-          email: null,
+          email: hint || null,
           // A minute of slack before the token's real expiry so a sync
           // that starts right at the edge doesn't get cut off mid-request.
           expiresAt: Date.now() + Math.max(0, (response.expires_in || 0) - 60) * 1000,
         })
+        remember(hint)
         try {
           const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
             headers: { Authorization: `Bearer ${response.access_token}` },
           })
           const info = await res.json()
-          setState({ ...state, email: info.email || null })
+          setState({ ...state, email: info.email || hint || null })
+          remember(info.email || hint)
         } catch {
           // Cosmetic only (shows "Connected as ...") - the connection
           // itself already succeeded above.
@@ -101,27 +135,91 @@ export async function connectGoogleCalendar() {
       },
       error_callback: (err) => reject(new Error(err?.message || 'Google sign-in was cancelled.')),
     })
-    tokenClient.requestAccessToken({ prompt: 'consent' })
+    tokenClient.requestAccessToken({ prompt, ...(hint ? { hint } : {}) })
   })
+}
+
+// Opens Google's own sign-in/consent popup. Resolves once a token comes
+// back (throws if the admin closes the popup or Google refuses it, e.g.
+// the OAuth client isn't configured for this origin yet).
+export async function connectGoogleCalendar() {
+  if (!CLIENT_ID) {
+    throw new Error("Google Calendar isn't set up for this deployment yet - see Settings for what's missing.")
+  }
+  return requestToken({ prompt: 'consent' })
 }
 
 export function disconnectGoogleCalendar() {
   if (state.accessToken && window.google?.accounts?.oauth2) {
     window.google.accounts.oauth2.revoke(state.accessToken, () => {})
   }
-  setState({ accessToken: null, email: null, expiresAt: 0 })
+  forget()
+  setState({ accessToken: null, email: null, expiresAt: 0, reconnecting: false })
 }
 
+// The account that was connected before this page load, if any (what the
+// Settings UI shows while the token is being renewed or waiting on a click).
+export function getRememberedGoogleAccount() {
+  return readRemembered()
+}
+
+let pendingReconnect = null
+let lastFailedAt = 0
+
+// Resolves true when a valid token is available - already connected, or
+// just silently renewed from an earlier connection - false otherwise. Never
+// throws. After a failed silent attempt it leaves the popup alone for a
+// minute, so a signed-out Google session doesn't pop a window on every save.
+export function ensureGoogleCalendarToken() {
+  if (isGoogleCalendarConnected()) return Promise.resolve(true)
+  if (pendingReconnect) return pendingReconnect
+  const remembered = readRemembered()
+  if (!CLIENT_ID || !remembered || Date.now() - lastFailedAt < RETRY_AFTER_FAILURE_MS) return Promise.resolve(false)
+  setState({ ...state, reconnecting: true })
+  pendingReconnect = requestToken({ prompt: '', hint: remembered.email || undefined })
+    .then(
+      () => true,
+      () => {
+        lastFailedAt = Date.now()
+        return false
+      }
+    )
+    .finally(() => {
+      pendingReconnect = null
+      setState({ ...state, reconnecting: false })
+    })
+  return pendingReconnect
+}
+
+if (CLIENT_ID && typeof document !== 'undefined') {
+  // Loaded up front so the script is ready by the time a click needs it.
+  if (readRemembered()) loadGoogleIdentityServices().catch(() => {})
+  // Always listening (it's a no-op until something was remembered), since a
+  // token can also run out mid-session after a connect made in this tab.
+  document.addEventListener('pointerdown', () => void ensureGoogleCalendarToken(), { capture: true, passive: true })
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Google throttles calendar writes per user per second, so a burst (e.g. the
+// "Add every existing date" button) gets "Rate Limit Exceeded" - retried here
+// with exponential backoff, as Google's docs ask, instead of failing.
 async function calendarFetch(path, options) {
-  const res = await fetch(`${EVENTS_URL}${path}`, {
-    ...options,
-    headers: { ...options?.headers, Authorization: `Bearer ${state.accessToken}`, 'Content-Type': 'application/json' },
-  })
-  if (!res.ok) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${EVENTS_URL}${path}`, {
+      ...options,
+      headers: { ...options?.headers, Authorization: `Bearer ${state.accessToken}`, 'Content-Type': 'application/json' },
+    })
+    if (res.ok) return res.status === 204 ? null : res.json()
     const body = await res.json().catch(() => null)
+    const reason = body?.error?.errors?.[0]?.reason
+    const throttled = res.status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded'
+    if (throttled && attempt < 5) {
+      await sleep(600 * 2 ** attempt + Math.random() * 300)
+      continue
+    }
     throw new Error(body?.error?.message || `Google Calendar API error (${res.status})`)
   }
-  return res.status === 204 ? null : res.json()
 }
 
 // All-day events use an exclusive end date (the day AFTER, per the
@@ -138,7 +236,7 @@ function nextDay(dateISO) {
 // Google-assigned id, which the caller stores back on its own Firestore
 // doc (see syncDocCalendarEvent in actions.js) so a later edit/delete can
 // find it again. Never throws its own connection state - callers check
-// isGoogleCalendarConnected() first and decide what "not connected" means
+// ensureGoogleCalendarToken() first and decide what "not connected" means
 // for them (Settings surfaces an error; a background sync from
 // addTraining/addEvent just quietly skips, since the real save already
 // went through and must never depend on this succeeding).
