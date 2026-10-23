@@ -363,14 +363,19 @@ function TrainingGroupTable({
   // sub-trainings) - DataTable's default getSubRows (row.children) then
   // just works at every depth without the cell/subCell renderers needing
   // to special-case where a row's data came from.
-  const toRow = (t) => {
-    const progress = trainingProgress(t, allStudents, allTrainings)
+  // A sub-training has no scope of its own (its form only asks for a name and
+  // date), so on its own it would "apply to everyone" and its target would be
+  // every active student on the team - not just the parent's division. It
+  // inherits the parent's scope for the target instead.
+  const toRow = (t, parent) => {
+    const scoped = parent ? { ...t, scopeDivision: parent.scopeDivision, scopeSubdivision: parent.scopeSubdivision } : t
+    const progress = trainingProgress(scoped, allStudents, allTrainings)
     const overdue = !!t.targetDate && t.targetDate < today && progress.missing > 0
     const subs = subTrainingsByParent.get(t.id)
-    return { training: t, progress, overdue, children: subs?.map(toRow) }
+    return { training: t, progress, overdue, children: subs?.map((sub) => toRow(sub, t)) }
   }
   const rows = useMemo(
-    () => trainings.map(toRow),
+    () => trainings.map((t) => toRow(t)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [trainings, subTrainingsByParent, allStudents, allTrainings, today]
   )
