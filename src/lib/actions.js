@@ -733,7 +733,7 @@ export function updateStudentStreak(teamId, student, kind, changes) {
 
 export function addSession(teamId, session) {
   return Promise.all([
-    addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now() }),
+    addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now(), attendanceMigrated: true }),
     logChange(teamId, 'session', 'create', `Added session "${session.name}" (${session.date})`),
   ])
 }
@@ -752,6 +752,22 @@ export function deleteSession(teamId, session) {
     deleteDoc(doc(db, 'teams', teamId, 'sessions', session.id)),
     logChange(teamId, 'session', 'delete', `Deleted session "${session.name}" (${session.date}) and its attendance`),
   ])
+}
+
+// Sessions made before attendance moved onto the session doc have no
+// `attendanceMigrated` flag. useSessions calls this once per such session:
+// it copies the old attendance subcollection docs into the `attendance` map
+// and sets the flag. A student already in the map is skipped (a newer mark
+// wins), so it is safe to run twice or from two admins at once.
+export async function migrateSessionAttendance(teamId, session) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
+  const old = await getDocs(collection(sessionRef, 'attendance'))
+  const fields = []
+  for (const d of old.docs) {
+    const { status } = d.data()
+    if (status && !(d.id in (session.attendance || {}))) fields.push(new FieldPath('attendance', d.id), status)
+  }
+  return updateDoc(sessionRef, 'attendanceMigrated', true, ...fields)
 }
 
 // Takes the whole session and student (not just ids) purely so the log can

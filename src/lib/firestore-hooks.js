@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
+import { migrateSessionAttendance } from './actions'
 import { attendanceRecords } from './attendanceRecords'
 import { normalizeProduct, normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
 
@@ -71,10 +72,33 @@ export function useTrainings(teamId) {
   return { ...result, data }
 }
 
+// Sessions created before attendance moved onto the session doc (no
+// `attendanceMigrated` flag) are migrated here, the first time any admin page
+// loads them: see migrateSessionAttendance. `loading` stays true until each
+// has been migrated (or failed), so no page renders their attendance as empty.
+const migrationStarted = new Set()
+const migrationFailed = new Set()
+
 export function useSessions(teamId) {
   const result = useCollection(teamId ? ['teams', teamId, 'sessions'] : null)
   const data = useMemo(() => sortByOrder(result.data, byDate), [result.data])
-  return { ...result, data }
+  const [, retick] = useState(0)
+  const unmigrated = useMemo(() => (result.loading ? [] : data.filter((s) => !s.attendanceMigrated)), [result.loading, data])
+
+  useEffect(() => {
+    for (const s of unmigrated) {
+      const key = `${teamId}/${s.id}`
+      if (migrationStarted.has(key)) continue
+      migrationStarted.add(key)
+      migrateSessionAttendance(teamId, s).catch(() => {
+        migrationFailed.add(key)
+        retick((n) => n + 1)
+      })
+    }
+  }, [teamId, unmigrated])
+
+  const pending = unmigrated.some((s) => !migrationFailed.has(`${teamId}/${s.id}`))
+  return { ...result, data, loading: result.loading || pending }
 }
 
 export function useCommunityLogs(teamId) {

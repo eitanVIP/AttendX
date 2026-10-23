@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { initializeApp } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -22,7 +22,10 @@ function loadEnvLocal() {
   return env
 }
 
-function init() {
+// Every write needs a real Firebase Auth identity (see firestore.rules), so
+// import scripts spin up a disposable throwaway account just to authenticate
+// the run - it's not a "team" account and nothing links to it afterwards.
+export async function connect() {
   const env = loadEnvLocal()
   const app = initializeApp({
     apiKey: env.VITE_FIREBASE_API_KEY,
@@ -32,25 +35,12 @@ function init() {
     messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
     appId: env.VITE_FIREBASE_APP_ID,
   })
-  return { auth: getAuth(app), db: getFirestore(app) }
-}
+  const auth = getAuth(app)
+  const db = getFirestore(app)
 
-// Every write needs a real Firebase Auth identity (see firestore.rules), so
-// import scripts spin up a disposable throwaway account just to authenticate
-// the run - it's not a "team" account and nothing links to it afterwards.
-export async function connect() {
-  const { auth, db } = init()
   const email = `import-script-${randomBytes(6).toString('hex')}@attendx.local`
   const password = randomBytes(12).toString('hex')
   await createUserWithEmailAndPassword(auth, email, password)
 
-  return { auth, db }
-}
-
-// For scripts that read existing team data: the throwaway account above has no
-// team membership, so the rules would refuse it. Signs in as a real admin.
-export async function connectAs(email, password) {
-  const { auth, db } = init()
-  await signInWithEmailAndPassword(auth, email, password)
   return { auth, db }
 }

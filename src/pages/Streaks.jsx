@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { communityDb } from '../firebase'
-import { attendanceRecords } from '../lib/attendanceRecords'
+import { loadAttendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
@@ -34,7 +34,9 @@ export default function Streaks() {
       if (cancelled) return
       setSessions(sessionDocs)
       const grouped = {}
-      for (const record of attendanceRecords(sessionDocs)) (grouped[record.studentId] ??= []).push(record)
+      const records = await loadAttendanceRecords(communityDb, verified.teamId, sessionDocs)
+      if (cancelled) return
+      for (const record of records) (grouped[record.studentId] ??= []).push(record)
       setRecordsByStudent(grouped)
       setLoading(false)
     }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { communityDb } from '../firebase'
-import { attendanceRecords as recordsFromSessions } from '../lib/attendanceRecords'
+import { loadAttendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StudentProfileView from '../components/StudentProfileView'
 import { normalizeStudentForView } from '../lib/calc'
@@ -28,8 +28,6 @@ export default function MyProfile() {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      // Attendance rides along on the session docs (one map per session), so
-      // there's no per-session attendance read to make.
       const [trainingsSnap, sessionsSnap, logsSnap] = await Promise.all([
         getDocs(collection(communityDb, 'teams', verified.teamId, 'trainings')),
         getDocs(collection(communityDb, 'teams', verified.teamId, 'sessions')),
@@ -40,7 +38,9 @@ export default function MyProfile() {
       setTrainings(trainingsSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
       setSessions(sessionDocs)
       setCommunityLogs(logsSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
-      setAttendanceRecords(recordsFromSessions(sessionDocs, studentId))
+      const records = await loadAttendanceRecords(communityDb, verified.teamId, sessionDocs, studentId)
+      if (cancelled) return
+      setAttendanceRecords(records)
       setLoading(false)
     }
     load()
