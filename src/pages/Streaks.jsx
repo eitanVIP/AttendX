@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { communityDb } from '../firebase'
+import { attendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
@@ -32,17 +33,8 @@ export default function Streaks() {
       const sessionDocs = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
       if (cancelled) return
       setSessions(sessionDocs)
-      const attendanceSnaps = await Promise.all(
-        sessionDocs.map((s) => getDocs(collection(communityDb, 'teams', verified.teamId, 'sessions', s.id, 'attendance')))
-      )
-      if (cancelled) return
       const grouped = {}
-      attendanceSnaps.forEach((snap, i) => {
-        snap.docs.forEach((d) => {
-          const record = { id: d.id, sessionId: sessionDocs[i].id, ...d.data() }
-          ;(grouped[record.studentId] ??= []).push(record)
-        })
-      })
+      for (const record of attendanceRecords(sessionDocs)) (grouped[record.studentId] ??= []).push(record)
       setRecordsByStudent(grouped)
       setLoading(false)
     }

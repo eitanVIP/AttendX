@@ -6,6 +6,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   increment,
@@ -756,16 +757,25 @@ export function deleteSession(teamId, session) {
 // Takes the whole session and student (not just ids) purely so the log can
 // name both without an extra read - Sessions.jsx already has them live from
 // useSessions/useStudents at the one call site.
+//
+// Attendance is read from the `attendance` map on the session doc (see
+// attendanceRecords.js). The old subcollection doc is still written too so a
+// rollback to the previous build keeps working.
+// shortcut: dual-write, drop the subcollection setDoc/deleteDoc once settled.
 export function setAttendance(teamId, session, student, status) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
   return Promise.all([
-    setDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id), { status, studentId: student.id }),
+    updateDoc(sessionRef, new FieldPath('attendance', student.id), status),
+    setDoc(doc(sessionRef, 'attendance', student.id), { status, studentId: student.id }),
     logChange(teamId, 'attendance', 'update', `Marked ${student.fullName} ${status} for "${session.name}"`),
   ])
 }
 
 export function clearAttendance(teamId, session, student) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
   return Promise.all([
-    deleteDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id)),
+    updateDoc(sessionRef, new FieldPath('attendance', student.id), deleteField()),
+    deleteDoc(doc(sessionRef, 'attendance', student.id)),
     logChange(teamId, 'attendance', 'update', `Cleared ${student.fullName}'s attendance for "${session.name}"`),
   ])
 }
