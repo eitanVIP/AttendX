@@ -69,10 +69,30 @@ repository secret:
   `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`,
   `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`,
   `VITE_GOOGLE_CLIENT_ID` - same values as in your `.env.local`.
-- `FIREBASE_SERVICE_ACCOUNT` - the full contents of a service-account JSON key.
-  Firebase Console -> Project settings -> Service accounts -> Generate new
-  private key. That account needs the **Firebase Admin** role (the default
-  `firebase-adminsdk` account has it). Never commit the key file.
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` - keyless
+  sign-in to Google (Workload Identity Federation), used because many Google
+  organisations forbid creating service-account keys. Setup commands, run
+  once in Google Cloud Shell:
+
+  ```bash
+  PROJECT_ID=<your-firebase-project-id>
+  PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+  SA=github-deployer@$PROJECT_ID.iam.gserviceaccount.com
+
+  gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project $PROJECT_ID
+  gcloud iam service-accounts create github-deployer --project $PROJECT_ID
+  for ROLE in roles/firebase.admin roles/serviceusage.serviceUsageConsumer; do
+    gcloud projects add-iam-policy-binding $PROJECT_ID --member serviceAccount:$SA --role $ROLE
+  done
+  gcloud iam workload-identity-pools create github --project $PROJECT_ID --location global
+  gcloud iam workload-identity-pools providers create-oidc github-provider     --project $PROJECT_ID --location global --workload-identity-pool github     --issuer-uri https://token.actions.githubusercontent.com     --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository"     --attribute-condition "assertion.repository=='eitanVIP/AttendX' && assertion.ref=='refs/heads/main'"
+  gcloud iam service-accounts add-iam-policy-binding $SA --project $PROJECT_ID     --role roles/iam.workloadIdentityUser     --member "principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/eitanVIP/AttendX"
+  echo "GCP_SERVICE_ACCOUNT=$SA"
+  echo "GCP_WORKLOAD_IDENTITY_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-provider"
+  ```
+
+  The last two lines print the values to paste in as the two secrets. Only
+  runs from the `main` branch of this repository are trusted.
 
 It can also be run by hand from the repository's Actions tab.
 

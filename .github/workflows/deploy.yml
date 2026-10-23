@@ -1,6 +1,7 @@
 # Deploys the site (Firebase Hosting) and the Firestore rules/indexes every
 # time something lands on main. One-time setup: the repository secrets listed
-# under `env:` below, plus FIREBASE_SERVICE_ACCOUNT - see the README.
+# under `env:` below, plus GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT
+# (keyless sign-in to Google, so no service-account key is needed) - see the README.
 name: Deploy to Firebase
 
 on:
@@ -15,6 +16,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write # lets the job prove to Google who it is (no stored key)
 
 jobs:
   deploy:
@@ -41,12 +43,15 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
 
+      # Workload Identity Federation: Google trusts this repository's GitHub
+      # token directly, so no service-account key is created or stored. It
+      # exports GOOGLE_APPLICATION_CREDENTIALS, which firebase-tools picks up.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
       - name: Deploy hosting, Firestore rules and indexes
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-        run: |
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-key.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-key.json"
-          npx --yes firebase-tools@15.34.0 deploy --only hosting,firestore --project "$FIREBASE_PROJECT_ID" --non-interactive
-          rm -f "$RUNNER_TEMP/firebase-key.json"
+        run: npx --yes firebase-tools@15.34.0 deploy --only hosting,firestore --project "$FIREBASE_PROJECT_ID" --non-interactive
