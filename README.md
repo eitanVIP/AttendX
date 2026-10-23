@@ -58,6 +58,24 @@ npm run build
 firebase deploy --only hosting
 ```
 
+## Automatic deploys
+
+`.github/workflows/deploy.yml` builds the site and deploys Hosting plus the
+Firestore rules/indexes on every push to `main` (a merged PR counts). Set it up
+once under GitHub -> Settings -> Secrets and variables -> Actions -> New
+repository secret:
+
+- `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
+  `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`,
+  `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`,
+  `VITE_GOOGLE_CLIENT_ID` - same values as in your `.env.local`.
+- `FIREBASE_SERVICE_ACCOUNT` - the full contents of a service-account JSON key.
+  Firebase Console -> Project settings -> Service accounts -> Generate new
+  private key. That account needs the **Firebase Admin** role (the default
+  `firebase-adminsdk` account has it). Never commit the key file.
+
+It can also be run by hand from the repository's Actions tab.
+
 ## Importing the original roster
 
 `scripts/seed-roster.mjs` creates a team (if it doesn't exist yet) and writes
