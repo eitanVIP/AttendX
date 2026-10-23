@@ -17,6 +17,11 @@ dist-ssr
 # Firebase project link (machine/user-specific - run `firebase use --add`)
 .firebaserc
 firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Local Firestore emulator data (may hold a copy of real team data)
+emulator-data/
 .firebase/
 
 # Real student data used for one-time imports - never publish this publicly

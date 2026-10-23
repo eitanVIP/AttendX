@@ -56,6 +56,8 @@ export function StudentAuthProvider({ children }) {
       teamName: productSettings.name || '',
       students,
       categories: productSettings.categories || [],
+      subcategories: productSettings.subcategories || {},
+      suppliers: productSettings.suppliers || [],
       productTypes: productSettings.productTypes || [],
       currencyCodes: Object.keys(productSettings.currencyRates || DEFAULT_CURRENCY_RATES),
       communityTypes: communitySettings.types || [],

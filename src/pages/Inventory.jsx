@@ -4,7 +4,7 @@ import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
 import { useProducts } from '../lib/firestore-hooks'
-import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
+import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, NO_SUBCATEGORIES, NO_SUPPLIERS, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { addProduct, deleteProduct, importProducts, updateProduct } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
@@ -17,12 +17,15 @@ export default function Inventory() {
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_PRODUCT)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [subcategoryFilter, setSubcategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [importErrors, setImportErrors] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const fileInputRef = useRef(null)
 
   const categories = team?.categories || []
+  const subcategories = team?.subcategories || NO_SUBCATEGORIES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
@@ -32,9 +35,16 @@ export default function Inventory() {
     () =>
       products
         .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter)
         .filter((p) => productMatchesSearch(p, search, { rates, preferred })),
-    [products, categoryFilter, search, rates, preferred]
+    [products, categoryFilter, subcategoryFilter, search, rates, preferred]
   )
+
+  // A subcategory pick only means anything inside the category it belongs to.
+  function handleCategoryFilter(category) {
+    setCategoryFilter(category)
+    setSubcategoryFilter('')
+  }
 
   function startNew() {
     setEditingId(null)
@@ -91,6 +101,7 @@ export default function Inventory() {
       p.name,
       p.sku,
       p.category,
+      p.subcategory,
       p.price,
       p.currency,
       p.supplier,
@@ -112,7 +123,7 @@ export default function Inventory() {
     setImportErrors(null)
     setImportResult(null)
     const text = await file.text()
-    const { products: parsed, errors } = parseProductImport(text, { categories, currencyCodes })
+    const { products: parsed, errors } = parseProductImport(text, { categories, subcategories, currencyCodes })
     if (errors.length > 0) {
       setImportErrors(errors)
       return
@@ -150,7 +161,10 @@ export default function Inventory() {
           products={products}
           categories={categories}
           categoryFilter={categoryFilter}
-          onCategoryFilter={setCategoryFilter}
+          onCategoryFilter={handleCategoryFilter}
+          subcategories={subcategories}
+          subcategoryFilter={subcategoryFilter}
+          onSubcategoryFilter={setSubcategoryFilter}
           search={search}
           onSearch={setSearch}
         />
@@ -182,6 +196,8 @@ export default function Inventory() {
         setForm={setForm}
         editing={!!editingId}
         categories={categories}
+        subcategories={subcategories}
+        suppliers={suppliers}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
       />

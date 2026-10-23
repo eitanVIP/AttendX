@@ -1290,6 +1290,64 @@ body:has(dialog.modal[open]) {
   column-gap: 28px;
 }
 
+/* Clickable column headers in the product tables (see ProductTable.jsx). */
+.dt-sort-btn {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dt-sort-btn:hover {
+  color: var(--accent);
+}
+
+.dt-sort-arrow {
+  color: var(--accent);
+}
+
+/* Tab bar above the settings sections. Scrolls sideways on a narrow screen
+   instead of wrapping onto a second row. */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.settings-tab {
+  flex: none;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 8px 14px;
+  color: var(--muted, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  color: var(--accent);
+}
+
+.settings-tab.active {
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+  font-weight: 600;
+}
+
+.settings-columns[hidden] {
+  display: none;
+}
+
 .settings-section {
   break-inside: avoid;
   margin-bottom: 24px;

@@ -219,10 +219,29 @@ export function trainingScopeStudents(training, students) {
   return students.filter((s) => s.active && trainingAppliesToStudent(training, s))
 }
 
-export function trainingProgress(training, students) {
+// How many people a training actually needs, judged by the certifications
+// that require it: the highest headcount any of them asks for (a cert with
+// no target of its own means every active student). A sub-training counts
+// as required whenever its parent is. Null when no certification needs it.
+export function certTargetForTraining(training, allTrainings, students) {
+  const ids = [training.id, training.parentTrainingId].filter(Boolean)
+  const certs = (allTrainings || []).filter(
+    (t) => t.category === 'professional' && (t.requiredTrainingIds || []).some((id) => ids.includes(id))
+  )
+  if (certs.length === 0) return null
+  const activeCount = students.filter((s) => s.active).length
+  return Math.max(...certs.map((c) => c.targetCount ?? activeCount))
+}
+
+// Target: a training's own explicit targetCount if it has one, otherwise
+// what the certifications requiring it need (see certTargetForTraining),
+// otherwise everyone in its division/subdivision scope.
+export function trainingProgress(training, students, allTrainings) {
   const completed = training.completedStudentIds?.length ?? 0
   const target =
-    training.targetCount ?? trainingScopeStudents(training, students).length
+    training.targetCount ??
+    certTargetForTraining(training, allTrainings, students) ??
+    trainingScopeStudents(training, students).length
   const percent = target > 0 ? Math.round((completed / target) * 100) : null
   return {
     completed,
@@ -303,6 +322,49 @@ export function trainingCompletionCascade(allTrainings, training, student, compl
 // fixed array rather than a fresh `[]` literal every render, or the hook
 // would never actually skip recomputing.
 export const NO_PRODUCT_TYPES = []
+// Same reason, for team?.subcategories ({ category: [names] }).
+export const NO_SUBCATEGORIES = {}
+// And for team?.suppliers ([{ name, multiplier }], see SuppliersSection).
+export const NO_SUPPLIERS = []
+
+// Some products can't be bought from their maker directly (WCP, VEX, CTRE,
+// SDS...) and go through a reseller who charges a multiple of the listed
+// price. A supplier's `multiplier` is that factor (1.6 = pay 1.6x the listed
+// price); a product's stored `price` stays the listed one, and everything
+// that totals up money goes through effectivePrice below instead. A blank
+// supplier, one that was never set up in Settings, or one removed since
+// (the product keeps its old name as plain text) just has no multiplier.
+export function supplierMultiplier(supplierName, suppliers) {
+  if (!supplierName) return 1
+  // Case/space-insensitive: the supplier used to be free text, so existing
+  // products have "Saad Robot", "saad robot" and "Saad robot" for the same one.
+  const wanted = supplierName.trim().toLowerCase()
+  const match = (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)
+  const multiplier = Number(match?.multiplier)
+  return multiplier > 0 ? multiplier : 1
+}
+
+// The list's own spelling of a supplier name ("saad robot" -> "Saad robot"),
+// or the name as typed when it isn't on the list. '' stays ''.
+export function canonicalSupplier(name, suppliers) {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return ''
+  const wanted = trimmed.toLowerCase()
+  return (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)?.name ?? trimmed
+}
+
+// A supplier's expected shipping per order (team.suppliers[].shipping, in
+// the team's preferred currency) - 0 when none is set.
+export function supplierShipping(name, suppliers) {
+  const wanted = (name || '').trim().toLowerCase()
+  const match = wanted && (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)
+  return Number(match?.shipping) > 0 ? Number(match.shipping) : 0
+}
+
+// The price actually paid for one unit, still in the product's own currency.
+export function effectivePrice(product, suppliers) {
+  return (product.price || 0) * supplierMultiplier(product.supplier, suppliers)
+}
 
 // Inventory and Orders are two views of the same teams/{teamId}/products
 // collection - adding a product from either page just leaves the other
@@ -314,6 +376,10 @@ export const DEFAULT_PRODUCT = {
   countInInventory: 0,
   wantedCount: 0,
   category: '',
+  // Optional - one of team.subcategories[category] (see CategoriesSection in
+  // Settings). Blank means "just the category", same as before subcategories
+  // existed, so older products need no migration.
+  subcategory: '',
   price: 0,
   currency: 'NIS',
   supplier: '',
@@ -381,6 +447,41 @@ export function computeToBuy(product, productTypes) {
   return result.value === null ? result : { ...result, value: Math.ceil(result.value) }
 }
 
+// Some things are bought in packs (screws in bags of 50): Orders' to-buy and
+// a logged purchase's quantity count packs, but stock counts single units.
+// A product type can name one of its fields as the pack size
+// (`packSizeField`, set in Settings); this is that field's value for one
+// product, or 1 when the type has none or the value isn't a positive number.
+export function unitsPerPurchase(product, productTypes) {
+  const field = productType(product, productTypes)?.packSizeField
+  const size = field ? parseFloat(product.customData?.[field]) : NaN
+  return size > 0 ? size : 1
+}
+
+// Purchases logged before pack sizes existed: no `unitsPerPurchase` on the
+// record, for a product whose type now has a pack size above 1. Those added
+// packs to stock as if they were units - see fixOldPackPurchases in actions.js.
+export function oldPackPurchases(purchases, products, productTypes) {
+  const byId = new Map(products.map((p) => [p.id, p]))
+  return purchases.flatMap((purchase) => {
+    const product = purchase.productId && purchase.unitsPerPurchase === undefined && byId.get(purchase.productId)
+    const packSize = product ? unitsPerPurchase(product, productTypes) : 1
+    return packSize > 1 ? [{ purchase, product, packSize }] : []
+  })
+}
+
+// A logged purchase's quantity in real units (packs × pack size).
+export function purchasedUnits(purchase) {
+  return (purchase.quantity || 0) * (purchase.unitsPerPurchase || 1)
+}
+
+// "200 (4 × 50)" for a pack purchase, just "4" otherwise.
+export function formatPurchasedQuantity(purchase) {
+  if (purchase.discount || purchase.shipping) return '—'
+  const per = purchase.unitsPerPurchase || 1
+  return per === 1 ? String(purchase.quantity) : `${purchasedUnits(purchase)} (${purchase.quantity} × ${per})`
+}
+
 // `convertedPrice` is the price already converted to the team's preferred
 // currency (what the table actually shows) - `price` stays the product's
 // own raw stored value in both formulas, for consistency with the to-buy
@@ -396,7 +497,7 @@ export function computeTotalPrice(product, productTypes, convertedPrice, toBuy) 
 // product live - a purchase is a historical fact ("this is what we paid on
 // this date"), so it shouldn't silently change if the product is later
 // renamed, recategorized, repriced, or deleted outright.
-export const DEFAULT_PURCHASE = { productId: '', productName: '', category: '', quantity: 0, unitPrice: 0, currency: 'NIS', date: '', dismissed: false }
+export const DEFAULT_PURCHASE = { productId: '', productName: '', category: '', subcategory: '', quantity: 0, unitPrice: 0, currency: 'NIS', date: '', dismissed: false }
 
 // Every logged purchase's cost, in the team's preferred currency, bucketed
 // by the category it was bought under (an empty/missing one groups as '' -
@@ -423,13 +524,76 @@ export function totalSpent(purchases, rates, preferred) {
 // An individual product's broken formula (total.value === null) is left out
 // of the sum rather than poisoning it - Orders/Inventory already surface
 // that error on the product's own row.
-export function totalToBuyCost(products, productTypes, rates, preferred) {
-  return products.reduce((sum, p) => {
-    const converted = convertPrice(p.price, p.currency, preferred, rates)
+// Prices include each product's supplier markup (see effectivePrice).
+export function toBuyCostByCategory(products, productTypes, suppliers, rates, preferred) {
+  const totals = {}
+  for (const p of products) {
+    const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
     const toBuy = computeToBuy(p, productTypes)
     const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
-    return sum + (total.value || 0)
-  }, 0)
+    const key = p.category || ''
+    totals[key] = (totals[key] || 0) + (total.value || 0)
+  }
+  return totals
+}
+
+export function totalToBuyCost(products, productTypes, suppliers, rates, preferred) {
+  return Object.values(toBuyCostByCategory(products, productTypes, suppliers, rates, preferred)).reduce((a, b) => a + b, 0)
+}
+
+// How the one total budget is being split up, per category, as the Orders
+// tab sees it: what's already been bought (logged purchases) plus what's
+// still left to buy. Nobody types a per-category budget - the point is to
+// see where the money is going and whether the whole thing still fits
+// under the single team budget. Biggest category first; categories with
+// nothing on either side are left out.
+export function plannedSpendByCategory(spending, toBuyCosts) {
+  const keys = new Set([...Object.keys(spending), ...Object.keys(toBuyCosts)])
+  return [...keys]
+    .map((category) => {
+      const spent = spending[category] || 0
+      const toBuy = toBuyCosts[category] || 0
+      return { category, spent, toBuy, planned: spent + toBuy }
+    })
+    .filter((r) => r.planned > 0)
+    .sort((x, y) => y.planned - x.planned)
+}
+
+// The dashboard's per-supplier table, in the preferred currency:
+//   spent            - logged purchases, plus shipping and discounts logged
+//                      against that supplier. A purchase logged before
+//                      purchases recorded their supplier falls back to the
+//                      product's current one.
+//   toBuy            - what's still on Orders from that supplier.
+//   expectedShipping - the supplier's shipping per order (Settings), once,
+//                      only while something is still to buy from them.
+//   projected        - all three together.
+// A blank supplier is its own '' row (manual expenses, unassigned products).
+export function supplierBudgetRows(purchases, products, productTypes, suppliers, rates, preferred) {
+  const productsById = new Map(products.map((p) => [p.id, p]))
+  const rows = new Map()
+  const row = (name) => {
+    const supplier = canonicalSupplier(name, suppliers)
+    if (!rows.has(supplier)) rows.set(supplier, { supplier, spent: 0, toBuy: 0, expectedShipping: 0, projected: 0 })
+    return rows.get(supplier)
+  }
+  for (const p of purchases) {
+    const name = p.supplier ?? productsById.get(p.productId)?.supplier ?? ''
+    row(name).spent += (convertPrice(p.unitPrice, p.currency, preferred, rates) ?? 0) * (p.quantity || 0)
+  }
+  for (const p of products) {
+    const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
+    const toBuy = computeToBuy(p, productTypes)
+    const total = computeTotalPrice(p, productTypes, converted, toBuy.value).value || 0
+    if (total > 0) row(p.supplier).toBuy += total
+  }
+  for (const r of rows.values()) {
+    r.expectedShipping = r.toBuy > 0 ? supplierShipping(r.supplier, suppliers) : 0
+    r.projected = r.spent + r.toBuy + r.expectedShipping
+  }
+  return [...rows.values()]
+    .filter((r) => Math.abs(r.spent) > 0.005 || r.toBuy > 0)
+    .sort((a, b) => b.projected - a.projected)
 }
 
 export function totalBudget(categoryBudgets) {
@@ -581,7 +745,7 @@ export function consumableInventoryDeltas(oldNeeds, newNeeds, products) {
 // Free-text search across every field a search box could plausibly mean by
 // "this product" - not just the name. customData is deliberately left out:
 // its fields vary per product type, so there's no fixed set to search.
-const PRODUCT_SEARCH_FIELDS = ['name', 'sku', 'category', 'supplier', 'currency', 'notes', 'link']
+const PRODUCT_SEARCH_FIELDS = ['name', 'sku', 'category', 'subcategory', 'supplier', 'currency', 'notes', 'link']
 
 // `rates`/`preferred` (the team's currency settings) are optional so this
 // still works with no conversion info at all - but when given, the price

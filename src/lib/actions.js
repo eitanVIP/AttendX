@@ -6,6 +6,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   increment,
@@ -18,9 +19,11 @@ import {
 import { auth, db } from '../firebase'
 import {
   DEFAULT_STREAK_RESET_DAYS,
+  effectivePrice,
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
+  purchasedUnits,
   remapStudentDivisions,
   streakAfterRemoving,
   streakContributionsField,
@@ -95,6 +98,8 @@ export async function purgeOldLogEntries(teamId, retentionDays) {
 // lets a student read while the team doc stays admin-only.
 const PRODUCT_SETTINGS_FIELDS = [
   'categories',
+  'subcategories',
+  'suppliers',
   'productTypes',
   'currencyRates',
   'name',
@@ -126,6 +131,8 @@ export async function ensureProductSettingsMirror(team) {
     ref,
     {
       categories: team.categories || [],
+      subcategories: team.subcategories || {},
+      suppliers: team.suppliers || [],
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -156,22 +163,34 @@ export function updateTeam(teamId, changes) {
 // name, for rows that survived under a different name) - a product whose
 // category isn't in the new list AND isn't a rename's old name simply had
 // that category removed outright, so it's cleared rather than looked up.
-// `categoryBudgets` is already keyed by the new names (Settings computes it
-// from the same rows `categories` comes from) - it's just written as-is,
-// alongside `categories`, on the team doc only (the dashboard budget
-// section is admin-only, so it has no need for the student-facing mirror).
-export async function updateCategories(teamId, categories, renames, categoryBudgets) {
+// (Category budgets aren't stored any more - the dashboard derives them from
+// Orders, see ordersBudgetByCategory in calc.js.)
+//
+// `subcategories` ({ categoryName: [subcategoryName, ...] }, keyed by the
+// new category names) gets the same treatment one level down:
+// `subcategoryRenames` is { newCategoryName: { oldSub: newSub } }, and a
+// product whose subcategory is neither still listed under its (possibly
+// renamed) category nor a rename's old name has it cleared - the product
+// stays in its category, it just isn't narrowed any further.
+export async function updateCategories(teamId, categories, renames, subcategories = {}, subcategoryRenames = {}) {
   const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
   const writes = [
-    (batch) => batch.update(doc(db, 'teams', teamId), { categories, categoryBudgets }),
-    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories }, { merge: true }),
+    (batch) => batch.update(doc(db, 'teams', teamId), { categories, subcategories }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { categories, subcategories }, { merge: true }),
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('category', 'update', 'Updated product categories')),
   ]
   for (const d of snap.docs) {
     const current = d.data().category || ''
-    if (!current || categories.includes(current)) continue
-    const next = renames[current] || ''
-    writes.push((batch) => batch.update(d.ref, { category: next }))
+    const currentSub = d.data().subcategory || ''
+    if (!current) {
+      if (currentSub) writes.push((batch) => batch.update(d.ref, { subcategory: '' }))
+      continue
+    }
+    const next = categories.includes(current) ? current : renames[current] || ''
+    const subs = (next && subcategories[next]) || []
+    const nextSub = !currentSub || subs.includes(currentSub) ? currentSub : subcategoryRenames[next]?.[currentSub] || ''
+    if (next === current && nextSub === currentSub) continue
+    writes.push((batch) => batch.update(d.ref, { category: next, subcategory: nextSub }))
   }
   await commitAll(writes)
 }
@@ -714,7 +733,7 @@ export function updateStudentStreak(teamId, student, kind, changes) {
 
 export function addSession(teamId, session) {
   return Promise.all([
-    addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now() }),
+    addDoc(collection(db, 'teams', teamId, 'sessions'), { ...session, order: Date.now(), attendanceMigrated: true }),
     logChange(teamId, 'session', 'create', `Added session "${session.name}" (${session.date})`),
   ])
 }
@@ -735,19 +754,44 @@ export function deleteSession(teamId, session) {
   ])
 }
 
+// Sessions made before attendance moved onto the session doc have no
+// `attendanceMigrated` flag. useSessions calls this once per such session:
+// it copies the old attendance subcollection docs into the `attendance` map
+// and sets the flag. A student already in the map is skipped (a newer mark
+// wins), so it is safe to run twice or from two admins at once.
+export async function migrateSessionAttendance(teamId, session) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
+  const old = await getDocs(collection(sessionRef, 'attendance'))
+  const fields = []
+  for (const d of old.docs) {
+    const { status } = d.data()
+    if (status && !(d.id in (session.attendance || {}))) fields.push(new FieldPath('attendance', d.id), status)
+  }
+  return updateDoc(sessionRef, 'attendanceMigrated', true, ...fields)
+}
+
 // Takes the whole session and student (not just ids) purely so the log can
 // name both without an extra read - Sessions.jsx already has them live from
 // useSessions/useStudents at the one call site.
+//
+// Attendance is read from the `attendance` map on the session doc (see
+// attendanceRecords.js). The old subcollection doc is still written too so a
+// rollback to the previous build keeps working.
+// shortcut: dual-write, drop the subcollection setDoc/deleteDoc once settled.
 export function setAttendance(teamId, session, student, status) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
   return Promise.all([
-    setDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id), { status, studentId: student.id }),
+    updateDoc(sessionRef, new FieldPath('attendance', student.id), status),
+    setDoc(doc(sessionRef, 'attendance', student.id), { status, studentId: student.id }),
     logChange(teamId, 'attendance', 'update', `Marked ${student.fullName} ${status} for "${session.name}"`),
   ])
 }
 
 export function clearAttendance(teamId, session, student) {
+  const sessionRef = doc(db, 'teams', teamId, 'sessions', session.id)
   return Promise.all([
-    deleteDoc(doc(db, 'teams', teamId, 'sessions', session.id, 'attendance', student.id)),
+    updateDoc(sessionRef, new FieldPath('attendance', student.id), deleteField()),
+    deleteDoc(doc(sessionRef, 'attendance', student.id)),
     logChange(teamId, 'attendance', 'update', `Cleared ${student.fullName}'s attendance for "${session.name}"`),
   ])
 }
@@ -834,6 +878,54 @@ export function declineOrderRequest(teamId, request) {
   ])
 }
 
+// Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
+// Settings) follows renames onto products - `renames` is old name -> new
+// name for rows that survived under a different one. A removed
+// supplier's products keep its name as plain text (no multiplier any more)
+// rather than being blanked, so nothing silently loses where it's bought.
+export async function updateSuppliers(teamId, suppliers, renames) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), { suppliers }),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), { suppliers }, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('supplier', 'update', 'Updated suppliers')),
+  ]
+  // Supplier used to be free text, so the same one is often spelled several
+  // ways ("Saad Robot", "saad robot"). Every save also snaps any product
+  // whose supplier matches a listed one ignoring case/spacing onto the
+  // list's exact spelling.
+  const canonical = new Map(suppliers.map((s) => [s.name.trim().toLowerCase(), s.name]))
+  const snap = await getDocs(collection(db, 'teams', teamId, 'products'))
+  for (const d of snap.docs) {
+    const current = d.data().supplier || ''
+    const renamed = renames[current] || current
+    const next = canonical.get(renamed.trim().toLowerCase()) || renamed
+    if (next !== current) writes.push((batch) => batch.update(d.ref, { supplier: next }))
+  }
+  await commitAll(writes)
+}
+
+// Purchases logged before pack sizes existed (see unitsPerPurchase in
+// calc.js) have no `unitsPerPurchase` and only added `quantity` - packs - to
+// stock. `fixes` comes from oldPackPurchases in calc.js: each one gets its
+// pack size recorded and the missing quantity × (packSize - 1) units added to
+// its product's stock, so 4 packs of 50 end up as the 200 they really were.
+export function fixOldPackPurchases(teamId, fixes) {
+  const writes = fixes.flatMap(({ purchase, packSize }) => [
+    (batch) => batch.update(doc(db, 'teams', teamId, 'purchases', purchase.id), { unitsPerPurchase: packSize }),
+    (batch) =>
+      batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
+        countInInventory: increment(purchase.quantity * (packSize - 1)),
+      }),
+  ])
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('purchase', 'update', `Fixed stock for ${fixes.length} purchase${fixes.length === 1 ? '' : 's'} logged in packs before pack sizes were set up`)
+    )
+  )
+  return commitAll(writes)
+}
+
 // Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
 // product by however many were bought and drops a dated record of it - the
 // record snapshots the product's current name/category/price/currency
@@ -841,17 +933,28 @@ export function declineOrderRequest(teamId, request) {
 // calc.js), so it stays an accurate historical fact - and what the
 // dashboard's budget section sums up as "spent" - even if the product is
 // later renamed, recategorized, repriced, or deleted.
-export function logPurchase(teamId, product, quantity) {
+//
+// `unitPrice` snapshots what was actually paid per unit: the product's listed
+// price times its supplier's multiplier (see effectivePrice in calc.js), so
+// the dashboard's "spent" reflects reseller markups too.
+//
+// `quantity` is in whatever unit Orders' to-buy counts (packs, for a product
+// type with a pack size - see unitsPerPurchase in calc.js): stock goes up by
+// quantity × unitsPer, the cost stays quantity × the pack's price.
+export function logPurchase(teamId, product, quantity, suppliers, unitsPer = 1) {
   const batch = writeBatch(db)
   batch.update(doc(db, 'teams', teamId, 'products', product.id), {
-    countInInventory: (product.countInInventory || 0) + quantity,
+    countInInventory: (product.countInInventory || 0) + quantity * unitsPer,
   })
   batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
     productId: product.id,
     productName: product.name,
     category: product.category || '',
+    subcategory: product.subcategory || '',
+    supplier: product.supplier || '',
     quantity,
-    unitPrice: product.price || 0,
+    unitsPerPurchase: unitsPer,
+    unitPrice: effectivePrice(product, suppliers),
     currency: product.currency || 'NIS',
     date: todayISO(),
     dismissed: false,
@@ -886,7 +989,7 @@ export function revertPurchase(teamId, purchase) {
   batch.delete(doc(db, 'teams', teamId, 'purchases', purchase.id))
   if (purchase.productId) {
     batch.update(doc(db, 'teams', teamId, 'products', purchase.productId), {
-      countInInventory: increment(-purchase.quantity),
+      countInInventory: increment(-purchasedUnits(purchase)),
     })
   }
   batch.set(
@@ -896,6 +999,14 @@ export function revertPurchase(teamId, purchase) {
   return batch.commit()
 }
 
+// Shipping (the "+ Add shipping" button there) is a plain positive one
+// flagged `shipping: true`, so the dashboard can show it per supplier.
+//
+// A discount (the "+ Add a discount" button there) is the same thing with a
+// negative price and `discount: true` - e.g. 575 off a whole order from a
+// supplier - so it comes straight off totalSpent/spentByCategory without
+// touching any product's price or stock.
+//
 // A manual expense (the "+ Add a manual expense" button on the Bought
 // items page) - money spent on something that was never a real product and
 // never needs to be. It's the same purchases doc shape logPurchase writes,
@@ -913,10 +1024,21 @@ export function logFakePurchase(teamId, purchase) {
     currency: purchase.currency,
     date: purchase.date,
     dismissed: false,
+    supplier: purchase.supplier || '',
+    ...(purchase.discount ? { discount: true } : {}),
+    ...(purchase.shipping ? { shipping: true } : {}),
   })
   batch.set(
     doc(collection(db, 'teams', teamId, 'log')),
-    logEntry('purchase', 'create', `Logged a manual expense of ${purchase.quantity} × "${purchase.productName}"`)
+    logEntry(
+      'purchase',
+      'create',
+      purchase.discount
+        ? `Logged a discount of ${-purchase.unitPrice} ${purchase.currency} ("${purchase.productName}")`
+        : purchase.shipping
+          ? `Logged shipping of ${purchase.unitPrice} ${purchase.currency} ("${purchase.productName}")`
+          : `Logged a manual expense of ${purchase.quantity} × "${purchase.productName}"`
+    )
   )
   return batch.commit()
 }

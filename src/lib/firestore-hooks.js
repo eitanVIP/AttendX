@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
+import { migrateSessionAttendance } from './actions'
+import { attendanceRecords } from './attendanceRecords'
 import { normalizeProduct, normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
 
 const byName = (a, b) => (a.fullName || a.name || '').localeCompare(b.fullName || b.name || '')
@@ -70,16 +72,33 @@ export function useTrainings(teamId) {
   return { ...result, data }
 }
 
+// Sessions created before attendance moved onto the session doc (no
+// `attendanceMigrated` flag) are migrated here, the first time any admin page
+// loads them: see migrateSessionAttendance. `loading` stays true until each
+// has been migrated (or failed), so no page renders their attendance as empty.
+const migrationStarted = new Set()
+const migrationFailed = new Set()
+
 export function useSessions(teamId) {
   const result = useCollection(teamId ? ['teams', teamId, 'sessions'] : null)
   const data = useMemo(() => sortByOrder(result.data, byDate), [result.data])
-  return { ...result, data }
-}
+  const [, retick] = useState(0)
+  const unmigrated = useMemo(() => (result.loading ? [] : data.filter((s) => !s.attendanceMigrated)), [result.loading, data])
 
-export function useSessionAttendance(teamId, sessionId) {
-  return useCollection(
-    teamId && sessionId ? ['teams', teamId, 'sessions', sessionId, 'attendance'] : null
-  )
+  useEffect(() => {
+    for (const s of unmigrated) {
+      const key = `${teamId}/${s.id}`
+      if (migrationStarted.has(key)) continue
+      migrationStarted.add(key)
+      migrateSessionAttendance(teamId, s).catch(() => {
+        migrationFailed.add(key)
+        retick((n) => n + 1)
+      })
+    }
+  }, [teamId, unmigrated])
+
+  const pending = unmigrated.some((s) => !migrationFailed.has(`${teamId}/${s.id}`))
+  return { ...result, data, loading: result.loading || pending }
 }
 
 export function useCommunityLogs(teamId) {
@@ -172,81 +191,20 @@ export function useCommunitySettings(teamId) {
   return { settings, loading }
 }
 
-// Neither of these use a collectionGroup query - fetching "attendance across
-// every session" instead fans out into one plain subcollection (or single
-// doc) listener per session, using exactly the nested-path reads that
-// firestore.rules' teams/{teamId}/{document=**} rule already covers.
-// collectionGroup queries need their own separate top-level rule that
-// proved unreliable to get working in practice; this avoids needing one at
-// all, at the cost of one listener per session instead of a single query -
-// fine at the scale this app runs at.
+// Attendance is stored on each session doc as `attendance: { [studentId]:
+// status }` (see setAttendance in actions.js), so the sessions listener
+// already carries every record - no per-session subcollection listeners.
+// Reading the old teams/{id}/sessions/{id}/attendance docs one session at a
+// time cost sessions x students reads on every page load.
 
 export function useAllAttendance(teamId) {
-  const { data: sessions, loading: sessionsLoading } = useSessions(teamId)
-  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions])
-  const sessionIdsKey = sessionIds.join(',')
-  const [bySession, setBySession] = useState({})
-
-  useEffect(() => {
-    if (!teamId || sessionsLoading) return
-    setBySession((prev) => {
-      const next = {}
-      for (const id of sessionIds) if (prev[id]) next[id] = prev[id]
-      return next
-    })
-    const unsubscribes = sessionIds.map((sessionId) =>
-      onSnapshot(
-        collection(db, 'teams', teamId, 'sessions', sessionId, 'attendance'),
-        (snap) => {
-          setBySession((prev) => ({
-            ...prev,
-            [sessionId]: snap.docs.map((d) => ({ id: d.id, sessionId, ...d.data() })),
-          }))
-        },
-        () => {
-          setBySession((prev) => ({ ...prev, [sessionId]: [] }))
-        }
-      )
-    )
-    return () => unsubscribes.forEach((unsub) => unsub())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, sessionIdsKey, sessionsLoading])
-
-  const data = useMemo(() => Object.values(bySession).flat(), [bySession])
-  return { data, loading: sessionsLoading }
+  const { data: sessions, loading } = useSessions(teamId)
+  const data = useMemo(() => attendanceRecords(sessions), [sessions])
+  return { data, loading }
 }
 
 export function useStudentAttendance(teamId, studentId) {
-  const { data: sessions, loading: sessionsLoading } = useSessions(teamId)
-  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions])
-  const sessionIdsKey = sessionIds.join(',')
-  const [bySession, setBySession] = useState({})
-
-  useEffect(() => {
-    if (!teamId || !studentId || sessionsLoading) return
-    setBySession((prev) => {
-      const next = {}
-      for (const id of sessionIds) if (id in prev) next[id] = prev[id]
-      return next
-    })
-    const unsubscribes = sessionIds.map((sessionId) =>
-      onSnapshot(
-        doc(db, 'teams', teamId, 'sessions', sessionId, 'attendance', studentId),
-        (snap) => {
-          setBySession((prev) => ({
-            ...prev,
-            [sessionId]: snap.exists() ? { id: snap.id, sessionId, ...snap.data() } : null,
-          }))
-        },
-        () => {
-          setBySession((prev) => ({ ...prev, [sessionId]: null }))
-        }
-      )
-    )
-    return () => unsubscribes.forEach((unsub) => unsub())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, studentId, sessionIdsKey, sessionsLoading])
-
-  const data = useMemo(() => Object.values(bySession).filter(Boolean), [bySession])
-  return { data, loading: sessionsLoading }
+  const { data: sessions, loading } = useSessions(teamId)
+  const data = useMemo(() => attendanceRecords(sessions, studentId), [sessions, studentId])
+  return { data, loading }
 }

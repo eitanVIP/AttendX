@@ -75,8 +75,12 @@ export function parseCSV(text) {
 }
 
 // The exact columns Inventory's own "Export CSV" produces (see Inventory.jsx)
-// - Import CSV expects the same file back, in any column order.
-export const PRODUCT_IMPORT_HEADERS = ['Name', 'SKU', 'Category', 'Price', 'Currency', 'Supplier', 'Link', 'In stock', 'Wanted']
+// - Import CSV expects the same file back, in any column order. Subcategory
+// is the one column a file may leave out entirely (files exported before
+// subcategories existed don't have it), in which case every row just has
+// no subcategory.
+export const PRODUCT_IMPORT_HEADERS = ['Name', 'SKU', 'Category', 'Subcategory', 'Price', 'Currency', 'Supplier', 'Link', 'In stock', 'Wanted']
+const OPTIONAL_IMPORT_HEADERS = ['Subcategory']
 
 // Parses and fully validates a product-import CSV before anything is
 // written anywhere: `categories`/`currencyCodes` are the team's own valid
@@ -85,20 +89,22 @@ export const PRODUCT_IMPORT_HEADERS = ['Name', 'SKU', 'Category', 'Price', 'Curr
 // either `{ products, errors: [] }` ready for importProducts, or
 // `{ products: null, errors }` listing every problem found - never a
 // partial result, so the caller can't accidentally import half a bad file.
-export function parseProductImport(text, { categories, currencyCodes }) {
+export function parseProductImport(text, { categories, subcategories = {}, currencyCodes }) {
   const rows = parseCSV(text)
   if (rows.length === 0) {
     return { products: null, errors: ['The file is empty.'] }
   }
 
   const header = rows[0].map((h) => h.trim())
-  const missing = PRODUCT_IMPORT_HEADERS.filter((h) => !header.includes(h))
+  const missing = PRODUCT_IMPORT_HEADERS.filter((h) => !header.includes(h) && !OPTIONAL_IMPORT_HEADERS.includes(h))
   const extra = header.filter((h) => !PRODUCT_IMPORT_HEADERS.includes(h))
   if (missing.length > 0 || extra.length > 0) {
     const errors = []
     if (missing.length > 0) errors.push(`Missing column${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.`)
     if (extra.length > 0) errors.push(`Unexpected column${extra.length > 1 ? 's' : ''}: ${extra.join(', ')}.`)
-    errors.push(`Expected exactly these columns (any order), same as Export CSV: ${PRODUCT_IMPORT_HEADERS.join(', ')}.`)
+    errors.push(
+      `Expected exactly these columns (any order, ${OPTIONAL_IMPORT_HEADERS.join(', ')} optional), same as Export CSV: ${PRODUCT_IMPORT_HEADERS.join(', ')}.`
+    )
     return { products: null, errors }
   }
 
@@ -113,10 +119,11 @@ export function parseProductImport(text, { categories, currencyCodes }) {
 
   dataRows.forEach((cells, i) => {
     const rowNum = i + 2 // 1-indexed, plus the header row itself
-    const get = (name) => (cells[colIndex[name]] ?? '').trim()
+    const get = (name) => (colIndex[name] === -1 ? '' : (cells[colIndex[name]] ?? '').trim())
 
     const name = get('Name')
     const category = get('Category')
+    const subcategory = get('Subcategory')
     const currency = get('Currency')
     const priceRaw = get('Price')
     const stockRaw = get('In stock')
@@ -126,6 +133,9 @@ export function parseProductImport(text, { categories, currencyCodes }) {
     if (!name) rowErrors.push('Name is required')
     if (!category) rowErrors.push('Category is required')
     else if (!categories.includes(category)) rowErrors.push(`category "${category}" doesn't exist - add it in Settings first`)
+    else if (subcategory && !(subcategories[category] || []).includes(subcategory)) {
+      rowErrors.push(`subcategory "${subcategory}" doesn't exist under "${category}" - add it in Settings first`)
+    }
     if (!currency) rowErrors.push('Currency is required')
     else if (!currencyCodes.includes(currency)) rowErrors.push(`currency "${currency}" doesn't exist - add it in Settings first`)
 
@@ -148,6 +158,7 @@ export function parseProductImport(text, { categories, currencyCodes }) {
       name,
       sku: get('SKU'),
       category,
+      subcategory,
       price,
       currency,
       supplier: get('Supplier'),

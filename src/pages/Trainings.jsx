@@ -364,7 +364,7 @@ function TrainingGroupTable({
   // just works at every depth without the cell/subCell renderers needing
   // to special-case where a row's data came from.
   const toRow = (t) => {
-    const progress = trainingProgress(t, allStudents)
+    const progress = trainingProgress(t, allStudents, allTrainings)
     const overdue = !!t.targetDate && t.targetDate < today && progress.missing > 0
     const subs = subTrainingsByParent.get(t.id)
     return { training: t, progress, overdue, children: subs?.map(toRow) }
@@ -372,7 +372,7 @@ function TrainingGroupTable({
   const rows = useMemo(
     () => trainings.map(toRow),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trainings, subTrainingsByParent, allStudents, today]
+    [trainings, subTrainingsByParent, allStudents, allTrainings, today]
   )
 
   // Two right-frozen columns (Progress then Actions) and one per student in

@@ -1,7 +1,15 @@
 import { useMemo, useState } from 'react'
 import DataTable from './DataTable'
 import FormPanel from './FormPanel'
-import { NO_PRODUCT_TYPES, computeToBuy, computeTotalPrice, hasCustomData } from '../lib/calc'
+import {
+  NO_PRODUCT_TYPES,
+  NO_SUPPLIERS,
+  computeToBuy,
+  computeTotalPrice,
+  effectivePrice,
+  hasCustomData,
+  supplierMultiplier,
+} from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
 
 // Shared by Inventory and Orders, but the two show different columns:
@@ -30,6 +38,9 @@ export default function ProductTable({
 }) {
   const [viewingNotes, setViewingNotes] = useState(null)
   const [viewingData, setViewingData] = useState(null)
+  // Click a column header to sort by it: ascending, then descending, then
+  // back to the order the page gave. Only reorders - nothing is hidden.
+  const [sort, setSort] = useState(null) // { key, dir: 1 | -1 }
 
   // Existing teams predate preferredCurrency/currencyRates entirely (their
   // team doc has neither field), so this needs the same fallback Settings'
@@ -38,6 +49,7 @@ export default function ProductTable({
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
 
   // A product's type can replace either of these with its own formula,
   // looked up live from productTypes every render (see computeToBuy/
@@ -47,13 +59,55 @@ export default function ProductTable({
   const rowValuesById = useMemo(() => {
     const map = new Map()
     for (const p of products) {
-      const converted = convertPrice(p.price, p.currency, preferred, rates)
+      const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
       const toBuy = computeToBuy(p, productTypes)
       const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
       map.set(p.id, { converted, toBuy, total })
     }
     return map
-  }, [products, productTypes, rates, preferred])
+  }, [products, productTypes, suppliers, rates, preferred])
+
+  // What each sortable column sorts by. Text compares case-insensitively and
+  // blanks always go last, whichever direction.
+  const sortValues = useMemo(
+    () => ({
+      name: (p) => p.name,
+      sku: (p) => p.sku,
+      category: (p) => p.category,
+      price: (p) => rowValuesById.get(p.id)?.converted ?? p.price,
+      currency: (p) => p.currency,
+      supplier: (p) => p.supplier,
+      inStock: (p) => p.countInInventory,
+      wanted: (p) => p.wantedCount,
+      toBuy: (p) => rowValuesById.get(p.id)?.toBuy.value,
+      total: (p) => rowValuesById.get(p.id)?.total.value,
+      requestedBy: (p) => p.requestedBy,
+    }),
+    [rowValuesById]
+  )
+
+  const sortedProducts = useMemo(() => {
+    if (!sort) return products
+    const get = sortValues[sort.key]
+    const isBlank = (v) => v === null || v === undefined || v === ''
+    return [...products].sort((a, b) => {
+      const va = get(a)
+      const vb = get(b)
+      if (isBlank(va) || isBlank(vb)) return isBlank(va) - isBlank(vb)
+      const cmp =
+        typeof va === 'number' && typeof vb === 'number'
+          ? va - vb
+          : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base', numeric: true })
+      return cmp * sort.dir
+    })
+  }, [products, sort, sortValues])
+
+  function toggleSort(key) {
+    setSort((current) => {
+      if (current?.key !== key) return { key, dir: 1 }
+      return current.dir === 1 ? { key, dir: -1 } : null
+    })
+  }
 
   const grandTotal = showTotal
     ? products.reduce((sum, p) => sum + (rowValuesById.get(p.id)?.total.value || 0), 0)
@@ -100,8 +154,15 @@ export default function ProductTable({
         minWidth: 110,
         cell: (p) => {
           const { converted } = rowValuesById.get(p.id) || {}
-          const label = converted !== null ? `${converted.toFixed(2)} ${preferred}` : p.price ? `${p.price} ${p.currency}` : '—'
-          return <span title={converted !== null ? `Stored as ${p.price} ${p.currency}` : undefined}>{label}</span>
+          const multiplier = supplierMultiplier(p.supplier, suppliers)
+          const paid = effectivePrice(p, suppliers)
+          const label = converted !== null ? `${converted.toFixed(2)} ${preferred}` : paid ? `${paid} ${p.currency}` : '—'
+          const markup = multiplier !== 1 ? ` ×${multiplier} via ${p.supplier}` : ''
+          return (
+            <span title={converted !== null || markup ? `Listed at ${p.price} ${p.currency}${markup}` : undefined}>
+              {label}
+            </span>
+          )
         },
       },
     ]
@@ -198,9 +259,29 @@ export default function ProductTable({
         </div>
       ),
     })
-    return cols
+    return cols.map((col) =>
+      sortValues[col.key]
+        ? {
+            ...col,
+            header: () => (
+              <button
+                type="button"
+                className="dt-sort-btn"
+                onClick={() => toggleSort(col.key)}
+                title="Sort by this column"
+                aria-sort={sort?.key === col.key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
+              >
+                {col.header}
+                <span className="dt-sort-arrow">{sort?.key === col.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}</span>
+              </button>
+            ),
+          }
+        : col
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    sort,
+    sortValues,
     showCurrency,
     showInStock,
     showWanted,
@@ -219,7 +300,7 @@ export default function ProductTable({
 
   return (
     <>
-      <DataTable columns={columns} rows={products} emptyMessage={emptyMessage} footer={showTotal} />
+      <DataTable columns={columns} rows={sortedProducts} emptyMessage={emptyMessage} footer={showTotal} />
 
       <FormPanel
         open={!!viewingNotes}

@@ -6,20 +6,22 @@ import MoveButtons from '../components/MoveButtons'
 import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import DataTable from '../components/DataTable'
 import { DEFAULT_ACCENT } from '../lib/theme'
-import { useCommunitySettings, useEvents, useProducts, useTrainings } from '../lib/firestore-hooks'
-import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, todayISO } from '../lib/calc'
+import { useCommunitySettings, useEvents, useProducts, usePurchases, useTrainings } from '../lib/firestore-hooks'
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, oldPackPurchases, todayISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import { exportOfflineSite } from '../lib/offlineExport'
 import {
   addEvent,
   deleteEvent,
+  fixOldPackPurchases,
   migrateConsumableCategoriesToProducts,
   setCommunitySettings,
   syncAllDatesToCalendar,
   updateCategories,
   updateEvent,
   updateProductTypes,
+  updateSuppliers,
   updateTeam,
   updateTeamStructure,
 } from '../lib/actions'
@@ -57,8 +59,38 @@ function teamToDivisionRows(team) {
   }))
 }
 
+// The page is split into tabs so it isn't one long scroll of a dozen
+// sections. The open tab lives in the URL hash (/settings#products), so a
+// link can point straight at one and a reload keeps your place.
+const SETTINGS_TABS = [
+  { id: 'team', label: 'Team' },
+  { id: 'products', label: 'Products' },
+  { id: 'schedule', label: 'Schedule' },
+  { id: 'account', label: 'Account & data' },
+]
+
+function tabFromHash() {
+  const id = window.location.hash.slice(1)
+  return SETTINGS_TABS.some((t) => t.id === id) ? id : 'team'
+}
+
 export default function Settings() {
   const { team } = useAuth()
+  const [tab, setTab] = useState(tabFromHash)
+
+  // Following a /settings#products link while already on Settings changes
+  // only the hash, which doesn't remount the page.
+  useEffect(() => {
+    const onHashChange = () => setTab(tabFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  function selectTab(id) {
+    setTab(id)
+    window.history.replaceState(null, '', `#${id}`)
+  }
+
   const [name, setName] = useState(team?.name || '')
   const [colorPrimary, setColorPrimary] = useState(team?.colorPrimary || DEFAULT_ACCENT)
   const [minAttendance, setMinAttendance] = useState(String(team?.minAttendancePercent || 0))
@@ -189,7 +221,25 @@ export default function Settings() {
         <h1>Team settings</h1>
       </div>
 
-      <div className="settings-columns">
+      <div className="settings-tabs" role="tablist">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? 'settings-tab active' : 'settings-tab'}
+            onClick={() => selectTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Every tab stays mounted and is just hidden: a section's unsaved
+          edits (rows typed into Suppliers, a half-edited division) survive
+          switching tabs instead of being thrown away. */}
+      <div className="settings-columns" hidden={tab !== 'team'}>
         <div className="settings-section">
           <form className="card form-card" onSubmit={handleSubmit} style={{ margin: 0 }}>
             <div className="form-grid">
@@ -298,14 +348,6 @@ export default function Settings() {
           </form>
         </div>
 
-        <EventsSection teamId={team?.id} />
-        <CategoriesSection team={team} />
-        <ProductTypesSection team={team} />
-        <CurrenciesSection team={team} />
-        <CodesSection team={team} />
-        <CommunityHoursSection teamId={team?.id} />
-        <GoogleCalendarSection teamId={team?.id} />
-
         <div className="settings-section">
           <h2>Team number</h2>
           <p className="muted">
@@ -314,7 +356,25 @@ export default function Settings() {
           </p>
         </div>
 
+        <CodesSection team={team} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'products'}>
+        <BudgetSection team={team} />
+        <CategoriesSection team={team} />
+        <SuppliersSection team={team} />
+        <ProductTypesSection team={team} />
+        <CurrenciesSection team={team} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'schedule'}>
+        <EventsSection teamId={team?.id} />
+        <CommunityHoursSection teamId={team?.id} />
+      </div>
+
+      <div className="settings-columns" hidden={tab !== 'account'}>
         <AccountSection />
+        <GoogleCalendarSection teamId={team?.id} />
         <OfflineExportSection />
       </div>
     </div>
@@ -502,18 +562,25 @@ function EventsSection({ teamId }) {
   )
 }
 
+function subsToRows(names) {
+  return (names || []).map((name, i) => ({ key: `${name}-${i}`, original: name, name }))
+}
+
 function teamToCategoryRows(team) {
   return (team?.categories || []).map((name, i) => ({
     key: `${name}-${i}`,
     original: name,
     name,
-    budget: String(team?.categoryBudgets?.[name] || ''),
+    subs: subsToRows(team?.subcategories?.[name]),
+    subInput: '',
   }))
 }
 
-// Mirrors the flat community-types editor below, not the nested division
-// one - categories have no subcategories. Renaming or removing one here
-// rewrites every product that used the old name (see updateCategories).
+// Mirrors the flat community-types editor below, with each category
+// optionally holding its own short list of subcategories (team.subcategories,
+// { category: [names] }) - one level only, no sub-subcategories. Renaming or
+// removing either here rewrites every product that used the old name (see
+// updateCategories).
 function CategoriesSection({ team }) {
   const [rows, setRows] = useState(teamToCategoryRows(team))
   const [input, setInput] = useState('')
@@ -533,16 +600,32 @@ function CategoriesSection({ team }) {
   function addCategory() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, budget: '' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, subs: [], subInput: '' }])
     setInput('')
+  }
+
+  function updateRow(key, update) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...update(r) } : r)))
+  }
+
+  function addSubcategory(key) {
+    updateRow(key, (r) => {
+      const trimmed = r.subInput.trim()
+      if (!trimmed || r.subs.some((s) => s.name === trimmed)) return {}
+      return { subs: [...r.subs, { key: `new-${Date.now()}`, original: null, name: trimmed }], subInput: '' }
+    })
+  }
+
+  function renameSubcategory(key, subKey, value) {
+    updateRow(key, (r) => ({ subs: r.subs.map((s) => (s.key === subKey ? { ...s, name: value } : s)) }))
+  }
+
+  function removeSubcategory(key, subKey) {
+    updateRow(key, (r) => ({ subs: r.subs.filter((s) => s.key !== subKey) }))
   }
 
   function renameCategory(key, value) {
     setRows(rows.map((r) => (r.key === key ? { ...r, name: value } : r)))
-  }
-
-  function setBudget(key, value) {
-    setRows(rows.map((r) => (r.key === key ? { ...r, budget: value } : r)))
   }
 
   function removeCategory(key) {
@@ -570,15 +653,30 @@ function CategoriesSection({ team }) {
     for (const r of cleanRows) {
       if (r.original && r.original !== r.name) renames[r.original] = r.name
     }
-    // A blank or zero budget just means "no budget set" - left out of the
-    // map entirely rather than stored as 0, so the dashboard's budget
-    // section (and the "N budgeted categories" pie weighting) only ever
-    // sees categories an admin actually gave a number to.
-    const categoryBudgets = Object.fromEntries(
-      cleanRows.map((r) => [r.name, Math.max(0, Number(r.budget) || 0)]).filter(([, budget]) => budget > 0)
+    // Same idea one level down, keyed by the category's NEW name. A
+    // category with no subcategories is left out of the map entirely.
+    const subcategories = {}
+    const subcategoryRenames = {}
+    for (const r of cleanRows) {
+      const subs = r.subs.map((s) => ({ ...s, name: s.name.trim() })).filter((s) => s.name)
+      const names = [...new Set(subs.map((s) => s.name))]
+      if (names.length) subcategories[r.name] = names
+      for (const s of subs) {
+        if (s.original && s.original !== s.name) {
+          subcategoryRenames[r.name] = { ...subcategoryRenames[r.name], [s.original]: s.name }
+        }
+      }
+    }
+    await updateCategories(team.id, categories, renames, subcategories, subcategoryRenames)
+    setRows(
+      categories.map((name, i) => ({
+        key: `${name}-${i}`,
+        original: name,
+        name,
+        subs: subsToRows(subcategories[name]),
+        subInput: '',
+      }))
     )
-    await updateCategories(team.id, categories, renames, categoryBudgets)
-    setRows(categories.map((name, i) => ({ key: `${name}-${i}`, original: name, name, budget: String(categoryBudgets[name] || '') })))
     setSaving(false)
     setSaved(true)
   }
@@ -595,8 +693,10 @@ function CategoriesSection({ team }) {
       <p className="muted" style={{ marginBottom: 12 }}>
         The categories offered when adding a product in Inventory or Orders. Edit a name in place,
         or remove it with Remove - changes save when you click Save below, and reach every product
-        already using that category. Budget is optional and isn't a hard limit - it's just what the
-        dashboard's budget section compares spending against; leave it blank for "no budget". Whether
+        already using that category. Each category can optionally have subcategories (one level) -
+        they show up as an extra dropdown in the product form and as filter chips once that category
+        is picked. Categories don't get budgets of their own - the dashboard shows how the total
+        budget (set just above) is being split between them, from the Orders tab. Whether
         a product is consumable - actually used up once a system claims it, rather than merely
         reserved - is set per product now, in Inventory/Orders' own product form, not here.
       </p>
@@ -617,40 +717,72 @@ function CategoriesSection({ team }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.length === 0 && <span className="muted">None yet</span>}
           {rows.map((r, i) => (
-            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <MoveButtons
-                onUp={() => moveCategory(r.key, -1)}
-                onDown={() => moveCategory(r.key, 1)}
-                canUp={i > 0}
-                canDown={i < rows.length - 1}
-                index={i}
-                count={rows.length}
-                onMoveTo={(toIndex) => moveCategoryTo(r.key, toIndex)}
-                label="category"
-              />
-              <input
-                value={r.name}
-                onChange={(e) => renameCategory(r.key, e.target.value)}
-                style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
-              />
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={r.budget}
-                onChange={(e) => setBudget(r.key, e.target.value)}
-                placeholder="Budget"
-                title="Budget"
-                style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
-              />
-              <button
-                type="button"
-                className="link-btn danger"
-                onClick={() => removeCategory(r.key)}
-                aria-label={`Remove ${r.name}`}
-              >
-                Remove
-              </button>
+            <div key={r.key}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <MoveButtons
+                  onUp={() => moveCategory(r.key, -1)}
+                  onDown={() => moveCategory(r.key, 1)}
+                  canUp={i > 0}
+                  canDown={i < rows.length - 1}
+                  index={i}
+                  count={rows.length}
+                  onMoveTo={(toIndex) => moveCategoryTo(r.key, toIndex)}
+                  label="category"
+                />
+                <input
+                  value={r.name}
+                  onChange={(e) => renameCategory(r.key, e.target.value)}
+                  style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+                />
+                <button
+                  type="button"
+                  className="link-btn danger"
+                  onClick={() => removeCategory(r.key)}
+                  aria-label={`Remove ${r.name}`}
+                >
+                  Remove
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '4px 0 4px 32px' }}>
+                {r.subs.map((s) => (
+                  <div key={s.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className="muted" aria-hidden="true">↳</span>
+                    <input
+                      value={s.name}
+                      onChange={(e) => renameSubcategory(r.key, s.key, e.target.value)}
+                      aria-label={`Subcategory of ${r.name}`}
+                      style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 0 }}
+                    />
+                    <button
+                      type="button"
+                      className="link-btn danger"
+                      onClick={() => removeSubcategory(r.key, s.key)}
+                      aria-label={`Remove ${s.name}`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="muted" aria-hidden="true">↳</span>
+                  <input
+                    value={r.subInput}
+                    onChange={(e) => updateRow(r.key, () => ({ subInput: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addSubcategory(r.key)
+                      }
+                    }}
+                    placeholder="Add subcategory (optional)"
+                    aria-label={`New subcategory of ${r.name}`}
+                    style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 0 }}
+                  />
+                  <button type="button" className="link-btn" onClick={() => addSubcategory(r.key)}>
+                    Add
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -682,7 +814,249 @@ function CategoriesSection({ team }) {
   )
 }
 
-const emptyProductType = { name: '', fields: [], toBuyFormula: '', totalPriceFormula: '' }
+// One total budget for the whole team, in the preferred currency. How it's
+// being split across categories isn't entered anywhere - the dashboard works
+// that out from the Orders tab (bought + still to buy) and shows whether the
+// total still fits under this number.
+function BudgetSection({ team }) {
+  const [value, setValue] = useState(String(team?.totalBudget || ''))
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const preferred = team?.preferredCurrency || 'NIS'
+
+  useEffect(() => {
+    setValue(String(team?.totalBudget || ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    // Blank or 0 just means "no budget set".
+    await updateTeam(team.id, { totalBudget: Math.max(0, Number(value) || 0) })
+    setSaving(false)
+    setSaved(true)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Budget</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        The most the team plans to spend in total, in {preferred}. The dashboard compares it with
+        what's been bought plus everything still on the Orders list, and warns when that goes over.
+        You don't split it between categories - that comes from Orders.
+      </p>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
+        <label>
+          Total budget ({preferred})
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="No budget set"
+          />
+        </label>
+        <div className="form-actions" style={{ marginTop: 10 }}>
+          {saved && <span className="muted">Saved.</span>}
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function teamToSupplierRows(team) {
+  return (team?.suppliers || []).map((s, i) => ({
+    key: `${s.name}-${i}`,
+    original: s.name,
+    name: s.name,
+    multiplier: String(s.multiplier ?? 1),
+    shipping: s.shipping ? String(s.shipping) : '',
+  }))
+}
+
+// The list the product form's Supplier dropdown offers (team.suppliers,
+// [{ name, multiplier }]). Multiplier is what a reseller charges relative to
+// the listed price (1.6 = pay 1.6x) - applied automatically to every product
+// bought through that supplier (see effectivePrice in calc.js), so the price
+// on a product stays the manufacturer's own listed one. Renaming a supplier
+// here carries over to its products (see updateSuppliers).
+function SuppliersSection({ team }) {
+  const [rows, setRows] = useState(teamToSupplierRows(team))
+  const [input, setInput] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const { data: products } = useProducts(team?.id)
+
+  // Suppliers typed onto products before this became a list, that the list
+  // doesn't have yet in any spelling - each under its most common spelling.
+  const unlistedSuppliers = (() => {
+    const listed = new Set(rows.map((r) => r.name.trim().toLowerCase()))
+    const spellings = new Map()
+    for (const p of products) {
+      const name = (p.supplier || '').trim()
+      const key = name.toLowerCase()
+      if (!name || listed.has(key)) continue
+      const counts = spellings.get(key) || new Map()
+      counts.set(name, (counts.get(name) || 0) + 1)
+      spellings.set(key, counts)
+    }
+    return [...spellings.values()].map((counts) => [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0])
+  })()
+
+  function addUnlistedSuppliers() {
+    setRows([
+      ...rows,
+      ...unlistedSuppliers.map((name, i) => ({ key: `new-${Date.now()}-${i}`, original: null, name, multiplier: '1', shipping: '' })),
+    ])
+  }
+
+  useEffect(() => {
+    setRows(teamToSupplierRows(team))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id])
+
+  function addSupplier() {
+    const trimmed = input.trim()
+    if (!trimmed || rows.some((r) => r.name === trimmed)) return
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1', shipping: '' }])
+    setInput('')
+  }
+
+  function updateRow(key, changes) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...changes } : r)))
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    const cleanRows = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
+    // A blank, zero or negative multiplier just means "no markup".
+    // Shipping is optional: left off entirely when blank or 0.
+    const suppliers = cleanRows.map((r) => ({
+      name: r.name,
+      multiplier: Number(r.multiplier) > 0 ? Number(r.multiplier) : 1,
+      ...(Number(r.shipping) > 0 ? { shipping: Number(r.shipping) } : {}),
+    }))
+    const renames = {}
+    for (const r of cleanRows) {
+      if (r.original && r.original !== r.name) renames[r.original] = r.name
+    }
+    await updateSuppliers(team.id, suppliers, renames)
+    setRows(
+      suppliers.map((s, i) => ({
+        key: `${s.name}-${i}`,
+        original: s.name,
+        name: s.name,
+        multiplier: String(s.multiplier),
+        shipping: s.shipping ? String(s.shipping) : '',
+      }))
+    )
+    setSaving(false)
+    setSaved(true)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Suppliers</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        The suppliers offered when adding a product. Multiplier is what that supplier charges relative
+        to the listed price - for a reseller who sells you WCP, VEX or CTRE parts at 1.6x, enter 1.6
+        and keep each product's price as the manufacturer's listed one. Every total, the orders export
+        and logged purchases then include the markup automatically. Leave it at 1 for no markup.
+        Renaming a supplier updates its products; removing one leaves them with the old name as
+        plain text. Saving also fixes products that spell a listed supplier differently (e.g.
+        "saad robot" becomes "Saad robot"). Shipping is optional - what one order from that
+        supplier usually costs to ship, in {team?.preferredCurrency || 'NIS'}; the dashboard adds it to
+        the projection once for every supplier you still have something to buy from.
+      </p>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.length === 0 && <span className="muted">None yet</span>}
+          {rows.map((r) => (
+            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                value={r.name}
+                onChange={(e) => updateRow(r.key, { name: e.target.value })}
+                aria-label="Supplier name"
+                style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+              />
+              <span className="muted">×</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.multiplier}
+                onChange={(e) => updateRow(r.key, { multiplier: e.target.value })}
+                aria-label={`Price multiplier for ${r.name}`}
+                title="Price multiplier"
+                style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.shipping}
+                onChange={(e) => updateRow(r.key, { shipping: e.target.value })}
+                placeholder="Shipping"
+                aria-label={`Shipping per order for ${r.name}`}
+                title="Shipping per order (optional)"
+                style={{ fontSize: 13, padding: '5px 8px', width: 90 }}
+              />
+              <button
+                type="button"
+                className="link-btn danger"
+                onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${r.name}`}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addSupplier()
+              }
+            }}
+            placeholder="e.g. Saad Robot"
+            style={{ fontSize: 13, padding: '5px 8px' }}
+          />
+          <button type="button" className="secondary" onClick={addSupplier} style={{ fontSize: 13, padding: '5px 10px' }}>
+            Add
+          </button>
+        </div>
+        {unlistedSuppliers.length > 0 && (
+          <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
+            Products also use {unlistedSuppliers.join(', ')}.{' '}
+            <button type="button" className="link-btn" onClick={addUnlistedSuppliers}>
+              Add {unlistedSuppliers.length === 1 ? 'it' : 'them'} to the list
+            </button>
+          </p>
+        )}
+        <div className="form-actions" style={{ marginTop: 10 }}>
+          {saved && <span className="muted">Saved.</span>}
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+const emptyProductType = { name: '', fields: [], toBuyFormula: '', totalPriceFormula: '', packSizeKey: '' }
 
 // Catches a genuine syntax error at save time without false-flagging a
 // legitimate custom.<field> reference - every possible custom field reads
@@ -730,6 +1104,20 @@ function ProductTypesSection({ team }) {
   const [form, setForm] = useState(emptyProductType)
   const [fieldInput, setFieldInput] = useState('')
   const [error, setError] = useState('')
+  const { data: products } = useProducts(team?.id)
+  const { data: purchases } = usePurchases(team?.id)
+  const [fixing, setFixing] = useState(false)
+  // Purchases logged before a type had a pack size only added packs to stock
+  // - offered as a one-time fix once the pack size is set.
+  const oldPackFixes = oldPackPurchases(purchases, products, types)
+
+  async function handleFixOldPacks() {
+    const units = oldPackFixes.reduce((sum, f) => sum + f.purchase.quantity * (f.packSize - 1), 0)
+    if (!confirm(`Add the missing ${units} units to stock across ${oldPackFixes.length} purchase(s)? Only do this once - check below that these are right.`)) return
+    setFixing(true)
+    await fixOldPackPurchases(team.id, oldPackFixes)
+    setFixing(false)
+  }
 
   function startNew() {
     setEditingIndex(null)
@@ -747,6 +1135,9 @@ function ProductTypesSection({ team }) {
       fields: t.fields.map((f, i) => ({ key: `${f}-${i}`, original: f, name: f })),
       toBuyFormula: t.toBuyFormula || '',
       totalPriceFormula: t.totalPriceFormula || '',
+      // Tracked by the field row's key, not its name, so renaming the field
+      // in this same edit keeps it selected.
+      packSizeKey: t.packSizeField ? `${t.packSizeField}-${t.fields.indexOf(t.packSizeField)}` : '',
     })
     setFieldInput('')
     setError('')
@@ -818,6 +1209,8 @@ function ProductTypesSection({ team }) {
     const nextType = { name, fields }
     if (toBuyFormula) nextType.toBuyFormula = toBuyFormula
     if (totalPriceFormula) nextType.totalPriceFormula = totalPriceFormula
+    const packRow = cleanFields.find((r) => r.key === form.packSizeKey)
+    if (packRow) nextType.packSizeField = packRow.name
     const nextTypes = [...types]
     // Only editing an existing type (not adding a new one) can have
     // products already pointing at it - `typeName` is what they're
@@ -857,6 +1250,27 @@ function ProductTypesSection({ team }) {
         student sign-in - see Codes below for that link. Accept or decline what they submit from the
         "Student requests" table on Orders.
       </p>
+      {oldPackFixes.length > 0 && (
+        <div className="card form-card" style={{ maxWidth: 520, marginBottom: 12, fontSize: 13 }}>
+          <p style={{ marginTop: 0 }}>
+            {oldPackFixes.length} purchase{oldPackFixes.length === 1 ? ' was' : 's were'} logged in packs before
+            pack sizes were set up, so they added packs to stock instead of units:
+          </p>
+          <ul style={{ margin: '0 0 8px', paddingLeft: 18, maxHeight: 160, overflowY: 'auto' }}>
+            {oldPackFixes.map(({ purchase, product, packSize }) => (
+              <li key={purchase.id}>
+                {product.name}: {purchase.quantity} pack{purchase.quantity === 1 ? '' : 's'} of {packSize} - adds the
+                missing {purchase.quantity * (packSize - 1)}
+              </li>
+            ))}
+          </ul>
+          <span className="form-actions">
+            <button type="button" className="secondary" onClick={handleFixOldPacks} disabled={fixing}>
+              {fixing ? 'Fixing…' : 'Fix their stock'}
+            </button>
+          </span>
+        </div>
+      )}
       <DataTable
         columns={[
           { key: 'name', header: 'Type', cell: (t) => t.name },
@@ -942,6 +1356,26 @@ function ProductTypesSection({ team }) {
             Add
           </button>
         </div>
+
+        <label style={{ marginTop: 10 }}>
+          Pack size field (optional)
+          <select value={form.packSizeKey} onChange={(e) => setForm({ ...form, packSizeKey: e.target.value })}>
+            <option value="">None - bought one at a time</option>
+            {form.fields
+              .filter((r) => r.name.trim())
+              .map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+          For things bought in packs (e.g. screws in bags of 50): pick the field holding how many come
+          in one pack. Logging a purchase on Orders then counts in packs - the price is per pack, and
+          stock goes up by packs × that number. Your to-buy formula should count packs too, e.g.{' '}
+          <code>ceil(max(wanted - stock, 0) / int(custom.PackSize))</code>.
+        </p>
 
         <label style={{ marginTop: 10 }}>
           To buy formula (optional)

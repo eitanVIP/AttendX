@@ -10,11 +10,18 @@ import { usePurchases, useOrderRequests, useProducts } from '../lib/firestore-ho
 import {
   DEFAULT_PRODUCT,
   NO_PRODUCT_TYPES,
+  NO_SUBCATEGORIES,
+  NO_SUPPLIERS,
   computeToBuy,
   computeTotalPrice,
+  effectivePrice,
   findDuplicateProduct,
   formatDate,
+  formatPurchasedQuantity,
+  totalSpent,
   productMatchesSearch,
+  purchasedUnits,
+  unitsPerPurchase,
 } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import {
@@ -40,12 +47,17 @@ export default function Orders() {
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_PRODUCT)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [subcategoryFilter, setSubcategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showBoughtForm, setShowBoughtForm] = useState(false)
   const [boughtProductId, setBoughtProductId] = useState('')
+  const [boughtSearch, setBoughtSearch] = useState('')
+  const [boughtAllCategories, setBoughtAllCategories] = useState(false)
   const [boughtQuantity, setBoughtQuantity] = useState('1')
 
   const categories = team?.categories || []
+  const subcategories = team?.subcategories || NO_SUBCATEGORIES
+  const suppliers = team?.suppliers || NO_SUPPLIERS
   const productTypes = team?.productTypes || NO_PRODUCT_TYPES
   const rates = team?.currencyRates || DEFAULT_CURRENCY_RATES
   const preferred = team?.preferredCurrency || 'NIS'
@@ -60,8 +72,9 @@ export default function Orders() {
     () =>
       products
         .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter)
         .filter((p) => productMatchesSearch(p, search, { rates, preferred })),
-    [products, categoryFilter, search, rates, preferred]
+    [products, categoryFilter, subcategoryFilter, search, rates, preferred]
   )
   const needsBuying = useMemo(
     () => filtered.filter((p) => computeToBuy(p, productTypes).value !== 0),
@@ -75,16 +88,30 @@ export default function Orders() {
     () =>
       purchases
         .filter((p) => !p.dismissed)
-        .filter((p) => !categoryFilter || p.category === categoryFilter),
-    [purchases, categoryFilter]
+        .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter),
+    [purchases, categoryFilter, subcategoryFilter]
   )
+  // Money spent on the rows the Bought table is showing right now (same
+  // category filter; discounts count as negative), plus everything ever
+  // logged - dismissed rows included, as on the Bought items page.
+  const visibleSpent = useMemo(() => totalSpent(visiblePurchases, rates, preferred), [visiblePurchases, rates, preferred])
+  const allSpent = useMemo(() => totalSpent(purchases, rates, preferred), [purchases, rates, preferred])
+
   const filteredRequests = useMemo(
     () =>
       requests
         .filter((p) => !categoryFilter || p.category === categoryFilter)
+        .filter((p) => !subcategoryFilter || p.subcategory === subcategoryFilter)
         .filter((p) => productMatchesSearch(p, search, { rates, preferred })),
-    [requests, categoryFilter, search, rates, preferred]
+    [requests, categoryFilter, subcategoryFilter, search, rates, preferred]
   )
+
+  // A subcategory pick only means anything inside the category it belongs to.
+  function handleCategoryFilter(category) {
+    setCategoryFilter(category)
+    setSubcategoryFilter('')
+  }
 
   function startNew() {
     setEditingId(null)
@@ -157,7 +184,19 @@ export default function Orders() {
   function openBoughtForm() {
     setBoughtProductId('')
     setBoughtQuantity('1')
+    setBoughtSearch('')
+    setBoughtAllCategories(false)
     setShowBoughtForm(true)
+  }
+
+  // Picking a product pre-fills the quantity with what Orders says is still
+  // to buy (in packs, for a pack-sized product type), since that's usually
+  // exactly what was just bought.
+  function selectBoughtProduct(id) {
+    setBoughtProductId(id)
+    const product = products.find((p) => p.id === id)
+    const toBuy = product ? computeToBuy(product, productTypes).value : null
+    setBoughtQuantity(toBuy > 0 ? String(toBuy) : '1')
   }
 
   function handleLogPurchase(e) {
@@ -165,16 +204,32 @@ export default function Orders() {
     const product = products.find((p) => p.id === boughtProductId)
     const quantity = Math.max(0, Math.round(Number(boughtQuantity) || 0))
     if (!product || quantity <= 0) return
-    logPurchase(team.id, product, quantity)
+    logPurchase(team.id, product, quantity, suppliers, unitsPerPurchase(product, productTypes))
     setShowBoughtForm(false)
   }
+
+  // The product list in "Log a purchase": narrowed to whatever category/
+  // subcategory filter Orders already has on (unless "all categories" is
+  // ticked) and to the form's own search box, with what still needs buying
+  // listed first.
+  const boughtOptions = useMemo(() => {
+    const pool = products
+      .filter((p) => boughtAllCategories || !categoryFilter || p.category === categoryFilter)
+      .filter((p) => boughtAllCategories || !subcategoryFilter || p.subcategory === subcategoryFilter)
+      .filter((p) => productMatchesSearch(p, boughtSearch, { rates, preferred }))
+    const needed = pool.filter((p) => computeToBuy(p, productTypes).value > 0)
+    const rest = pool.filter((p) => !(computeToBuy(p, productTypes).value > 0))
+    return { needed, rest }
+  }, [products, productTypes, categoryFilter, subcategoryFilter, boughtAllCategories, boughtSearch, rates, preferred])
+  const boughtProduct = products.find((p) => p.id === boughtProductId)
+  const boughtPackSize = boughtProduct ? unitsPerPurchase(boughtProduct, productTypes) : 1
 
   async function handleDismissPurchase(purchase) {
     await dismissPurchase(team.id, purchase)
   }
 
   async function handleRevertPurchase(purchase) {
-    if (!confirm(`Revert this purchase? ${purchase.quantity} × ${purchase.productName} will come back out of stock.`)) return
+    if (!confirm(`Revert this purchase? ${purchasedUnits(purchase)} × ${purchase.productName} will come back out of stock.`)) return
     await revertPurchase(team.id, purchase)
   }
 
@@ -183,14 +238,14 @@ export default function Orders() {
   function handleExport() {
     const headers = ['Name', 'SKU', 'Category', 'Price', 'Supplier', 'To buy', 'Total']
     const rows = filtered.map((p) => {
-      const converted = convertPrice(p.price, p.currency, preferred, rates)
+      const converted = convertPrice(effectivePrice(p, suppliers), p.currency, preferred, rates)
       const toBuy = computeToBuy(p, productTypes)
       const total = computeTotalPrice(p, productTypes, converted, toBuy.value)
       return [
         p.name,
         p.sku,
         p.category,
-        converted !== null ? converted.toFixed(2) : p.price,
+        converted !== null ? converted.toFixed(2) : effectivePrice(p, suppliers),
         p.supplier,
         toBuy.value !== null ? toBuy.value : '',
         total.value !== null ? total.value.toFixed(2) : '',
@@ -218,7 +273,10 @@ export default function Orders() {
           products={products}
           categories={categories}
           categoryFilter={categoryFilter}
-          onCategoryFilter={setCategoryFilter}
+          onCategoryFilter={handleCategoryFilter}
+          subcategories={subcategories}
+          subcategoryFilter={subcategoryFilter}
+          onSubcategoryFilter={setSubcategoryFilter}
           search={search}
           onSearch={setSearch}
         />
@@ -232,6 +290,8 @@ export default function Orders() {
         setForm={setForm}
         editing={!!editingId}
         categories={categories}
+        subcategories={subcategories}
+        suppliers={suppliers}
         currencyCodes={currencyCodes}
         productTypes={productTypes}
       />
@@ -264,12 +324,24 @@ export default function Orders() {
         Logged by hand - each one restocks the product and counts toward its category's spend on the
         dashboard. Dismiss just hides a row here; revert undoes it entirely.
       </p>
+      <p style={{ marginTop: -4 }}>
+        <strong>
+          Spent so far: {allSpent.toFixed(2)} {preferred}
+        </strong>
+        {Math.abs(allSpent - visibleSpent) > 0.005 && (
+          <span className="muted">
+            {' '}
+            (the table total below covers only the rows shown - {categoryFilter ? 'this category, ' : ''}dismissed rows
+            hidden)
+          </span>
+        )}
+      </p>
       <DataTable
         columns={[
-          { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date) },
+          { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date), footerCell: () => <strong>Total</strong> },
           { key: 'product', header: 'Product', sticky: 'left', cell: (p) => p.productName },
           { key: 'category', header: 'Category', cellClassName: 'muted', cell: (p) => p.category || 'Uncategorized' },
-          { key: 'quantity', header: 'Quantity', cell: (p) => p.quantity },
+          { key: 'quantity', header: 'Quantity', cell: (p) => formatPurchasedQuantity(p) },
           {
             key: 'cost',
             header: 'Cost',
@@ -278,6 +350,11 @@ export default function Orders() {
               const cost = converted !== null ? converted * p.quantity : null
               return cost !== null ? `${cost.toFixed(2)} ${preferred}` : '—'
             },
+            footerCell: () => (
+              <strong>
+                {visibleSpent.toFixed(2)} {preferred}
+              </strong>
+            ),
           },
           {
             key: 'actions',
@@ -296,26 +373,63 @@ export default function Orders() {
           },
         ]}
         rows={visiblePurchases}
+        footer
       />
 
       <FormPanel open={showBoughtForm} onClose={() => setShowBoughtForm(false)} onSubmit={handleLogPurchase}>
         <h2>Log a purchase</h2>
         <div className="form-grid">
           <label className="span-2">
+            Search
+            <input
+              type="search"
+              value={boughtSearch}
+              onChange={(e) => setBoughtSearch(e.target.value)}
+              placeholder="Name, SKU, supplier…"
+              autoFocus
+            />
+          </label>
+          {categoryFilter && (
+            <label className="span-2 checkbox-field">
+              <input
+                type="checkbox"
+                checked={boughtAllCategories}
+                onChange={(e) => setBoughtAllCategories(e.target.checked)}
+              />
+              Show all categories (now showing only {subcategoryFilter || categoryFilter})
+            </label>
+          )}
+          <label className="span-2">
             Product
-            <select value={boughtProductId} onChange={(e) => setBoughtProductId(e.target.value)} required>
+            <select value={boughtProductId} onChange={(e) => selectBoughtProduct(e.target.value)} required>
               <option value="" disabled>
-                Choose…
+                {boughtOptions.needed.length + boughtOptions.rest.length === 0 ? 'No matching products' : 'Choose…'}
               </option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              {boughtProduct &&
+                !boughtOptions.needed.includes(boughtProduct) &&
+                !boughtOptions.rest.includes(boughtProduct) && <option value={boughtProduct.id}>{boughtProduct.name}</option>}
+              {boughtOptions.needed.length > 0 && (
+                <optgroup label="Still to buy">
+                  {boughtOptions.needed.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({computeToBuy(p, productTypes).value})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {boughtOptions.rest.length > 0 && (
+                <optgroup label="Everything else">
+                  {boughtOptions.rest.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
           <label>
-            Quantity bought
+            {boughtPackSize > 1 ? 'Packs bought' : 'Quantity bought'}
             <input
               type="number"
               min="1"
@@ -325,6 +439,12 @@ export default function Orders() {
               required
             />
           </label>
+          {boughtPackSize > 1 && (
+            <p className="muted span-2" style={{ margin: 0 }}>
+              Packs of {boughtPackSize} - this adds {(Number(boughtQuantity) || 0) * boughtPackSize} to stock, priced
+              as {Number(boughtQuantity) || 0} pack{Number(boughtQuantity) === 1 ? '' : 's'}.
+            </p>
+          )}
         </div>
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setShowBoughtForm(false)}>

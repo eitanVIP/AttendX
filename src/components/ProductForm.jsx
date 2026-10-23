@@ -1,4 +1,5 @@
 import FormPanel from './FormPanel'
+import { NO_SUPPLIERS, supplierMultiplier } from '../lib/calc'
 import { isReservedFieldName } from '../lib/formula'
 
 // Shared by Inventory and Orders. Both counts are always shown on either
@@ -13,10 +14,28 @@ export default function ProductForm({
   setForm,
   editing,
   categories,
+  subcategories = {},
+  suppliers = NO_SUPPLIERS,
   currencyCodes,
   productTypes,
 }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
+  const multiplier = supplierMultiplier(form.supplier, suppliers)
+  // An old product may spell a listed supplier differently ("saad robot") -
+  // show it as the listed one rather than as "not in list". (Saving the
+  // supplier list in Settings rewrites the stored spelling on every product.)
+  const listedSupplier = suppliers.find(
+    (s) => s.name.trim().toLowerCase() === (form.supplier || '').trim().toLowerCase()
+  )?.name
+  const supplierValue = listedSupplier ?? (form.supplier || '')
+
+  // Subcategories belong to one category each, so switching category drops
+  // the old pick rather than leaving a subcategory the new category doesn't
+  // have. The dropdown only appears when the chosen category has any.
+  const categorySubs = subcategories[form.category] || []
+  function setCategory(e) {
+    setForm({ ...form, category: e.target.value, subcategory: '' })
+  }
 
   // The selected type lives entirely in customData.type - there's no
   // separate "productType" field on the product itself (see hasCustomData
@@ -52,7 +71,7 @@ export default function ProductForm({
         </label>
         <label>
           Category
-          <select value={form.category} onChange={set('category')} required>
+          <select value={form.category} onChange={setCategory} required>
             <option value="" disabled>
               {categories.length ? 'Choose…' : 'Set up categories in Settings first'}
             </option>
@@ -63,6 +82,19 @@ export default function ProductForm({
             ))}
           </select>
         </label>
+        {categorySubs.length > 0 && (
+          <label>
+            Subcategory (optional)
+            <select value={form.subcategory || ''} onChange={set('subcategory')}>
+              <option value="">None</option>
+              {categorySubs.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Price
           {/* step="any": "0.01" made the browser reject submission past 2 decimals - rounding is display-only (ProductTable). */}
@@ -80,7 +112,24 @@ export default function ProductForm({
         </label>
         <label>
           Supplier
-          <input value={form.supplier} onChange={set('supplier')} />
+          <select value={supplierValue} onChange={set('supplier')}>
+            <option value="">None</option>
+            {suppliers.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name}
+                {Number(s.multiplier) > 0 && Number(s.multiplier) !== 1 ? ` (×${Number(s.multiplier)})` : ''}
+              </option>
+            ))}
+            {/* A product saved before suppliers became a list (or with a since-removed one) keeps its old name selectable. */}
+            {form.supplier && !listedSupplier && (
+              <option value={form.supplier}>{form.supplier} (not in list)</option>
+            )}
+          </select>
+          {multiplier !== 1 && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Price above is the listed one - ×{multiplier} is added automatically.
+            </span>
+          )}
         </label>
         <label className="span-2">
           Link

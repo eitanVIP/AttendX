@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { communityDb } from '../firebase'
+import { loadAttendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StudentProfileView from '../components/StudentProfileView'
 import { normalizeStudentForView } from '../lib/calc'
@@ -37,16 +38,8 @@ export default function MyProfile() {
       setTrainings(trainingsSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
       setSessions(sessionDocs)
       setCommunityLogs(logsSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
-
-      const attendanceSnaps = await Promise.all(
-        sessionDocs.map((s) => getDocs(collection(communityDb, 'teams', verified.teamId, 'sessions', s.id, 'attendance')))
-      )
+      const records = await loadAttendanceRecords(communityDb, verified.teamId, sessionDocs, studentId)
       if (cancelled) return
-      const records = []
-      attendanceSnaps.forEach((snap, i) => {
-        const own = snap.docs.find((d) => d.id === studentId)
-        if (own) records.push({ id: own.id, sessionId: sessionDocs[i].id, ...own.data() })
-      })
       setAttendanceRecords(records)
       setLoading(false)
     }
