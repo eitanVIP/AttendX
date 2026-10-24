@@ -1,0 +1,295 @@
+/* PerfectTable - self-contained styles for lab/PerfectTable.jsx.
+   Every colour is taken from the app's variables when they exist (so light
+   and dark mode just work) with a fallback so the component also renders
+   on its own. */
+
+.pt {
+  --pt-bg: var(--card-bg, #fff);
+  --pt-text: var(--text, #3f3f46);
+  --pt-muted: var(--muted, #71717a);
+  --pt-border: var(--border, #e4e4e7);
+  --pt-head-bg: var(--pt-bg);
+  /* Opaque on purpose (mixed against the card colour, never transparent):
+     a frozen cell paints over the cells scrolling underneath it, so any
+     see-through tint would reveal them. */
+  --pt-hover-bg: var(--accent-faint, color-mix(in srgb, var(--pt-text) 5%, var(--pt-bg)));
+  --pt-sub-bg: color-mix(in srgb, var(--pt-text) 3%, var(--pt-bg));
+  --pt-sub-hover-bg: color-mix(in srgb, var(--pt-text) 3%, var(--pt-hover-bg));
+  --pt-shadow: rgba(0, 0, 0, 0.16);
+  --pt-radius: 10px;
+  --pt-font: 14px;
+  --pt-sub-font: 13px;
+  --pt-cell-py: 9px;
+  --pt-cell-px: 12px;
+  --pt-sub-py: 5px;
+  --pt-indent: 20px;
+  --pt-top: var(--sticky-top, 0px);
+
+  position: relative;
+  /* The header clone and the scroller share one grid cell so the clone
+     lies exactly over the real header without magic negative margins. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border: 1px solid var(--pt-border);
+  border-radius: var(--pt-radius);
+  background: var(--pt-bg);
+  color: var(--pt-text);
+  /* clip (not hidden) rounds off everything inside - stuck header, frozen
+     columns, hovered rows - without turning this box into a scroll
+     container, which would stop the clone sticking to the page. */
+  overflow: clip;
+}
+
+@media (prefers-color-scheme: dark) {
+  .pt {
+    --pt-shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+.pt-scroller {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow-x: auto;
+  /* Never scrolls vertically in page mode - hidden rather than auto so a
+     focus ring on the last row can't summon a stray vertical scrollbar. */
+  overflow-y: hidden;
+}
+
+.pt-box .pt-scroller {
+  overflow: auto;
+}
+
+/* Page mode's sticky header: a second copy of the header row that sits on
+   top of the real one at rest and stays pinned below the page's own sticky
+   header while the table scrolls past. Its horizontal scroll position is
+   mirrored from the scroller (and back), so its frozen columns are real
+   position: sticky too. */
+.pt-clone {
+  grid-area: 1 / 1;
+  align-self: start;
+  position: sticky;
+  top: var(--pt-top);
+  z-index: 3;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: var(--pt-head-bg);
+}
+
+.pt-clone::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+/* Keyboard focus lands in the real header (the clone is never in the tab
+   order), so get the clone out of the way while it does - otherwise the
+   focus ring would be hidden under the copy. */
+.pt:has(.pt-scroller thead:focus-within) .pt-clone {
+  visibility: hidden;
+}
+
+.pt-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: var(--pt-font);
+  /* Whole pixels, so text-only rows get whole-pixel heights. */
+  line-height: 20px;
+  color: var(--pt-text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pt-table th,
+.pt-table td {
+  padding: var(--pt-cell-py) var(--pt-cell-px);
+  text-align: left;
+  vertical-align: middle;
+  /* One background rule for every cell, frozen or not: the row decides the
+     colour through --pt-row-bg, so a hovered/sub row can't look different
+     in its frozen cells. */
+  background: var(--pt-row-bg, var(--pt-bg));
+  /* Row separators are inset shadows along the TOP of each body cell (and
+     the bottom of header cells, which paint above everything). Rows often
+     have fractional heights, and a frozen cell can end up on its own
+     compositor layer, snapped to whole pixels - a line on a cell's bottom
+     edge then gets lapped over by the next row's opaque background. A
+     cell's own top edge is painted after everything above it, so nothing
+     can cover it. */
+  box-shadow: var(--pt-edge-shadow, 0 0 0 0 transparent), inset 0 1px 0 var(--pt-line, var(--pt-border));
+}
+
+.pt-table th {
+  --pt-row-bg: var(--pt-head-bg);
+  color: var(--pt-muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  box-shadow: var(--pt-edge-shadow, 0 0 0 0 transparent), inset 0 -1px 0 var(--pt-border);
+}
+
+/* The header already draws the line above the first row. */
+.pt-table tbody tr:first-child > td {
+  --pt-line: transparent;
+}
+
+.pt-table tbody tr {
+  --pt-row-bg: var(--pt-bg);
+}
+
+.pt-table tbody tr.pt-sub {
+  --pt-row-bg: var(--pt-sub-bg);
+  font-size: var(--pt-sub-font);
+  line-height: 18px;
+}
+
+.pt-table tbody tr.pt-sub > td {
+  padding-top: var(--pt-sub-py);
+  padding-bottom: var(--pt-sub-py);
+}
+
+@media (hover: hover) {
+  .pt-hover .pt-table tbody tr:hover {
+    --pt-row-bg: var(--pt-hover-bg);
+  }
+
+  .pt-hover .pt-table tbody tr.pt-sub:hover {
+    --pt-row-bg: var(--pt-sub-hover-bg);
+  }
+}
+
+.pt-clickable {
+  cursor: pointer;
+}
+
+.pt-empty > td {
+  text-align: center;
+  color: var(--pt-muted);
+  padding: 28px 12px;
+}
+
+.pt-dense {
+  --pt-cell-py: 5px;
+  --pt-sub-py: 3px;
+}
+
+/* Frozen columns. Offsets come inline from the component (measured column
+   widths). Deliberately no will-change: transform here - a layer per cell
+   gets snapped to whole pixels independently of its neighbours, which
+   visibly shifts text and separators against the rest of the row. */
+.pt-sticky-l,
+.pt-sticky-r {
+  position: sticky;
+  z-index: 1;
+}
+
+/* Box mode: the real header is the sticky one, above frozen body cells;
+   the corner cells (frozen column AND header) above everything. */
+.pt-box.pt-sticky-head thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.pt-box.pt-sticky-head thead th.pt-sticky-l,
+.pt-box.pt-sticky-head thead th.pt-sticky-r {
+  z-index: 3;
+}
+
+/* Optional divider where the frozen columns meet the scrolling ones. Only
+   shown while there's actually something to scroll. */
+.pt-edge-line.pt-overflow .pt-edge-l {
+  --pt-edge-shadow: inset -1px 0 0 var(--pt-border);
+}
+
+.pt-edge-line.pt-overflow .pt-edge-r {
+  --pt-edge-shadow: inset 1px 0 0 var(--pt-border);
+}
+
+/* Optional shadow, only while content is actually tucked under the frozen
+   column. clip-path lets the shadow spill sideways but not into the rows
+   above/below, which would otherwise show as breaks at every row. */
+.pt-edge-shadow .pt-edge-l {
+  clip-path: inset(0 -24px 0 0);
+}
+
+.pt-edge-shadow .pt-edge-r {
+  clip-path: inset(0 0 0 -24px);
+}
+
+.pt-edge-shadow.pt-scrolled-l .pt-edge-l {
+  --pt-edge-shadow: 6px 0 10px -4px var(--pt-shadow);
+}
+
+.pt-edge-shadow.pt-scrolled-r .pt-edge-r {
+  --pt-edge-shadow: -6px 0 10px -4px var(--pt-shadow);
+}
+
+.pt-table .pt-align-center {
+  text-align: center;
+}
+
+.pt-table .pt-align-right {
+  text-align: right;
+}
+
+.pt-table .pt-nowrap {
+  white-space: nowrap;
+}
+
+.pt-table .pt-wrap {
+  white-space: normal;
+}
+
+/* Expander column: arrow (or an equally wide spacer, so text lines up
+   across rows) followed by the cell's own content. Sub rows indent by
+   their depth. */
+.pt-lead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: calc(var(--pt-depth, 0) * var(--pt-indent));
+}
+
+.pt-lead-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pt-expander,
+.pt-expander-space {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+
+.pt-expander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pt-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.pt-expander:hover {
+  background: color-mix(in srgb, var(--pt-text) 8%, transparent);
+  color: var(--pt-text);
+}
+
+.pt-expander svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+
+.pt-expander[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}

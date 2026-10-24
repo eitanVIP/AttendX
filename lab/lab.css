@@ -1,0 +1,42 @@
+/* Styles for the lab page itself (not the table). */
+.lab-header {
+  min-height: 56px;
+}
+
+.lab-main {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.lab-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 12px 16px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  font-size: 13px;
+}
+
+.lab-control {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.lab-control input[type='number'] {
+  width: 56px;
+  padding: 4px 6px;
+}
+
+.lab-control select {
+  padding: 4px 6px;
+}
+
+.lab-log {
+  min-height: 20px;
+}
