@@ -176,6 +176,11 @@ export default function Dashboard() {
     return map
   }, [communityLogs, activeStudents])
 
+  const totalCommunityHours = useMemo(
+    () => Math.round(communityLogs.reduce((sum, l) => sum + (Number(l.hours) || 0), 0) * 100) / 100,
+    [communityLogs]
+  )
+
   const studentsMetHours = useMemo(() => {
     if (!communitySettings.hoursTarget) return null
     return activeStudents.filter((s) => hoursByStudent[s.id] >= communitySettings.hoursTarget).length
@@ -290,15 +295,16 @@ export default function Dashboard() {
             of {students.length} total · {students.length - activeStudents.length} inactive
           </span>
         </div>
-        {communitySettings.hoursTarget > 0 && (
-          <div className="card stat-card">
-            <span className="stat-label">Completed community hours</span>
-            <span className="stat-value">
-              {studentsMetHours}/{activeStudents.length}
-            </span>
-            <span className="muted">{communitySettings.hoursTarget} hrs required</span>
-          </div>
-        )}
+        <Link to="/community" className="card stat-card stat-card-link">
+          <span className="stat-label">Community hours</span>
+          <span className="stat-value">{totalCommunityHours}</span>
+          <span className="muted">
+            {communitySettings.hoursTarget > 0
+              ? `${studentsMetHours}/${activeStudents.length} met the ${communitySettings.hoursTarget} hr target`
+              : 'hours logged'}{' '}
+            · details →
+          </span>
+        </Link>
       </div>
 
       <h3>By division</h3>
