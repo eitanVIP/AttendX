@@ -4,11 +4,12 @@ import { db } from '../firebase'
 import { migrateSessionAttendance } from './actions'
 import { attendanceRecords } from './attendanceRecords'
 import {
+  DEFAULT_LOAN,
   NO_PLANS,
+  countedRecords,
   normalizeProduct,
   normalizeStudent,
   remapStudentDivisions,
-  countedRecords,
   skippedWeekStarts,
   sortByOrder,
   studentPlanAttendance,
@@ -189,6 +190,18 @@ export function useLog(teamId) {
 export function useSystems(teamId) {
   const result = useCollection(teamId ? ['teams', teamId, 'systems'] : null)
   const data = useMemo(() => result.data.map((s) => ({ needs: [], ...s })), [result.data])
+  return { ...result, data }
+}
+
+// Loans to and from other teams (see Borrowing.jsx) - newest first by the
+// day they went out. Admin only: firestore.rules grants students nothing
+// here, so this only ever runs through the admin `db`.
+export function useLoans(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'loans'] : null)
+  const data = useMemo(
+    () => result.data.map((l) => ({ ...DEFAULT_LOAN, ...l })).sort((a, b) => (b.lentOn || '').localeCompare(a.lentOn || '')),
+    [result.data]
+  )
   return { ...result, data }
 }
 

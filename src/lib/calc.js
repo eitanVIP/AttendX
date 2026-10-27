@@ -812,10 +812,89 @@ export function isConsumableProduct(product) {
 // more of a product than is actually free (NeedsTable then offers to
 // auto-request an order for the shortfall), so "available" has to be able
 // to show the resulting deficit rather than hiding it behind a 0.
+// A reusable product lent to another team (see loanStockEffect below) is
+// still ours and still counted in stock, but it isn't in the bin to claim -
+// `lentOut` takes it out of what's available the same way a system's claim
+// does. A lent consumable already came off countInInventory itself.
 export function availableForProduct(product, usedQuantities) {
   if (isConsumableProduct(product)) return product.countInInventory || 0
   const used = usedQuantities[product.id] || 0
-  return (product.countInInventory || 0) - used
+  return (product.countInInventory || 0) - used - (product.lentOut || 0)
+}
+
+// --- Borrowing ------------------------------------------------------------
+// A loan is one item going to or coming from another FRC team (see
+// Borrowing.jsx). Only direction, item, quantity and the other team's
+// number are required - everything else is optional. `lentOn` defaults to
+// the day it's entered; `returnedOn` stays blank until it comes back.
+export const DEFAULT_LOAN = {
+  direction: 'lent',
+  productId: '',
+  itemName: '',
+  quantity: 1,
+  teamNumber: '',
+  teamName: '',
+  // Who on the other team to call to get it back (or to return it to) -
+  // a student, their captain, a mentor. Optional, like everything below.
+  contactName: '',
+  contactRole: '',
+  contactPhone: '',
+  studentId: '',
+  event: '',
+  lentOn: '',
+  dueDate: '',
+  returnedOn: '',
+  notes: '',
+  // How lending this item touched our inventory, decided once when the
+  // product is picked (from its own `consumable` flag at that moment) so
+  // returning it undoes exactly what lending did even if the product's
+  // flag has been flipped since: 'lentOut' reserves it like a system claim
+  // does, 'count' takes it off countInInventory like a consumable claim.
+  stockEffect: '',
+}
+
+export function isLoanOpen(loan) {
+  return !loan.returnedOn
+}
+
+export function isLoanOverdue(loan, today = todayISO()) {
+  return isLoanOpen(loan) && !!loan.dueDate && loan.dueDate < today
+}
+
+export function loanStockEffectFor(product) {
+  if (!product) return ''
+  return isConsumableProduct(product) ? 'count' : 'lentOut'
+}
+
+// What a loan is currently doing to our inventory - nothing unless it's an
+// open loan of one of OUR products to another team. Borrowed items never
+// touch inventory; they live only on the Borrowing page.
+function loanStockEffect(loan) {
+  if (!loan || loan.direction !== 'lent' || !loan.productId || !isLoanOpen(loan)) return null
+  const quantity = Number(loan.quantity) || 0
+  if (loan.stockEffect === 'count') return { productId: loan.productId, field: 'countInInventory', delta: -quantity }
+  if (loan.stockEffect === 'lentOut') return { productId: loan.productId, field: 'lentOut', delta: quantity }
+  return null
+}
+
+// The product writes going from `oldLoan` to `newLoan` implies (either can
+// be null - a brand-new loan, or one being deleted). Undoes the old effect
+// and applies the new one, merged per product and field, so marking a loan
+// returned, editing its quantity, or deleting it all come out right. Skips
+// products that no longer exist - a product deleted while lent out has
+// nothing left to give the stock back to.
+export function loanInventoryDeltas(oldLoan, newLoan, products) {
+  const totals = new Map()
+  const add = (effect, sign) => {
+    if (!effect) return
+    const key = `${effect.productId}|${effect.field}`
+    const prev = totals.get(key) || { productId: effect.productId, field: effect.field, delta: 0 }
+    totals.set(key, { ...prev, delta: prev.delta + sign * effect.delta })
+  }
+  add(loanStockEffect(oldLoan), -1)
+  add(loanStockEffect(newLoan), 1)
+  const existing = new Set(products.map((p) => p.id))
+  return [...totals.values()].filter((d) => d.delta !== 0 && existing.has(d.productId))
 }
 
 // Every need in a system that claims more of a product than's actually

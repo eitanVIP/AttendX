@@ -714,6 +714,17 @@ body:has(dialog.modal[open]) {
   gap: 4px;
 }
 
+/* A stat card that opens the page with the full breakdown (the dashboard's
+   community-hours card -> Community). */
+.stat-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.stat-card-link:hover {
+  border-color: var(--accent);
+}
+
 .stat-label {
   color: var(--muted);
   font-size: 12px;
@@ -1001,6 +1012,24 @@ body:has(dialog.modal[open]) {
 }
 
 .bar-row:hover {
+  background: var(--accent-faint);
+}
+
+/* A bar row that's a filter toggle rather than a link (Community's
+   hours-by-type chart) - strips the default button look so it lines up
+   with the link rows. */
+.bar-row-button {
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.bar-row-button.active {
   background: var(--accent-faint);
 }
 
@@ -1816,6 +1845,11 @@ th.col-inactive {
 .badge-muted {
   background: var(--border);
   color: var(--muted);
+}
+
+.badge-danger {
+  background: var(--danger);
+  color: white;
 }
 
 .status-badge-present {

@@ -1134,3 +1134,48 @@ export function deleteSystem(teamId, system, inventoryDeltas = []) {
   ]
   return commitAll(writes)
 }
+
+// --- Borrowing -------------------------------------------------------------
+// Loans to and from other teams (see Borrowing.jsx). `inventoryDeltas`
+// (see loanInventoryDeltas in calc.js) applies what lending one of our own
+// products does to it - reserving it via `lentOut`, or taking a consumable
+// off its real stock - in the same batch as the loan itself, so a loan and
+// the stock it holds can never drift apart, same as addSystem.
+function loanInventoryWrites(teamId, inventoryDeltas) {
+  return inventoryDeltas.map(
+    ({ productId, field, delta }) =>
+      (batch) =>
+        batch.update(doc(db, 'teams', teamId, 'products', productId), { [field]: increment(delta) })
+  )
+}
+
+function loanLabel(loan) {
+  const direction = loan.direction === 'borrowed' ? 'from' : 'to'
+  return `${loan.quantity}× "${loan.itemName}" ${direction} team ${loan.teamNumber}`
+}
+
+export function addLoan(teamId, loan, inventoryDeltas = []) {
+  const verb = loan.direction === 'borrowed' ? 'Borrowed' : 'Lent'
+  return commitAll([
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'loans')), loan),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'create', `${verb} ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function updateLoan(teamId, loanId, loan, inventoryDeltas = [], summary = null) {
+  return commitAll([
+    (batch) => batch.update(doc(db, 'teams', teamId, 'loans', loanId), loan),
+    (batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'update', summary || `Updated loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function deleteLoan(teamId, loan, inventoryDeltas = []) {
+  return commitAll([
+    (batch) => batch.delete(doc(db, 'teams', teamId, 'loans', loan.id)),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'delete', `Deleted loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
