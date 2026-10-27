@@ -3,8 +3,8 @@ import { useAuth } from '../context/AuthContext'
 import ProductForm from '../components/ProductForm'
 import ProductFilters from '../components/ProductFilters'
 import ProductTable from '../components/ProductTable'
-import { useProducts } from '../lib/firestore-hooks'
-import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, NO_SUBCATEGORIES, NO_SUPPLIERS, findDuplicateProduct, productMatchesSearch } from '../lib/calc'
+import { useProducts, useSystems } from '../lib/firestore-hooks'
+import { DEFAULT_PRODUCT, NO_PRODUCT_TYPES, NO_SUBCATEGORIES, NO_SUPPLIERS, findDuplicateProduct, productMatchesSearch, usedQuantitiesByProduct } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { addProduct, deleteProduct, importProducts, updateProduct } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
@@ -13,6 +13,8 @@ import { downloadCSV, parseProductImport, PRODUCT_IMPORT_HEADERS } from '../lib/
 export default function Inventory() {
   const { team } = useAuth()
   const { data: products, loading } = useProducts(team?.id)
+  const { data: systems } = useSystems(team?.id)
+  const usedQuantities = useMemo(() => usedQuantitiesByProduct(systems), [systems])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(DEFAULT_PRODUCT)
@@ -54,7 +56,9 @@ export default function Inventory() {
 
   function startEdit(product) {
     setEditingId(product.id)
-    const { id: _id, ...fields } = product
+    // lentOut is owned by the Borrowing page (see loanInventoryDeltas) -
+    // left out of the form so saving an edit can't write back a stale copy.
+    const { id: _id, lentOut: _lentOut, ...fields } = product
     setForm(fields)
     setShowForm(true)
   }
@@ -202,7 +206,7 @@ export default function Inventory() {
         productTypes={productTypes}
       />
 
-      <ProductTable products={filtered} team={team} onEdit={startEdit} onDelete={handleDelete} />
+      <ProductTable products={filtered} team={team} onEdit={startEdit} onDelete={handleDelete} usedQuantities={usedQuantities} />
     </div>
   )
 }

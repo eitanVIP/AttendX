@@ -121,7 +121,9 @@ export default function Orders() {
 
   function startEdit(product) {
     setEditingId(product.id)
-    const { id: _id, ...fields } = product
+    // lentOut is owned by the Borrowing page (see loanInventoryDeltas) - left
+    // out of the form so saving an edit can't write back a stale copy.
+    const { id: _id, lentOut: _lentOut, ...fields } = product
     setForm(fields)
     setShowForm(true)
   }

@@ -133,6 +133,10 @@ a {
 
 .brand-logo {
   height: 36px;
+  /* The wordmark is a thin image, so there's no font-weight to raise - these
+     tiny same-colour shadows thicken its strokes the way bold would. */
+  filter: drop-shadow(0.6px 0 0 var(--accent)) drop-shadow(-0.6px 0 0 var(--accent))
+    drop-shadow(0 0.6px 0 var(--accent)) drop-shadow(0 -0.6px 0 var(--accent));
 }
 
 .auth-logo {
@@ -148,6 +152,7 @@ a {
 .brand-team {
   color: var(--muted);
   font-size: 13px;
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
@@ -167,17 +172,73 @@ a {
 }
 
 .main-nav a {
+  flex: 0 0 120px;
+  text-align: center;
   padding: 8px 12px;
   border-radius: 6px;
   color: var(--text);
   text-decoration: none;
   font-size: 14px;
+  font-weight: 700;
 }
 
 .main-nav a.active,
 .main-nav a:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* Second row of the header: the pages inside the current group (Parts,
+   Progress). Lives inside the sticky header so its height is part of what
+   --header-h measures. The negative margin cancels most of the header's row
+   gap so it sits snugly under the main tabs. */
+.sub-nav {
+  flex-basis: 100%;
+  order: 10;
+  display: flex;
+  gap: 4px;
+  margin: -12px 0 -4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.sub-nav a {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.sub-nav a:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sub-nav a.active {
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+  border-radius: 0;
+}
+
+.nav-drawer-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-drawer-group-label {
+  padding: 12px 12px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nav-drawer-group a {
+  padding-left: 24px;
 }
 
 .logout-btn {
@@ -714,6 +775,17 @@ body:has(dialog.modal[open]) {
   gap: 4px;
 }
 
+/* A stat card that opens the page with the full breakdown (the dashboard's
+   community-hours card -> Community). */
+.stat-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.stat-card-link:hover {
+  border-color: var(--accent);
+}
+
 .stat-label {
   color: var(--muted);
   font-size: 12px;
@@ -1001,6 +1073,24 @@ body:has(dialog.modal[open]) {
 }
 
 .bar-row:hover {
+  background: var(--accent-faint);
+}
+
+/* A bar row that's a filter toggle rather than a link (Community's
+   hours-by-type chart) - strips the default button look so it lines up
+   with the link rows. */
+.bar-row-button {
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.bar-row-button.active {
   background: var(--accent-faint);
 }
 
@@ -1818,6 +1908,11 @@ th.col-inactive {
   color: var(--muted);
 }
 
+.badge-danger {
+  background: var(--danger);
+  color: white;
+}
+
 .status-badge-present {
   background: var(--ok-bg);
   color: var(--ok-text);
@@ -2215,6 +2310,10 @@ th.col-inactive {
   .app-header {
     padding: 10px 14px;
     gap: 10px;
+  }
+
+  .sub-nav {
+    margin: -4px 0 -2px;
   }
 
   .nav-toggle {

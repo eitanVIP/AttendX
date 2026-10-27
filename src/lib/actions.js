@@ -104,6 +104,10 @@ const PRODUCT_SETTINGS_FIELDS = [
   'categories',
   'subcategories',
   'suppliers',
+  'attendancePlans',
+  'weekStartsOn',
+  'attendanceFlagWeeks',
+  'skippedWeeks',
   'productTypes',
   'currencyRates',
   'name',
@@ -137,6 +141,10 @@ export async function ensureProductSettingsMirror(team) {
       categories: team.categories || [],
       subcategories: team.subcategories || {},
       suppliers: team.suppliers || [],
+      attendancePlans: team.attendancePlans || [],
+      weekStartsOn: team.weekStartsOn ?? 0,
+      attendanceFlagWeeks: team.attendanceFlagWeeks ?? 4,
+      skippedWeeks: team.skippedWeeks || [],
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -889,6 +897,26 @@ export function declineOrderRequest(teamId, request) {
   ])
 }
 
+// Saving the attendance plans ([{ name, perWeek }], see AttendancePlansSection
+// in Settings) follows plan renames onto the students on them - `renames` is
+// old name -> new name. A student on a plan that was removed falls back to the
+// first plan (see planForStudent in calc.js) without being touched here.
+export async function updateAttendancePlans(teamId, settings, renames) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), settings),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), settings, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('team', 'update', 'Updated attendance plans')),
+  ]
+  if (Object.keys(renames).length > 0) {
+    const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
+    for (const d of snap.docs) {
+      const next = renames[d.data().plan]
+      if (next) writes.push((batch) => batch.update(d.ref, { plan: next }))
+    }
+  }
+  await commitAll(writes)
+}
+
 // Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
 // Settings) follows renames onto products - `renames` is old name -> new
 // name for rows that survived under a different one. A removed
@@ -1105,4 +1133,49 @@ export function deleteSystem(teamId, system, inventoryDeltas = []) {
     ),
   ]
   return commitAll(writes)
+}
+
+// --- Borrowing -------------------------------------------------------------
+// Loans to and from other teams (see Borrowing.jsx). `inventoryDeltas`
+// (see loanInventoryDeltas in calc.js) applies what lending one of our own
+// products does to it - reserving it via `lentOut`, or taking a consumable
+// off its real stock - in the same batch as the loan itself, so a loan and
+// the stock it holds can never drift apart, same as addSystem.
+function loanInventoryWrites(teamId, inventoryDeltas) {
+  return inventoryDeltas.map(
+    ({ productId, field, delta }) =>
+      (batch) =>
+        batch.update(doc(db, 'teams', teamId, 'products', productId), { [field]: increment(delta) })
+  )
+}
+
+function loanLabel(loan) {
+  const direction = loan.direction === 'borrowed' ? 'from' : 'to'
+  return `${loan.quantity}× "${loan.itemName}" ${direction} team ${loan.teamNumber}`
+}
+
+export function addLoan(teamId, loan, inventoryDeltas = []) {
+  const verb = loan.direction === 'borrowed' ? 'Borrowed' : 'Lent'
+  return commitAll([
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'loans')), loan),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'create', `${verb} ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function updateLoan(teamId, loanId, loan, inventoryDeltas = [], summary = null) {
+  return commitAll([
+    (batch) => batch.update(doc(db, 'teams', teamId, 'loans', loanId), loan),
+    (batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'update', summary || `Updated loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function deleteLoan(teamId, loan, inventoryDeltas = []) {
+  return commitAll([
+    (batch) => batch.delete(doc(db, 'teams', teamId, 'loans', loan.id)),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'delete', `Deleted loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
 }

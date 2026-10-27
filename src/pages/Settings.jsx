@@ -7,7 +7,7 @@ import PasswordInput, { RevealButton } from '../components/PasswordInput'
 import DataTable from '../components/DataTable'
 import { DEFAULT_ACCENT } from '../lib/theme'
 import { useCommunitySettings, useEvents, useProducts, usePurchases, useTrainings } from '../lib/firestore-hooks'
-import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, oldPackPurchases, todayISO } from '../lib/calc'
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_STREAK_RESET_DAYS, formatDate, movedTo, oldPackPurchases, todayISO, weekStartISO } from '../lib/calc'
 import { DEFAULT_CURRENCY_RATES, convertPrice, fetchUsdRate } from '../lib/currency'
 import { evaluateFormula, isReservedFieldName, isValidFieldName } from '../lib/formula'
 import { exportOfflineSite } from '../lib/offlineExport'
@@ -20,6 +20,7 @@ import {
   syncAllDatesToCalendar,
   updateCategories,
   updateEvent,
+  updateAttendancePlans,
   updateProductTypes,
   updateSuppliers,
   updateTeam,
@@ -358,6 +359,7 @@ export default function Settings() {
           </p>
         </div>
 
+        <AttendancePlansSection team={team} />
         <CodesSection team={team} />
       </div>
 
@@ -435,7 +437,7 @@ function OfflineExportSection() {
 }
 
 function AccountSection() {
-  const { user, resetPassword } = useAuth()
+  const { user, resetPassword, logout } = useAuth()
   const [status, setStatus] = useState('') // '' | 'sending' | 'sent' | 'error'
 
   async function handleReset() {
@@ -461,6 +463,9 @@ function AccountSection() {
         </button>
         {status === 'sent' && <span className="muted">Sent - check your inbox.</span>}
         {status === 'error' && <span className="form-error">Couldn't send the email - try again.</span>}
+        <button type="button" className="secondary" onClick={logout}>
+          Log out
+        </button>
       </div>
     </div>
   )
@@ -1573,6 +1578,238 @@ function CurrenciesSection({ team }) {
         </div>
         {error && <p className="form-error">{error}</p>}
       </div>
+    </div>
+  )
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// Attendance plans ([{ name, perWeek }], the first is the default for
+// students who haven't been given one): how many meetings a week each kind of
+// student has committed to. With none set up, attendance counts every meeting
+// as before. See studentPlanAttendance in calc.js for how a week is judged.
+function AttendancePlansSection({ team }) {
+  const toRows = (t) =>
+    (t?.attendancePlans || []).map((p, i) => ({ key: `${p.name}-${i}`, original: p.name, name: p.name, perWeek: String(p.perWeek) }))
+  const [rows, setRows] = useState(toRows(team))
+  const [weekStartsOn, setWeekStartsOn] = useState(String(team?.weekStartsOn ?? 0))
+  const [flagWeeks, setFlagWeeks] = useState(String(team?.attendanceFlagWeeks ?? 4))
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [skipped, setSkipped] = useState(team?.skippedWeeks || [])
+  const [skipDate, setSkipDate] = useState('')
+  const [skipLabel, setSkipLabel] = useState('')
+
+  useEffect(() => {
+    setSkipped(team?.skippedWeeks || [])
+    setRows(toRows(team))
+    setWeekStartsOn(String(team?.weekStartsOn ?? 0))
+    setFlagWeeks(String(team?.attendanceFlagWeeks ?? 4))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id])
+
+  function updateRow(key, changes) {
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...changes } : r)))
+  }
+
+  function addRow() {
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: '', perWeek: '1' }])
+  }
+
+  function useStarterPlans() {
+    setRows([
+      { key: 'new-a', original: null, name: 'Plan A', perWeek: '3' },
+      { key: 'new-b', original: null, name: 'Plan B', perWeek: '1' },
+    ])
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const clean = rows
+      .map((r) => ({ ...r, name: r.name.trim() }))
+      .filter((r) => r.name)
+      .filter((r, i, all) => all.findIndex((x) => x.name === r.name) === i)
+    const plans = clean.map((r) => ({ name: r.name, perWeek: Math.max(1, Math.round(Number(r.perWeek) || 1)) }))
+    const renames = {}
+    for (const r of clean) {
+      if (r.original && r.original !== r.name) renames[r.original] = r.name
+    }
+    // A plan that's gone (not just renamed) sends its students to the first plan.
+    const removed = rows
+      .map((r) => r.original)
+      .filter(Boolean)
+      .concat((team?.attendancePlans || []).map((p) => p.name))
+      .filter((name, i, all) => all.indexOf(name) === i)
+      .filter((name) => !plans.some((p) => p.name === name) && !(name in renames))
+    if (removed.length > 0 && plans.length > 0) {
+      const ok = confirm(`Removing ${removed.join(', ')}: students on it will move to ${plans[0].name}. Save anyway?`)
+      if (!ok) return
+    }
+    setSaving(true)
+    setSaved(false)
+    setError('')
+    const settings = {
+      attendancePlans: plans,
+      weekStartsOn: Number(weekStartsOn) || 0,
+      attendanceFlagWeeks: Math.max(1, Math.round(Number(flagWeeks) || 4)),
+      skippedWeeks: skipped,
+    }
+    try {
+      await updateAttendancePlans(team.id, settings, renames)
+      setRows(plans.map((p, i) => ({ key: `${p.name}-${i}`, original: p.name, name: p.name, perWeek: String(p.perWeek) })))
+      setSaved(true)
+    } catch {
+      setError("Couldn't save - try again.")
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="settings-section">
+      <h2>Attendance plans</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        How many meetings a week each kind of student has committed to (e.g. Plan A 3 a week, Plan B 1 a week).
+        Give each student their plan on the Students page - the first plan here is the default. With plans, a
+        student's attendance is judged per week against their own plan: a Plan B student who came once that week
+        has met it, however many meetings there were. Weeks with no meetings (like build season) don't count, and
+        meetings a student was excused from don't count as ones they could have come to. Leave this empty to keep
+        counting every meeting the way it works now.
+      </p>
+      <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.length === 0 && (
+            <span className="muted">
+              No plans - attendance counts every meeting.{' '}
+              <button type="button" className="link-btn" onClick={useStarterPlans}>
+                Start with Plan A (3 a week) and Plan B (1 a week)
+              </button>
+            </span>
+          )}
+          {rows.map((r, i) => (
+            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                value={r.name}
+                onChange={(e) => updateRow(r.key, { name: e.target.value })}
+                placeholder="Plan name"
+                aria-label="Plan name"
+                style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 0 }}
+              />
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={r.perWeek}
+                onChange={(e) => updateRow(r.key, { perWeek: e.target.value })}
+                aria-label={`Meetings a week for ${r.name || 'plan'}`}
+                style={{ fontSize: 13, padding: '5px 8px', width: 70 }}
+              />
+              <span className="muted">a week{i === 0 ? ' · default' : ''}</span>
+              <button
+                type="button"
+                className="link-btn danger"
+                onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${r.name || 'plan'}`}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        {rows.length > 0 && (
+          <button type="button" className="secondary" onClick={addRow} style={{ marginTop: 8, fontSize: 13, padding: '5px 10px' }}>
+            + Add a plan
+          </button>
+        )}
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <label>
+            Week starts on
+            <select value={weekStartsOn} onChange={(e) => setWeekStartsOn(e.target.value)}>
+              {WEEKDAYS.map((d, i) => (
+                <option key={d} value={i}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Flag after (weeks in a row)
+            <input type="number" min="1" step="1" value={flagWeeks} onChange={(e) => setFlagWeeks(e.target.value)} />
+          </label>
+          <p className="muted span-2" style={{ margin: 0, fontSize: 13 }}>
+            A student is flagged on the dashboard when they miss their plan, or go past it, this many weeks in a
+            row: "talk to them" for missing it, "move to the next plan" for going past it.
+          </p>
+        </div>
+        <h3 style={{ marginBottom: 4 }}>Skipped weeks</h3>
+        <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>
+          For holidays or any week the team doesn't meet. Every meeting in a skipped week is left out of
+          attendance - the percentage, the flags and the streak - as if it never happened. Pick any day in the
+          week.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {skipped.length === 0 && <span className="muted">None</span>}
+          {[...skipped]
+            .sort((a, b) => (a.date < b.date ? -1 : 1))
+            .map((w) => {
+              const start = weekStartISO(w.date, Number(weekStartsOn) || 0)
+              return (
+                <div key={w.date} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span>
+                    Week of {formatDate(start)}
+                    {w.label && <span className="muted"> · {w.label}</span>}
+                  </span>
+                  <button
+                    type="button"
+                    className="link-btn danger"
+                    onClick={() => setSkipped(skipped.filter((x) => x.date !== w.date))}
+                    aria-label={`Stop skipping the week of ${start}`}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )
+            })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          <input
+            type="date"
+            value={skipDate}
+            onChange={(e) => setSkipDate(e.target.value)}
+            aria-label="A day in the week to skip"
+            style={{ fontSize: 13, padding: '5px 8px' }}
+          />
+          <input
+            value={skipLabel}
+            onChange={(e) => setSkipLabel(e.target.value)}
+            placeholder="Why (optional), e.g. Sukkot"
+            aria-label="Reason for skipping the week"
+            style={{ fontSize: 13, padding: '5px 8px', flex: 1, minWidth: 140 }}
+          />
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: 13, padding: '5px 10px' }}
+            disabled={!skipDate}
+            onClick={() => {
+              const startOfNew = weekStartISO(skipDate, Number(weekStartsOn) || 0)
+              const already = skipped.some((w) => weekStartISO(w.date, Number(weekStartsOn) || 0) === startOfNew)
+              if (!already) setSkipped([...skipped, { date: skipDate, label: skipLabel.trim() }])
+              setSkipDate('')
+              setSkipLabel('')
+            }}
+          >
+            Skip this week
+          </button>
+        </div>
+        <div className="form-actions" style={{ marginTop: 10 }}>
+          {saved && <span className="muted">Saved.</span>}
+          {error && <span className="form-error">{error}</span>}
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

@@ -215,6 +215,123 @@ export function summarizeAttendance(records) {
   }
 }
 
+// --- Attendance plans ------------------------------------------------------
+// A team can offer attendance plans (team.attendancePlans, [{ name, perWeek }],
+// e.g. Plan A 3 per week, Plan B 1 per week; the first one is the default).
+// With none set up, nothing here applies and attendance works as it always
+// has: every meeting a student was expected at counts.
+//
+// With plans, attendance is judged per week against the student's own plan
+// instead of per meeting. In each week the student owed
+// min(perWeek, meetings they could have attended that week) - meetings they
+// were excused from don't count as ones they could have attended, and a week
+// with no meetings (build season, when attendance isn't taken) isn't counted
+// at all. The percentage is attended-up-to-the-quota over owed, across weeks.
+export const NO_PLANS = []
+export const DEFAULT_FLAG_WEEKS = 4
+
+function parseISODate(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1)
+}
+
+function toISODate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// The first day of the week `iso` falls in; weekStartsOn is 0 (Sunday) to 6.
+export function weekStartISO(iso, weekStartsOn = 0) {
+  const date = parseISODate(iso)
+  date.setDate(date.getDate() - ((date.getDay() - weekStartsOn + 7) % 7))
+  return toISODate(date)
+}
+
+// Weeks an admin has switched off (team.skippedWeeks, [{ date, label }] -
+// `date` is any day inside the week, e.g. a holiday week the team doesn't
+// meet). Stored as a day rather than a week start so it still points at the
+// same week if the team later changes which day weeks start on. Anything in
+// a skipped week is left out of attendance entirely: the percentage, the
+// plan flags, the streak - as if those meetings never happened.
+export function skippedWeekStarts(skippedWeeks, weekStartsOn = 0) {
+  return (skippedWeeks || []).filter((w) => w?.date).map((w) => weekStartISO(w.date, weekStartsOn))
+}
+
+// `records` minus the ones whose session falls in a skipped week.
+export function countedRecords(records, sessionById, skippedStarts, weekStartsOn = 0) {
+  if (!skippedStarts?.length) return records
+  const skipped = new Set(skippedStarts)
+  return records.filter((r) => {
+    const date = sessionById[r.sessionId]?.date
+    return !date || !skipped.has(weekStartISO(date, weekStartsOn))
+  })
+}
+
+export function planForStudent(student, plans) {
+  if (!plans?.length) return null
+  return plans.find((p) => p.name === student.plan) || plans[0]
+}
+
+// null when the team has no plans. Otherwise { plan, perWeek, percent, weeks,
+// flag }: `weeks` are the counted weeks, oldest first ({ week, attended,
+// absent, excused, required, credited, met, extra }); `flag` is
+// { type: 'short' | 'extra', message } once the last `flagWeeks` counted
+// weeks all missed the quota (a conversation is due) or all went past it
+// (maybe time for the next plan up), and null otherwise or when that data is
+// more than four weeks old (a flag from before a break isn't news).
+export function studentPlanAttendance(student, records, sessionById, options) {
+  const { plans, weekStartsOn = 0, flagWeeks = DEFAULT_FLAG_WEEKS, today = todayISO(), skippedStarts } = options || {}
+  const plan = planForStudent(student, plans)
+  if (!plan) return null
+  const perWeek = Number(plan.perWeek) || 0
+
+  const byWeek = new Map()
+  for (const r of countedRecords(records, sessionById, skippedStarts, weekStartsOn)) {
+    const date = sessionById[r.sessionId]?.date
+    if (!date) continue
+    const week = weekStartISO(date, weekStartsOn)
+    const w = byWeek.get(week) || { week, attended: 0, absent: 0, excused: 0 }
+    if (r.status === 'present' || r.status === 'late') w.attended += 1
+    else if (r.status === 'absent') w.absent += 1
+    else if (r.status === 'excused') w.excused += 1
+    byWeek.set(week, w)
+  }
+
+  const weeks = [...byWeek.values()]
+    .map((w) => {
+      const required = Math.min(perWeek, w.attended + w.absent)
+      const credited = Math.min(w.attended, required)
+      return { ...w, required, credited, met: credited >= required, extra: w.attended > perWeek }
+    })
+    .filter((w) => w.required > 0)
+    .sort((a, b) => (a.week < b.week ? -1 : a.week > b.week ? 1 : 0))
+
+  const owed = weeks.reduce((sum, w) => sum + w.required, 0)
+  const credited = weeks.reduce((sum, w) => sum + w.credited, 0)
+  const percent = owed > 0 ? Math.round((credited / owed) * 100) : null
+
+  let flag = null
+  const recent = weeks.slice(-flagWeeks)
+  const fresh =
+    recent.length > 0 && (parseISODate(today) - parseISODate(recent[recent.length - 1].week)) / 86400000 <= 28
+  if (flagWeeks > 0 && recent.length === flagWeeks && fresh) {
+    if (recent.every((w) => !w.met)) {
+      flag = {
+        type: 'short',
+        message: `Under their ${plan.name} (${perWeek} a week) for ${flagWeeks} weeks in a row - time to talk`,
+      }
+    } else if (recent.every((w) => w.extra)) {
+      const higher = [...plans].filter((p) => Number(p.perWeek) > perWeek).sort((a, b) => a.perWeek - b.perWeek)[0]
+      if (higher) {
+        flag = {
+          type: 'extra',
+          message: `Came more than their ${plan.name} (${perWeek} a week) for ${flagWeeks} weeks in a row - consider ${higher.name}`,
+        }
+      }
+    }
+  }
+  return { plan: plan.name, perWeek, percent, weeks, flag }
+}
+
 export function trainingScopeStudents(training, students) {
   return students.filter((s) => s.active && trainingAppliesToStudent(training, s))
 }
@@ -695,10 +812,89 @@ export function isConsumableProduct(product) {
 // more of a product than is actually free (NeedsTable then offers to
 // auto-request an order for the shortfall), so "available" has to be able
 // to show the resulting deficit rather than hiding it behind a 0.
+// A reusable product lent to another team (see loanStockEffect below) is
+// still ours and still counted in stock, but it isn't in the bin to claim -
+// `lentOut` takes it out of what's available the same way a system's claim
+// does. A lent consumable already came off countInInventory itself.
 export function availableForProduct(product, usedQuantities) {
   if (isConsumableProduct(product)) return product.countInInventory || 0
   const used = usedQuantities[product.id] || 0
-  return (product.countInInventory || 0) - used
+  return (product.countInInventory || 0) - used - (product.lentOut || 0)
+}
+
+// --- Borrowing ------------------------------------------------------------
+// A loan is one item going to or coming from another FRC team (see
+// Borrowing.jsx). Only direction, item, quantity and the other team's
+// number are required - everything else is optional. `lentOn` defaults to
+// the day it's entered; `returnedOn` stays blank until it comes back.
+export const DEFAULT_LOAN = {
+  direction: 'lent',
+  productId: '',
+  itemName: '',
+  quantity: 1,
+  teamNumber: '',
+  teamName: '',
+  // Who on the other team to call to get it back (or to return it to) -
+  // a student, their captain, a mentor. Optional, like everything below.
+  contactName: '',
+  contactRole: '',
+  contactPhone: '',
+  studentId: '',
+  event: '',
+  lentOn: '',
+  dueDate: '',
+  returnedOn: '',
+  notes: '',
+  // How lending this item touched our inventory, decided once when the
+  // product is picked (from its own `consumable` flag at that moment) so
+  // returning it undoes exactly what lending did even if the product's
+  // flag has been flipped since: 'lentOut' reserves it like a system claim
+  // does, 'count' takes it off countInInventory like a consumable claim.
+  stockEffect: '',
+}
+
+export function isLoanOpen(loan) {
+  return !loan.returnedOn
+}
+
+export function isLoanOverdue(loan, today = todayISO()) {
+  return isLoanOpen(loan) && !!loan.dueDate && loan.dueDate < today
+}
+
+export function loanStockEffectFor(product) {
+  if (!product) return ''
+  return isConsumableProduct(product) ? 'count' : 'lentOut'
+}
+
+// What a loan is currently doing to our inventory - nothing unless it's an
+// open loan of one of OUR products to another team. Borrowed items never
+// touch inventory; they live only on the Borrowing page.
+function loanStockEffect(loan) {
+  if (!loan || loan.direction !== 'lent' || !loan.productId || !isLoanOpen(loan)) return null
+  const quantity = Number(loan.quantity) || 0
+  if (loan.stockEffect === 'count') return { productId: loan.productId, field: 'countInInventory', delta: -quantity }
+  if (loan.stockEffect === 'lentOut') return { productId: loan.productId, field: 'lentOut', delta: quantity }
+  return null
+}
+
+// The product writes going from `oldLoan` to `newLoan` implies (either can
+// be null - a brand-new loan, or one being deleted). Undoes the old effect
+// and applies the new one, merged per product and field, so marking a loan
+// returned, editing its quantity, or deleting it all come out right. Skips
+// products that no longer exist - a product deleted while lent out has
+// nothing left to give the stock back to.
+export function loanInventoryDeltas(oldLoan, newLoan, products) {
+  const totals = new Map()
+  const add = (effect, sign) => {
+    if (!effect) return
+    const key = `${effect.productId}|${effect.field}`
+    const prev = totals.get(key) || { productId: effect.productId, field: effect.field, delta: 0 }
+    totals.set(key, { ...prev, delta: prev.delta + sign * effect.delta })
+  }
+  add(loanStockEffect(oldLoan), -1)
+  add(loanStockEffect(newLoan), 1)
+  const existing = new Set(products.map((p) => p.id))
+  return [...totals.values()].filter((d) => d.delta !== 0 && existing.has(d.productId))
 }
 
 // Every need in a system that claims more of a product than's actually
@@ -814,13 +1010,31 @@ export function remapStudentDivisions(student, structure, renames = { divisions:
 // history table, so there's no need to pull every student's attendance the
 // way the admin hook does. `structure` is { divisions,
 // subdivisionsByDivision, minAttendancePercent }.
-export function normalizeStudentForView(raw, structure, attendanceRecords) {
+export function normalizeStudentForView(raw, structure, attendanceRecords, sessionById = {}) {
   const base = normalizeStudent(raw)
   const student = { ...base, ...(remapStudentDivisions(base, structure) || {}) }
   const minPercent = structure.minAttendancePercent || 0
-  const percent = minPercent > 0 ? summarizeAttendance(attendanceRecords).percent : null
+  const skippedStarts = skippedWeekStarts(structure.skippedWeeks, structure.weekStartsOn)
+  const planInfo = structure.attendancePlans?.length
+    ? studentPlanAttendance(student, attendanceRecords, sessionById, {
+        plans: structure.attendancePlans,
+        weekStartsOn: structure.weekStartsOn,
+        flagWeeks: structure.attendanceFlagWeeks,
+        skippedStarts,
+      })
+    : null
+  const counted = countedRecords(attendanceRecords, sessionById, skippedStarts, structure.weekStartsOn)
+  const percent = minPercent > 0 ? (planInfo ? planInfo.percent : summarizeAttendance(counted).percent) : null
   const autoInactive = percent !== null && percent < minPercent
-  return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
+  return {
+    ...student,
+    attendancePercent: percent,
+    planInfo,
+    skippedWeekStarts: skippedStarts,
+    weekStartsOn: structure.weekStartsOn ?? 0,
+    autoInactive,
+    active: student.status !== 'inactive' && !autoInactive,
+  }
 }
 
 // Falls back to a week when a team has no streakResetDays of its own yet

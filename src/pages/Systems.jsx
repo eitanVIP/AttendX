@@ -16,7 +16,7 @@ import { downloadCSV } from '../lib/csv'
 
 export default function Systems() {
   const { team } = useAuth()
-  const { data: students } = useStudents(team)
+  const { data: students } = useStudents(team, { withPlans: false })
   const { data: products } = useProducts(team?.id)
   const { data: systems, loading } = useSystems(team?.id)
   const [showForm, setShowForm] = useState(false)
@@ -157,11 +157,12 @@ export default function Systems() {
       <DataTable
         columns={[
           { key: 'name', header: 'System', sticky: 'left', nowrap: true, cell: (system) => system.name },
-          { key: 'student', header: 'Student', cell: (system) => studentName(system.studentId) },
+          { key: 'student', header: 'Student', spread: true, align: 'center', cell: (system) => studentName(system.studentId) },
           {
             key: 'needs',
             header: 'Needs',
             spread: true,
+            align: 'center',
             cellClassName: 'muted',
             cell: (system) =>
               (system.needs || [])
