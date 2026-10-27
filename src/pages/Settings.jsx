@@ -812,7 +812,6 @@ function CategoriesSection({ team }) {
         </div>
         <div className="form-actions" style={{ marginTop: 10 }}>
           {saved && <span className="muted">Saved.</span>}
-          {error && <span className="form-error">{error}</span>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1805,6 +1804,7 @@ function AttendancePlansSection({ team }) {
         </div>
         <div className="form-actions" style={{ marginTop: 10 }}>
           {saved && <span className="muted">Saved.</span>}
+          {error && <span className="form-error">{error}</span>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
