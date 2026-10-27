@@ -4,6 +4,7 @@ import FormPanel from './FormPanel'
 import {
   NO_PRODUCT_TYPES,
   NO_SUPPLIERS,
+  availableForProduct,
   computeToBuy,
   computeTotalPrice,
   effectivePrice,
@@ -34,6 +35,7 @@ export default function ProductTable({
   showToBuy,
   showTotal,
   showRequestedBy,
+  usedQuantities,
   emptyMessage = 'No products yet.',
 }) {
   const [viewingNotes, setViewingNotes] = useState(null)
@@ -78,12 +80,13 @@ export default function ProductTable({
       currency: (p) => p.currency,
       supplier: (p) => p.supplier,
       inStock: (p) => p.countInInventory,
+      available: (p) => availableForProduct(p, usedQuantities),
       wanted: (p) => p.wantedCount,
       toBuy: (p) => rowValuesById.get(p.id)?.toBuy.value,
       total: (p) => rowValuesById.get(p.id)?.total.value,
       requestedBy: (p) => p.requestedBy,
     }),
-    [rowValuesById]
+    [rowValuesById, usedQuantities]
   )
 
   const sortedProducts = useMemo(() => {
@@ -184,6 +187,10 @@ export default function ProductTable({
           </>
         ),
       })
+    // Stock minus what systems claim and what's lent out - only where the
+    // page passes the systems' usedQuantities (Inventory).
+    if (usedQuantities)
+      cols.push({ key: 'available', header: 'Available', cell: (p) => availableForProduct(p, usedQuantities) })
     if (showWanted) cols.push({ key: 'wanted', header: 'Wanted', cell: (p) => p.wantedCount })
     if (showToBuy)
       cols.push({
@@ -274,7 +281,8 @@ export default function ProductTable({
         </div>
       ),
     })
-    return cols.map((col) =>
+    // Frozen columns keep their own width and alignment; the rest share the leftover equally, centred.
+    return cols.map((c) => (c.sticky ? c : { align: 'center', ...c, spread: true })).map((col) =>
       sortValues[col.key]
         ? {
             ...col,
@@ -304,6 +312,7 @@ export default function ProductTable({
     showToBuy,
     showTotal,
     showRequestedBy,
+    usedQuantities,
     rowValuesById,
     grandTotal,
     preferred,

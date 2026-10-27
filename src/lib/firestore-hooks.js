@@ -57,13 +57,15 @@ function useCollection(path) {
 //   auto rule always wins over a manual "active" - it's derived here, never
 //   written, so it reverses by itself once attendance recovers. `status`
 //   stays the stored (manual) value so the edit form round-trips it.
-export function useStudents(team) {
+// `withPlans: false` for pages that only need the roster: attendance plans (and
+// their weekly flags) are the one thing that makes this read every session.
+export function useStudents(team, { withPlans = true } = {}) {
   const result = useCollection(team ? ['teams', team.id, 'students'] : null)
   const minPercent = team?.minAttendancePercent || 0
   const plans = team?.attendancePlans || NO_PLANS
   // Attendance is only read when something needs it: the minimum-attendance
   // rule, or attendance plans (which also drive the weekly flags).
-  const needAttendance = minPercent > 0 || plans.length > 0
+  const needAttendance = minPercent > 0 || (withPlans && plans.length > 0)
   const { data: sessions, loading: attendanceLoading } = useSessions(needAttendance ? team.id : null)
 
   const data = useMemo(() => {
@@ -78,7 +80,7 @@ export function useStudents(team) {
       const records = recordsByStudent[student.id] || []
       // With plans, attendance is judged per week against the student's own
       // plan (see studentPlanAttendance in calc.js).
-      const planInfo = plans.length
+      const planInfo = withPlans && plans.length
         ? studentPlanAttendance(student, records, sessionById, {
             plans,
             weekStartsOn: team?.weekStartsOn,
@@ -99,7 +101,7 @@ export function useStudents(team) {
         active: student.status !== 'inactive' && !autoInactive,
       }
     })
-  }, [result.data, team, sessions, minPercent, plans])
+  }, [result.data, team, sessions, minPercent, plans, withPlans])
 
   return { ...result, data, loading: result.loading || (needAttendance && attendanceLoading) }
 }

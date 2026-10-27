@@ -172,8 +172,7 @@ a {
 }
 
 .main-nav a {
-  /* Tabs share the whole width between the team name and Log out. */
-  flex: 1 1 auto;
+  flex: 0 0 120px;
   text-align: center;
   padding: 8px 12px;
   border-radius: 6px;
