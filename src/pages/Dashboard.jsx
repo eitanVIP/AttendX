@@ -30,6 +30,8 @@ import {
   supplierBudgetRows,
   streakBoard,
   studentCommunityHours,
+  countedRecords,
+  skippedWeekStarts,
   summarizeAttendance,
   todayISO,
   toBuyCostByCategory,
@@ -124,16 +126,23 @@ export default function Dashboard() {
   // Raw records grouped per student - both the attendance summaries below
   // AND the attendance streak (see attendanceStreak in calc.js, used by
   // streakBoard) need this same grouping, just processed differently.
+  const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
+
+  // Weeks the team switched off (Settings -> Attendance plans) are left out.
   const recordsByStudent = useMemo(() => {
     const grouped = {}
     for (const s of students) grouped[s.id] = []
-    for (const r of attendance) {
+    const counted = countedRecords(
+      attendance,
+      sessionById,
+      skippedWeekStarts(team?.skippedWeeks, team?.weekStartsOn),
+      team?.weekStartsOn
+    )
+    for (const r of counted) {
       if (grouped[r.studentId]) grouped[r.studentId].push(r)
     }
     return grouped
-  }, [attendance, students])
-
-  const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
+  }, [attendance, students, sessionById, team?.skippedWeeks, team?.weekStartsOn])
 
   const attendanceByStudent = useMemo(() => {
     const summaries = {}
@@ -151,13 +160,20 @@ export default function Dashboard() {
   const attendanceBars = useMemo(() => {
     const rows = students.map((s) => {
       const summary = attendanceByStudent[s.id]
-      return { student: s, percent: summary?.percent ?? null, count: summary ? summary.present + summary.late : 0 }
+      // With attendance plans the % is the plan's own (see studentPlanAttendance).
+      const percent = s.planInfo ? s.planInfo.percent : (summary?.percent ?? null)
+      return { student: s, percent, count: summary ? summary.present + summary.late : 0 }
     })
     return [...rows].sort((a, b) =>
       attendanceMetric === 'count' ? b.count - a.count : (b.percent ?? -1) - (a.percent ?? -1)
     )
   }, [students, attendanceByStudent, attendanceMetric])
   const maxAttendanceCount = Math.max(1, ...attendanceBars.map((b) => b.count))
+  // Active students whose plan has them flagged (see studentPlanAttendance).
+  const attendanceFlags = useMemo(
+    () => students.filter((s) => s.status !== 'inactive' && s.planInfo?.flag),
+    [students]
+  )
 
   const divisionStats = useMemo(() => {
     return (team?.divisions || []).map((d) => {
@@ -328,6 +344,25 @@ export default function Dashboard() {
         getRowId={(d) => d.division}
         emptyMessage="No divisions set up."
       />
+
+      {attendanceFlags.length > 0 && (
+        <>
+          <h3>Attendance to talk about</h3>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {attendanceFlags.map((s) => (
+                <li key={s.id}>
+                  <Link to={`/students/${s.id}`}>{s.fullName}</Link>{' '}
+                  <span className={`badge ${s.planInfo.flag.type === 'short' ? 'badge-warn' : 'badge-ok'}`}>
+                    {s.planInfo.flag.type === 'short' ? 'Talk' : 'Move up?'}
+                  </span>{' '}
+                  <span className="muted">{s.planInfo.flag.message}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
 
       <div className="dashboard-columns">
         <div className="dashboard-col">

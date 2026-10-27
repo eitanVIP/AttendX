@@ -8,6 +8,7 @@ import {
   STREAK_KINDS,
   activityLabel,
   attendanceStreak,
+  countedRecords,
   describeStudentDivisions,
   effectiveStreak,
   formatDate,
@@ -74,9 +75,15 @@ export default function StudentProfileView({
   // Attendance has no stored counter to read (see attendanceStreak in
   // calc.js) - it's recomputed from this student's own attendance records
   // every render, same records the history table below already has.
+  // Weeks the team switched off are left out of the streak and the numbers
+  // (the history table below still lists every meeting).
+  const countedAttendance = useMemo(
+    () => countedRecords(attendanceRecords, sessionById, student.skippedWeekStarts, student.weekStartsOn),
+    [attendanceRecords, sessionById, student.skippedWeekStarts, student.weekStartsOn]
+  )
   const attendanceStreakValue = useMemo(
-    () => attendanceStreak(attendanceRecords, sessionById),
-    [attendanceRecords, sessionById]
+    () => attendanceStreak(countedAttendance, sessionById),
+    [countedAttendance, sessionById]
   )
   const streak = streakKind === 'attendance' ? attendanceStreakValue : effectiveStreak(student, streakResetDays, streakKind)
   const streakFrozen = streakKind !== 'attendance' && !!student[`${streakKind}StreakFrozen`]
@@ -88,20 +95,20 @@ export default function StudentProfileView({
     [student, streakKind]
   )
 
-  const summary = useMemo(() => summarizeAttendance(attendanceRecords), [attendanceRecords])
+  const summary = useMemo(() => summarizeAttendance(countedAttendance), [countedAttendance])
   // Total is split into sessions aimed at one division ("division") and
   // sessions for everyone ("general"), so a student's absences from their
   // own division's meetings don't get averaged away by all-hands ones.
   const breakdown = useMemo(() => {
     const division = []
     const general = []
-    for (const r of attendanceRecords) {
+    for (const r of countedAttendance) {
       const session = sessionById[r.sessionId]
       if (!session) continue
       ;(!session.targetDivision || session.targetDivision === 'all' ? general : division).push(r)
     }
     return { division: summarizeAttendance(division), general: summarizeAttendance(general) }
-  }, [attendanceRecords, sessionById])
+  }, [countedAttendance, sessionById])
 
   const regularTrainings = useMemo(() => trainings.filter(isCountableTraining), [trainings])
   // Order preserved from useTrainings (sorted by `order`, same as the
@@ -174,11 +181,33 @@ export default function StudentProfileView({
       <div className="stat-cards">
         <div className="card stat-card">
           <span className="stat-label">Attendance</span>
-          <span className="stat-value">{percent(summary.percent)}</span>
-          <span className="muted">
-            Division {percent(breakdown.division.percent)} · General {percent(breakdown.general.percent)}
-          </span>
-          <span className="muted">{summary.statusLabel}</span>
+          <span className="stat-value">{percent(student.planInfo ? student.planInfo.percent : summary.percent)}</span>
+          {student.planInfo ? (
+            <>
+              <span className="muted">
+                {student.planInfo.plan} · {student.planInfo.perWeek} a week
+              </span>
+              <span className="muted" title="Oldest to newest, last 8 weeks with meetings">
+                {student.planInfo.weeks.slice(-8).map((w) => (
+                  <span key={w.week} title={`Week of ${w.week}: ${w.attended} of ${w.required} needed`}>
+                    {w.met ? '✓' : '✗'}{' '}
+                  </span>
+                ))}
+              </span>
+              {student.planInfo.flag && (
+                <span className={`badge ${student.planInfo.flag.type === 'short' ? 'badge-warn' : 'badge-ok'}`}>
+                  {student.planInfo.flag.message}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="muted">
+                Division {percent(breakdown.division.percent)} · General {percent(breakdown.general.percent)}
+              </span>
+              <span className="muted">{summary.statusLabel}</span>
+            </>
+          )}
         </div>
         <div className="card stat-card">
           <span className="stat-label">Present / Late / Absent / Excused</span>
