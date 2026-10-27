@@ -3,19 +3,51 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from './Logo'
 
+// Pages that belong together share one top tab (a `children` list); the
+// pages themselves keep their own routes, so links and bookmarks still work.
+// Parts: physical stock - lending holds it, a system claims it, an order
+// restocks it. Progress: what students have completed.
 const links = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/students', label: 'Students' },
   { to: '/sessions', label: 'Attendance' },
-  { to: '/trainings', label: 'Trainings' },
-  { to: '/certifications', label: 'Certifications' },
-  { to: '/community', label: 'Community' },
-  { to: '/inventory', label: 'Inventory' },
-  { to: '/borrowing', label: 'Borrowing' },
-  { to: '/orders', label: 'Orders' },
-  { to: '/systems', label: 'Systems' },
+  {
+    label: 'Parts',
+    children: [
+      { to: '/inventory', label: 'Inventory' },
+      { to: '/orders', label: 'Orders' },
+      { to: '/borrowing', label: 'Borrowing' },
+      { to: '/systems', label: 'Systems' },
+    ],
+  },
+  {
+    label: 'Progress',
+    children: [
+      { to: '/trainings', label: 'Trainings' },
+      { to: '/certifications', label: 'Certifications' },
+      { to: '/community', label: 'Community' },
+    ],
+  },
   { to: '/settings', label: 'Settings' },
 ]
+
+const pageMatches = (page, pathname) => (page.end ? pathname === page.to : pathname.startsWith(page.to))
+
+// The page of this group the URL is on, if any.
+const activeChild = (group, pathname) => group.children?.find((c) => pageMatches(c, pathname))
+
+// A group's top tab opens the sub-tab you were last on, falling back to its
+// first one. Stored per browser; the nav works fine without it.
+const lastKey = (group) => `attendx.nav.${group.label}`
+function groupTarget(group) {
+  try {
+    const saved = localStorage.getItem(lastKey(group))
+    if (group.children.some((c) => c.to === saved)) return saved
+  } catch {
+    // storage unavailable (private window etc.) - just open the first tab
+  }
+  return group.children[0].to
+}
 
 export default function Layout() {
   const { team, memberships, logout } = useAuth()
@@ -76,11 +108,21 @@ export default function Layout() {
   }, [])
 
   useEffect(() => {
-    const current = links.find((l) =>
-      l.end ? location.pathname === l.to : location.pathname.startsWith(l.to)
-    )
+    const pages = links.flatMap((l) => l.children || [l])
+    const current = pages.find((p) => pageMatches(p, location.pathname))
     document.title = current ? `AttendX | ${current.label}` : 'AttendX'
+
+    const group = links.find((l) => activeChild(l, location.pathname))
+    if (group) {
+      try {
+        localStorage.setItem(lastKey(group), activeChild(group, location.pathname).to)
+      } catch {
+        // ignore - remembering the last sub-tab is only a convenience
+      }
+    }
   }, [location.pathname])
+
+  const currentGroup = links.find((l) => activeChild(l, location.pathname))
 
   return (
     <div className="app-shell">
@@ -100,15 +142,30 @@ export default function Layout() {
           </Link>
         </div>
         <nav className="main-nav">
-          {links.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {l.label}
-            </NavLink>
-          ))}
+          {links.map((l) =>
+            l.children ? (
+              <Link key={l.label} to={groupTarget(l)} className={currentGroup === l ? 'active' : ''}>
+                {l.label}
+              </Link>
+            ) : (
+              <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => (isActive ? 'active' : '')}>
+                {l.label}
+              </NavLink>
+            )
+          )}
         </nav>
         <button className="logout-btn" onClick={logout}>
           Log out
         </button>
+        {currentGroup && (
+          <nav className="sub-nav" aria-label={`${currentGroup.label} pages`}>
+            {currentGroup.children.map((c) => (
+              <NavLink key={c.to} to={c.to} className={({ isActive }) => (isActive ? 'active' : '')}>
+                {c.label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
       </header>
 
       <div
@@ -125,17 +182,33 @@ export default function Layout() {
               &times;
             </button>
           </div>
-          {links.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              end={l.end}
-              className={({ isActive }) => (isActive ? 'active' : '')}
-              onClick={() => setDrawerOpen(false)}
-            >
-              {l.label}
-            </NavLink>
-          ))}
+          {links.map((l) =>
+            l.children ? (
+              <div key={l.label} className="nav-drawer-group">
+                <span className="nav-drawer-group-label">{l.label}</span>
+                {l.children.map((c) => (
+                  <NavLink
+                    key={c.to}
+                    to={c.to}
+                    className={({ isActive }) => (isActive ? 'active' : '')}
+                    onClick={() => setDrawerOpen(false)}
+                  >
+                    {c.label}
+                  </NavLink>
+                ))}
+              </div>
+            ) : (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.end}
+                className={({ isActive }) => (isActive ? 'active' : '')}
+                onClick={() => setDrawerOpen(false)}
+              >
+                {l.label}
+              </NavLink>
+            )
+          )}
         </nav>
       </div>
 
