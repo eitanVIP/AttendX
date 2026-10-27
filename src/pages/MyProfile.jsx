@@ -54,12 +54,25 @@ export default function MyProfile() {
       divisions: verified.divisions,
       subdivisionsByDivision: verified.subdivisionsByDivision,
       minAttendancePercent: verified.minAttendancePercent,
+      attendancePlans: verified.attendancePlans,
+      weekStartsOn: verified.weekStartsOn,
+      attendanceFlagWeeks: verified.attendanceFlagWeeks,
+      skippedWeeks: verified.skippedWeeks,
     }),
-    [verified.divisions, verified.subdivisionsByDivision, verified.minAttendancePercent]
+    [
+      verified.divisions,
+      verified.subdivisionsByDivision,
+      verified.minAttendancePercent,
+      verified.attendancePlans,
+      verified.weekStartsOn,
+      verified.attendanceFlagWeeks,
+      verified.skippedWeeks,
+    ]
   )
+  const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
   const student = useMemo(
-    () => normalizeStudentForView(rawStudent, structure, attendanceRecords),
-    [rawStudent, structure, attendanceRecords]
+    () => normalizeStudentForView(rawStudent, structure, attendanceRecords, sessionById),
+    [rawStudent, structure, attendanceRecords, sessionById]
   )
 
   if (loading) return <div className="page-loading">Loading…</div>

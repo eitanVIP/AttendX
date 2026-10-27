@@ -215,6 +215,123 @@ export function summarizeAttendance(records) {
   }
 }
 
+// --- Attendance plans ------------------------------------------------------
+// A team can offer attendance plans (team.attendancePlans, [{ name, perWeek }],
+// e.g. Plan A 3 per week, Plan B 1 per week; the first one is the default).
+// With none set up, nothing here applies and attendance works as it always
+// has: every meeting a student was expected at counts.
+//
+// With plans, attendance is judged per week against the student's own plan
+// instead of per meeting. In each week the student owed
+// min(perWeek, meetings they could have attended that week) - meetings they
+// were excused from don't count as ones they could have attended, and a week
+// with no meetings (build season, when attendance isn't taken) isn't counted
+// at all. The percentage is attended-up-to-the-quota over owed, across weeks.
+export const NO_PLANS = []
+export const DEFAULT_FLAG_WEEKS = 4
+
+function parseISODate(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1)
+}
+
+function toISODate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// The first day of the week `iso` falls in; weekStartsOn is 0 (Sunday) to 6.
+export function weekStartISO(iso, weekStartsOn = 0) {
+  const date = parseISODate(iso)
+  date.setDate(date.getDate() - ((date.getDay() - weekStartsOn + 7) % 7))
+  return toISODate(date)
+}
+
+// Weeks an admin has switched off (team.skippedWeeks, [{ date, label }] -
+// `date` is any day inside the week, e.g. a holiday week the team doesn't
+// meet). Stored as a day rather than a week start so it still points at the
+// same week if the team later changes which day weeks start on. Anything in
+// a skipped week is left out of attendance entirely: the percentage, the
+// plan flags, the streak - as if those meetings never happened.
+export function skippedWeekStarts(skippedWeeks, weekStartsOn = 0) {
+  return (skippedWeeks || []).filter((w) => w?.date).map((w) => weekStartISO(w.date, weekStartsOn))
+}
+
+// `records` minus the ones whose session falls in a skipped week.
+export function countedRecords(records, sessionById, skippedStarts, weekStartsOn = 0) {
+  if (!skippedStarts?.length) return records
+  const skipped = new Set(skippedStarts)
+  return records.filter((r) => {
+    const date = sessionById[r.sessionId]?.date
+    return !date || !skipped.has(weekStartISO(date, weekStartsOn))
+  })
+}
+
+export function planForStudent(student, plans) {
+  if (!plans?.length) return null
+  return plans.find((p) => p.name === student.plan) || plans[0]
+}
+
+// null when the team has no plans. Otherwise { plan, perWeek, percent, weeks,
+// flag }: `weeks` are the counted weeks, oldest first ({ week, attended,
+// absent, excused, required, credited, met, extra }); `flag` is
+// { type: 'short' | 'extra', message } once the last `flagWeeks` counted
+// weeks all missed the quota (a conversation is due) or all went past it
+// (maybe time for the next plan up), and null otherwise or when that data is
+// more than four weeks old (a flag from before a break isn't news).
+export function studentPlanAttendance(student, records, sessionById, options) {
+  const { plans, weekStartsOn = 0, flagWeeks = DEFAULT_FLAG_WEEKS, today = todayISO(), skippedStarts } = options || {}
+  const plan = planForStudent(student, plans)
+  if (!plan) return null
+  const perWeek = Number(plan.perWeek) || 0
+
+  const byWeek = new Map()
+  for (const r of countedRecords(records, sessionById, skippedStarts, weekStartsOn)) {
+    const date = sessionById[r.sessionId]?.date
+    if (!date) continue
+    const week = weekStartISO(date, weekStartsOn)
+    const w = byWeek.get(week) || { week, attended: 0, absent: 0, excused: 0 }
+    if (r.status === 'present' || r.status === 'late') w.attended += 1
+    else if (r.status === 'absent') w.absent += 1
+    else if (r.status === 'excused') w.excused += 1
+    byWeek.set(week, w)
+  }
+
+  const weeks = [...byWeek.values()]
+    .map((w) => {
+      const required = Math.min(perWeek, w.attended + w.absent)
+      const credited = Math.min(w.attended, required)
+      return { ...w, required, credited, met: credited >= required, extra: w.attended > perWeek }
+    })
+    .filter((w) => w.required > 0)
+    .sort((a, b) => (a.week < b.week ? -1 : a.week > b.week ? 1 : 0))
+
+  const owed = weeks.reduce((sum, w) => sum + w.required, 0)
+  const credited = weeks.reduce((sum, w) => sum + w.credited, 0)
+  const percent = owed > 0 ? Math.round((credited / owed) * 100) : null
+
+  let flag = null
+  const recent = weeks.slice(-flagWeeks)
+  const fresh =
+    recent.length > 0 && (parseISODate(today) - parseISODate(recent[recent.length - 1].week)) / 86400000 <= 28
+  if (flagWeeks > 0 && recent.length === flagWeeks && fresh) {
+    if (recent.every((w) => !w.met)) {
+      flag = {
+        type: 'short',
+        message: `Under their ${plan.name} (${perWeek} a week) for ${flagWeeks} weeks in a row - time to talk`,
+      }
+    } else if (recent.every((w) => w.extra)) {
+      const higher = [...plans].filter((p) => Number(p.perWeek) > perWeek).sort((a, b) => a.perWeek - b.perWeek)[0]
+      if (higher) {
+        flag = {
+          type: 'extra',
+          message: `Came more than their ${plan.name} (${perWeek} a week) for ${flagWeeks} weeks in a row - consider ${higher.name}`,
+        }
+      }
+    }
+  }
+  return { plan: plan.name, perWeek, percent, weeks, flag }
+}
+
 export function trainingScopeStudents(training, students) {
   return students.filter((s) => s.active && trainingAppliesToStudent(training, s))
 }
@@ -893,13 +1010,31 @@ export function remapStudentDivisions(student, structure, renames = { divisions:
 // history table, so there's no need to pull every student's attendance the
 // way the admin hook does. `structure` is { divisions,
 // subdivisionsByDivision, minAttendancePercent }.
-export function normalizeStudentForView(raw, structure, attendanceRecords) {
+export function normalizeStudentForView(raw, structure, attendanceRecords, sessionById = {}) {
   const base = normalizeStudent(raw)
   const student = { ...base, ...(remapStudentDivisions(base, structure) || {}) }
   const minPercent = structure.minAttendancePercent || 0
-  const percent = minPercent > 0 ? summarizeAttendance(attendanceRecords).percent : null
+  const skippedStarts = skippedWeekStarts(structure.skippedWeeks, structure.weekStartsOn)
+  const planInfo = structure.attendancePlans?.length
+    ? studentPlanAttendance(student, attendanceRecords, sessionById, {
+        plans: structure.attendancePlans,
+        weekStartsOn: structure.weekStartsOn,
+        flagWeeks: structure.attendanceFlagWeeks,
+        skippedStarts,
+      })
+    : null
+  const counted = countedRecords(attendanceRecords, sessionById, skippedStarts, structure.weekStartsOn)
+  const percent = minPercent > 0 ? (planInfo ? planInfo.percent : summarizeAttendance(counted).percent) : null
   const autoInactive = percent !== null && percent < minPercent
-  return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
+  return {
+    ...student,
+    attendancePercent: percent,
+    planInfo,
+    skippedWeekStarts: skippedStarts,
+    weekStartsOn: structure.weekStartsOn ?? 0,
+    autoInactive,
+    active: student.status !== 'inactive' && !autoInactive,
+  }
 }
 
 // Falls back to a week when a team has no streakResetDays of its own yet

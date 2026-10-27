@@ -104,6 +104,10 @@ const PRODUCT_SETTINGS_FIELDS = [
   'categories',
   'subcategories',
   'suppliers',
+  'attendancePlans',
+  'weekStartsOn',
+  'attendanceFlagWeeks',
+  'skippedWeeks',
   'productTypes',
   'currencyRates',
   'name',
@@ -137,6 +141,10 @@ export async function ensureProductSettingsMirror(team) {
       categories: team.categories || [],
       subcategories: team.subcategories || {},
       suppliers: team.suppliers || [],
+      attendancePlans: team.attendancePlans || [],
+      weekStartsOn: team.weekStartsOn ?? 0,
+      attendanceFlagWeeks: team.attendanceFlagWeeks ?? 4,
+      skippedWeeks: team.skippedWeeks || [],
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -887,6 +895,26 @@ export function declineOrderRequest(teamId, request) {
     deleteDoc(doc(db, 'teams', teamId, 'orderRequests', request.id)),
     logChange(teamId, 'orderRequest', 'delete', `Declined ${request.requestedBy}'s request for "${request.name}"`),
   ])
+}
+
+// Saving the attendance plans ([{ name, perWeek }], see AttendancePlansSection
+// in Settings) follows plan renames onto the students on them - `renames` is
+// old name -> new name. A student on a plan that was removed falls back to the
+// first plan (see planForStudent in calc.js) without being touched here.
+export async function updateAttendancePlans(teamId, settings, renames) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), settings),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), settings, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('team', 'update', 'Updated attendance plans')),
+  ]
+  if (Object.keys(renames).length > 0) {
+    const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
+    for (const d of snap.docs) {
+      const next = renames[d.data().plan]
+      if (next) writes.push((batch) => batch.update(d.ref, { plan: next }))
+    }
+  }
+  await commitAll(writes)
 }
 
 // Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
