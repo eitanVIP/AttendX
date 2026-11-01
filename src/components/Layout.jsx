@@ -11,6 +11,7 @@ const links = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/students', label: 'Students' },
   { to: '/sessions', label: 'Attendance' },
+  { to: '/tasks', label: 'Tasks' },
   {
     label: 'Parts',
     children: [

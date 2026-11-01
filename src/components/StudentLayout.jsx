@@ -7,6 +7,7 @@ const links = [
   { to: '/log-hours', label: 'Community Hours' },
   { to: '/request-order', label: 'Request Order' },
   { to: '/my-systems', label: 'My Systems' },
+  { to: '/my-tasks', label: 'Tasks' },
   { to: '/my-profile', label: 'My Profile' },
   { to: '/streaks', label: 'Streaks' },
 ]

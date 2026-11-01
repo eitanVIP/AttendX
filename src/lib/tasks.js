@@ -1,0 +1,198 @@
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
+import { useEffect, useState } from 'react'
+
+// Tasks live at teams/{teamId}/tasks. Admins and task leads (students with
+// `taskLead` on their roster doc) write them; every other student only reads
+// their own. Both sides share these helpers - `database` is the admin `db` or
+// the student `communityDb`.
+//
+// A task: { title, description, assigneeId (a student id, '' = nobody),
+// startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
+// (a team division name or ''), blockedBy (ids of tasks that must be
+// finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
+// updatedBy }. The status list is team-wide and editable, kept at
+// teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
+// already read every settings doc.
+
+export const DEFAULT_TASK_STATUSES = [
+  { id: 'todo', name: 'To do' },
+  { id: 'doing', name: 'Doing' },
+  { id: 'done', name: 'Done', done: true },
+]
+
+export const TASK_PRIORITIES = [
+  { id: 'high', name: 'High' },
+  { id: 'normal', name: 'Normal' },
+  { id: 'low', name: 'Low' },
+]
+
+export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [] }
+
+const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
+
+export function taskStatuses(settings) {
+  const list = settings?.statuses
+  return Array.isArray(list) && list.length > 0 ? list : DEFAULT_TASK_STATUSES
+}
+
+// A task whose status was deleted (or is unset) shows in the first column.
+export function statusOf(task, statuses) {
+  return statuses.find((s) => s.id === task.statusId) || statuses[0]
+}
+
+// Highest priority first, then the soonest due date (no date last), then oldest.
+export function sortTasks(tasks) {
+  return [...tasks].sort(
+    (a, b) =>
+      (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) ||
+      (a.dueDate || a.startDate || '9999').localeCompare(b.dueDate || b.startDate || '9999') ||
+      (a.createdAt || '').localeCompare(b.createdAt || '')
+  )
+}
+
+// A task's division (one of the team's divisions - Mechanical, Electrical...)
+// is shown as a colour, taken from the division's place in the team's list so
+// it stays the same everywhere. No division = grey.
+const DIVISION_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777']
+export function divisionColor(division, divisions) {
+  const i = division ? (divisions || []).indexOf(division) : -1
+  return i >= 0 ? DIVISION_COLORS[i % DIVISION_COLORS.length] : '#71717a'
+}
+
+// Dates are stored as 'YYYY-MM-DD' and shown as dd/mm/yy.
+export function formatDMY(isoDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '')
+  return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : ''
+}
+
+// "3/11/26", "03/11/2026", "3.11.26" -> '2026-11-03'; '' -> ''; anything that
+// isn't a real date -> null.
+export function parseDMY(text) {
+  const t = String(text ?? '').trim()
+  if (!t) return ''
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(t)
+  if (!m) return null
+  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])
+  const d = new Date(year, Number(m[2]) - 1, Number(m[1]))
+  if (d.getFullYear() !== year || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[1])) return null
+  return `${year}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Whole-day arithmetic on ISO dates (UTC, so daylight saving can't skew it).
+const toUTC = (iso) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)))
+export function daysBetween(fromISO, toISO) {
+  return Math.round((toUTC(toISO) - toUTC(fromISO)) / 86400000)
+}
+export function addDays(iso, days) {
+  const d = new Date(toUTC(iso) + days * 86400000)
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+// "03/11/26 → 05/11/26", "Due 2026-03-05" or "Starts 2026-03-03".
+export function taskDateLabel(task) {
+  if (task.startDate && task.dueDate && task.startDate !== task.dueDate) return `${formatDMY(task.startDate)} → ${formatDMY(task.dueDate)}`
+  if (task.dueDate) return `Due ${formatDMY(task.dueDate)}`
+  if (task.startDate) return `Starts ${formatDMY(task.startDate)}`
+  return ''
+}
+
+// The tasks this one is still waiting on: its prerequisites that exist and
+// aren't in a finished status. A prerequisite that was deleted counts as done.
+export function waitingOn(task, allTasks, statuses) {
+  return (task.blockedBy || []).map((id) => allTasks.find((t) => t.id === id)).filter((t) => t && !statusOf(t, statuses).done)
+}
+
+// Why a task can't go to `statusId` right now ('' when it can): while it's
+// waiting on others it has to stay in the first status.
+export function moveBlockedReason(task, statusId, allTasks, statuses) {
+  if (statusId === statuses[0].id) return ''
+  const waiting = waitingOn(task, allTasks, statuses)
+  if (waiting.length === 0) return ''
+  return `"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')} - finish that first.`
+}
+
+// Tasks that can be picked as prerequisites of `taskId`: everything except
+// itself and the tasks that (directly or not) already wait on it, so a loop
+// can't be made.
+export function prerequisiteCandidates(taskId, allTasks) {
+  const downstream = new Set([taskId])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const t of allTasks) {
+      if (!downstream.has(t.id) && (t.blockedBy || []).some((id) => downstream.has(id))) {
+        downstream.add(t.id)
+        grew = true
+      }
+    }
+  }
+  return allTasks.filter((t) => !downstream.has(t.id))
+}
+
+// Overdue = past its due date and not in a status marked finished.
+export function isOverdue(task, statuses, today) {
+  if (!task.dueDate || task.dueDate >= today) return false
+  return !statusOf(task, statuses)?.done
+}
+
+export function writeTask(database, teamId, taskId, data, actorId) {
+  const now = new Date().toISOString()
+  const payload = { ...data, updatedBy: actorId, updatedAt: now }
+  if (taskId) return updateDoc(doc(database, 'teams', teamId, 'tasks', taskId), payload)
+  return addDoc(collection(database, 'teams', teamId, 'tasks'), { ...payload, createdAt: now })
+}
+
+export function moveTask(database, teamId, taskId, statusId, actorId) {
+  return updateDoc(doc(database, 'teams', teamId, 'tasks', taskId), {
+    statusId,
+    updatedBy: actorId,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+// Admins only (students have no delete rule).
+export function removeTask(database, teamId, taskId) {
+  return deleteDoc(doc(database, 'teams', teamId, 'tasks', taskId))
+}
+
+export function saveTaskStatuses(database, teamId, statuses) {
+  return setDoc(doc(database, 'teams', teamId, 'settings', 'tasks'), { statuses }, { merge: true })
+}
+
+// Live tasks plus the status list. `onlyAssigneeId` limits the query to one
+// student's tasks (what a plain student sees), so they don't download the
+// whole team's.
+export function useTaskData(database, teamId, onlyAssigneeId) {
+  const [tasks, setTasks] = useState([])
+  const [settings, setSettings] = useState(null)
+  const [ready, setReady] = useState({ tasks: false, settings: false })
+
+  useEffect(() => {
+    if (!teamId) return
+    const base = collection(database, 'teams', teamId, 'tasks')
+    const source = onlyAssigneeId ? query(base, where('assigneeId', '==', onlyAssigneeId)) : base
+    const mark = (key) => setReady((r) => ({ ...r, [key]: true }))
+    const unsubTasks = onSnapshot(
+      source,
+      (snap) => {
+        setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+        mark('tasks')
+      },
+      () => mark('tasks')
+    )
+    const unsubSettings = onSnapshot(
+      doc(database, 'teams', teamId, 'settings', 'tasks'),
+      (snap) => {
+        setSettings(snap.exists() ? snap.data() : null)
+        mark('settings')
+      },
+      () => mark('settings')
+    )
+    return () => {
+      unsubTasks()
+      unsubSettings()
+    }
+  }, [database, teamId, onlyAssigneeId])
+
+  return { tasks, statuses: taskStatuses(settings), loading: !(ready.tasks && ready.settings) }
+}

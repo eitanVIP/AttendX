@@ -240,8 +240,9 @@ function nextDay(dateISO) {
 // for them (Settings surfaces an error; a background sync from
 // addTraining/addEvent just quietly skips, since the real save already
 // went through and must never depend on this succeeding).
-export async function upsertCalendarEvent({ eventId, title, date, description }) {
-  const body = { summary: title, description, start: { date }, end: { date: nextDay(date) } }
+// `endDate` (inclusive, on or after `date`) makes it a multi-day entry.
+export async function upsertCalendarEvent({ eventId, title, date, endDate, description }) {
+  const body = { summary: title, description, start: { date }, end: { date: nextDay(endDate || date) } }
   if (eventId) {
     try {
       await calendarFetch(`/${eventId}`, { method: 'PATCH', body: JSON.stringify(body) })

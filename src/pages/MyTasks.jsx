@@ -1,0 +1,186 @@
+import { useEffect, useMemo, useState } from 'react'
+import { communityDb } from '../firebase'
+import { useStudentAuth } from '../context/StudentAuthContext'
+import TaskBoard from '../components/TaskBoard'
+import TaskFormPanel from '../components/TaskFormPanel'
+import { logStudentChange } from '../lib/communityLog'
+import { EMPTY_TASK, moveBlockedReason, moveTask, prerequisiteCandidates, statusOf, useTaskData, writeTask } from '../lib/tasks'
+
+// A StudentLayout tab. Students only watch their own tasks; a task lead
+// (taskLead on their roster doc, set by an admin on the Students page) sees
+// every task and can create, edit and move them. The database check behind
+// that is only "the claimed updater is a task lead" - there's no per-student
+// identity here (see hasStudentAccess in firestore.rules).
+export default function MyTasks() {
+  const { verified, studentId, student } = useStudentAuth()
+  const isLead = !!student?.taskLead
+  const { tasks: allTasks, statuses, loading } = useTaskData(communityDb, verified.teamId, null)
+  const tasks = useMemo(() => (isLead ? allTasks : allTasks.filter((t) => t.assigneeId === studentId)), [allTasks, isLead, studentId])
+  const [view, setView] = useState('board')
+  const [mineOnly, setMineOnly] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [division, setDivision] = useState('all')
+  const divisions = verified.divisions || []
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState(EMPTY_TASK)
+
+  useEffect(() => {
+    document.title = 'AttendX | My Tasks'
+  }, [])
+
+  const shown = useMemo(
+    () =>
+      tasks
+        .filter((t) => !(isLead && mineOnly) || t.assigneeId === studentId)
+        .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division)),
+    [tasks, isLead, mineOnly, studentId, division]
+  )
+
+  function startNew() {
+    setFormError('')
+    setEditing(null)
+    setForm({ ...EMPTY_TASK, statusId: statuses[0].id })
+    setShowForm(true)
+  }
+
+  function startEdit(task) {
+    setFormError('')
+    setEditing(task)
+    setForm({
+      title: task.title || '',
+      description: task.description || '',
+      assigneeId: task.assigneeId || '',
+      startDate: task.startDate || '',
+      dueDate: task.dueDate || '',
+      priority: task.priority || 'normal',
+      statusId: statusOf(task, statuses).id,
+      division: task.division || '',
+      blockedBy: task.blockedBy || [],
+    })
+    setShowForm(true)
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const task = { ...form, title: form.title.trim(), statusId: form.statusId || statuses[0].id }
+    if (!task.title) return
+    const reason =
+      editing && statusOf(editing, statuses).id === task.statusId ? '' : moveBlockedReason({ ...task, id: editing?.id }, task.statusId, allTasks, statuses)
+    if (reason) {
+      setFormError(reason)
+      return
+    }
+    setFormError('')
+    writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
+    logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
+    setShowForm(false)
+  }
+
+  function handleMove(task, statusId) {
+    const reason = moveBlockedReason(task, statusId, allTasks, statuses)
+    if (reason) {
+      setNotice(reason)
+      setTimeout(() => setNotice(''), 6000)
+      return
+    }
+    setNotice('')
+    const name = statuses.find((s) => s.id === statusId)?.name || statusId
+    moveTask(communityDb, verified.teamId, task.id, statusId, studentId)
+    logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
+  }
+
+  function handleAssign(task, assigneeId) {
+    writeTask(communityDb, verified.teamId, task.id, { assigneeId }, studentId)
+    logStudentChange(verified.teamId, 'task', 'update', `Unassigned task "${task.title}"`, student.fullName)
+  }
+
+  function handleSchedule(task, startDate, dueDate) {
+    writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate }, studentId)
+    logStudentChange(verified.teamId, 'task', 'update', `Rescheduled task "${task.title}"`, student.fullName)
+  }
+
+  if (loading) return <div className="page-loading">Loading tasks…</div>
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <h2>{isLead ? 'Tasks' : 'My tasks'}</h2>
+        <div className="page-header-actions">
+          {isLead && (
+            <button type="button" onClick={startNew}>
+              + New task
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {isLead && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+            Only mine
+          </label>
+        )}
+        {divisions.length > 0 && (
+          <select value={division} onChange={(e) => setDivision(e.target.value)} aria-label="Filter by division">
+            <option value="all">All divisions</option>
+            <option value="none">No division</option>
+            {divisions.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        )}
+        <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
+          Board
+        </button>
+        <button type="button" className={view === 'list' ? '' : 'secondary'} onClick={() => setView('list')}>
+          List
+        </button>
+        <button type="button" className={view === 'calendar' ? '' : 'secondary'} onClick={() => setView('calendar')}>
+          Calendar
+        </button>
+      </div>
+
+      {notice && <p className="form-error">{notice}</p>}
+
+      {!isLead && tasks.length === 0 ? (
+        <p className="muted">No tasks assigned to you.</p>
+      ) : (
+        <TaskBoard
+          tasks={shown}
+          allTasks={allTasks}
+          statuses={statuses}
+          students={verified.students}
+          divisions={divisions}
+          weekStartsOn={verified.weekStartsOn ?? 0}
+          view={view}
+          canMove={isLead}
+          onMove={handleMove}
+          onOpen={isLead ? startEdit : undefined}
+          onSchedule={isLead ? handleSchedule : undefined}
+          onAssign={isLead ? handleAssign : undefined}
+        />
+      )}
+
+      {isLead && (
+        <TaskFormPanel
+          open={showForm}
+          onClose={() => setShowForm(false)}
+          onSubmit={handleSubmit}
+          form={form}
+          setForm={setForm}
+          students={verified.students}
+          statuses={statuses}
+          divisions={divisions}
+          candidates={prerequisiteCandidates(editing?.id, allTasks)}
+          error={formError}
+          editing={!!editing}
+        />
+      )}
+    </div>
+  )
+}
