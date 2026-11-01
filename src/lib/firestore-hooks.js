@@ -3,7 +3,18 @@ import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { migrateSessionAttendance } from './actions'
 import { attendanceRecords } from './attendanceRecords'
-import { normalizeProduct, normalizeStudent, remapStudentDivisions, sortByOrder, summarizeAttendance } from './calc'
+import {
+  DEFAULT_LOAN,
+  NO_PLANS,
+  countedRecords,
+  normalizeProduct,
+  normalizeStudent,
+  remapStudentDivisions,
+  skippedWeekStarts,
+  sortByOrder,
+  studentPlanAttendance,
+  summarizeAttendance,
+} from './calc'
 
 const byName = (a, b) => (a.fullName || a.name || '').localeCompare(b.fullName || b.name || '')
 const byDate = (a, b) => (a.date || '').localeCompare(b.date || '')
@@ -49,21 +60,48 @@ function useCollection(path) {
 export function useStudents(team) {
   const result = useCollection(team ? ['teams', team.id, 'students'] : null)
   const minPercent = team?.minAttendancePercent || 0
-  const { data: attendance, loading: attendanceLoading } = useAllAttendance(minPercent > 0 ? team.id : null)
+  const plans = team?.attendancePlans || NO_PLANS
+  // Attendance is only read when something needs it: the minimum-attendance
+  // rule, or attendance plans (which also drive the weekly flags).
+  const needAttendance = minPercent > 0 || plans.length > 0
+  const { data: sessions, loading: attendanceLoading } = useSessions(needAttendance ? team.id : null)
 
   const data = useMemo(() => {
+    const attendance = attendanceRecords(sessions)
+    const sessionById = Object.fromEntries(sessions.map((s) => [s.id, s]))
+    const skippedStarts = skippedWeekStarts(team?.skippedWeeks, team?.weekStartsOn)
     const recordsByStudent = {}
     for (const r of attendance) (recordsByStudent[r.studentId] ??= []).push(r)
     return sortByOrder(result.data, byName).map((raw) => {
       const base = normalizeStudent(raw)
       const student = { ...base, ...remapStudentDivisions(base, team) }
-      const percent = minPercent > 0 ? summarizeAttendance(recordsByStudent[student.id] || []).percent : null
+      const records = recordsByStudent[student.id] || []
+      // With plans, attendance is judged per week against the student's own
+      // plan (see studentPlanAttendance in calc.js).
+      const planInfo = plans.length
+        ? studentPlanAttendance(student, records, sessionById, {
+            plans,
+            weekStartsOn: team?.weekStartsOn,
+            flagWeeks: team?.attendanceFlagWeeks,
+            skippedStarts,
+          })
+        : null
+      const counted = countedRecords(records, sessionById, skippedStarts, team?.weekStartsOn)
+      const percent = minPercent > 0 ? (planInfo ? planInfo.percent : summarizeAttendance(counted).percent) : null
       const autoInactive = percent !== null && percent < minPercent
-      return { ...student, attendancePercent: percent, autoInactive, active: student.status !== 'inactive' && !autoInactive }
+      return {
+        ...student,
+        attendancePercent: percent,
+        planInfo,
+        skippedWeekStarts: skippedStarts,
+        weekStartsOn: team?.weekStartsOn ?? 0,
+        autoInactive,
+        active: student.status !== 'inactive' && !autoInactive,
+      }
     })
-  }, [result.data, team, attendance, minPercent])
+  }, [result.data, team, sessions, minPercent, plans])
 
-  return { ...result, data, loading: result.loading || (minPercent > 0 && attendanceLoading) }
+  return { ...result, data, loading: result.loading || (needAttendance && attendanceLoading) }
 }
 
 export function useTrainings(teamId) {
@@ -129,7 +167,7 @@ export function useOrderRequests(teamId) {
   return { ...result, data }
 }
 
-// Logged purchases (see logPurchase in actions.js) - newest first, so
+// Logged purchases (see logCart in actions.js) - newest first, so
 // Orders' Bought table and the dashboard's budget section both see the
 // latest one at the top without sorting it themselves.
 export function usePurchases(teamId) {
@@ -152,6 +190,18 @@ export function useLog(teamId) {
 export function useSystems(teamId) {
   const result = useCollection(teamId ? ['teams', teamId, 'systems'] : null)
   const data = useMemo(() => result.data.map((s) => ({ needs: [], ...s })), [result.data])
+  return { ...result, data }
+}
+
+// Loans to and from other teams (see Borrowing.jsx) - newest first by the
+// day they went out. Admin only: firestore.rules grants students nothing
+// here, so this only ever runs through the admin `db`.
+export function useLoans(teamId) {
+  const result = useCollection(teamId ? ['teams', teamId, 'loans'] : null)
+  const data = useMemo(
+    () => result.data.map((l) => ({ ...DEFAULT_LOAN, ...l })).sort((a, b) => (b.lentOn || '').localeCompare(a.lentOn || '')),
+    [result.data]
+  )
   return { ...result, data }
 }
 

@@ -168,7 +168,22 @@ export default function ProductTable({
     ]
     if (showCurrency) cols.push({ key: 'currency', header: 'Currency', cell: (p) => p.currency })
     cols.push({ key: 'supplier', header: 'Supplier', cell: (p) => p.supplier })
-    if (showInStock) cols.push({ key: 'inStock', header: 'In stock', cell: (p) => p.countInInventory })
+    if (showInStock)
+      cols.push({
+        key: 'inStock',
+        header: 'In stock',
+        nowrap: true,
+        cell: (p) => (
+          <>
+            {p.countInInventory}
+            {p.lentOut > 0 && (
+              <span className="badge badge-warn" style={{ marginLeft: 6 }} title="Lent to another team - see Borrowing">
+                {p.lentOut} lent out
+              </span>
+            )}
+          </>
+        ),
+      })
     if (showWanted) cols.push({ key: 'wanted', header: 'Wanted', cell: (p) => p.wantedCount })
     if (showToBuy)
       cols.push({

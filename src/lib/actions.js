@@ -19,7 +19,6 @@ import {
 import { auth, db } from '../firebase'
 import {
   DEFAULT_STREAK_RESET_DAYS,
-  effectivePrice,
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
@@ -104,6 +103,10 @@ const PRODUCT_SETTINGS_FIELDS = [
   'categories',
   'subcategories',
   'suppliers',
+  'attendancePlans',
+  'weekStartsOn',
+  'attendanceFlagWeeks',
+  'skippedWeeks',
   'productTypes',
   'currencyRates',
   'name',
@@ -137,6 +140,10 @@ export async function ensureProductSettingsMirror(team) {
       categories: team.categories || [],
       subcategories: team.subcategories || {},
       suppliers: team.suppliers || [],
+      attendancePlans: team.attendancePlans || [],
+      weekStartsOn: team.weekStartsOn ?? 0,
+      attendanceFlagWeeks: team.attendanceFlagWeeks ?? 4,
+      skippedWeeks: team.skippedWeeks || [],
       productTypes: team.productTypes || [],
       currencyRates: team.currencyRates || DEFAULT_CURRENCY_RATES,
       name: team.name || '',
@@ -889,6 +896,26 @@ export function declineOrderRequest(teamId, request) {
   ])
 }
 
+// Saving the attendance plans ([{ name, perWeek }], see AttendancePlansSection
+// in Settings) follows plan renames onto the students on them - `renames` is
+// old name -> new name. A student on a plan that was removed falls back to the
+// first plan (see planForStudent in calc.js) without being touched here.
+export async function updateAttendancePlans(teamId, settings, renames) {
+  const writes = [
+    (batch) => batch.update(doc(db, 'teams', teamId), settings),
+    (batch) => batch.set(doc(db, 'teams', teamId, 'settings', 'products'), settings, { merge: true }),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('team', 'update', 'Updated attendance plans')),
+  ]
+  if (Object.keys(renames).length > 0) {
+    const snap = await getDocs(collection(db, 'teams', teamId, 'students'))
+    for (const d of snap.docs) {
+      const next = renames[d.data().plan]
+      if (next) writes.push((batch) => batch.update(d.ref, { plan: next }))
+    }
+  }
+  await commitAll(writes)
+}
+
 // Saving the supplier list ([{ name, multiplier }], see SuppliersSection in
 // Settings) follows renames onto products - `renames` is old name -> new
 // name for rows that survived under a different one. A removed
@@ -937,41 +964,75 @@ export function fixOldPackPurchases(teamId, fixes) {
   return commitAll(writes)
 }
 
-// Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
-// product by however many were bought and drops a dated record of it - the
-// record snapshots the product's current name/category/price/currency
-// rather than pointing at the product live (see DEFAULT_PURCHASE in
-// calc.js), so it stays an accurate historical fact - and what the
-// dashboard's budget section sums up as "spent" - even if the product is
-// later renamed, recategorized, repriced, or deleted.
+// Logging a purchase (the "+ Log a purchase" button on Orders) takes a whole
+// cart - everything bought in one order - in one go: each line restocks its
+// product and gets its own dated purchase record (so spend per
+// category/supplier stays right and any one can still be reverted), and the
+// order as a whole is one entry in the change log. A record snapshots the
+// product's name/category/price/currency rather than pointing at the product
+// live (see DEFAULT_PURCHASE in calc.js), so it stays an accurate historical
+// fact even if the product is later renamed, repriced, or deleted.
 //
-// `unitPrice` snapshots what was actually paid per unit: the product's listed
-// price times its supplier's multiplier (see effectivePrice in calc.js), so
-// the dashboard's "spent" reflects reseller markups too.
-//
-// `quantity` is in whatever unit Orders' to-buy counts (packs, for a product
-// type with a pack size - see unitsPerPurchase in calc.js): stock goes up by
-// quantity × unitsPer, the cost stays quantity × the pack's price.
-export function logPurchase(teamId, product, quantity, suppliers, unitsPer = 1) {
-  const batch = writeBatch(db)
-  batch.update(doc(db, 'teams', teamId, 'products', product.id), {
-    countInInventory: (product.countInInventory || 0) + quantity * unitsPer,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
-    productId: product.id,
-    productName: product.name,
-    category: product.category || '',
-    subcategory: product.subcategory || '',
-    supplier: product.supplier || '',
-    quantity,
-    unitsPerPurchase: unitsPer,
-    unitPrice: effectivePrice(product, suppliers),
-    currency: product.currency || 'NIS',
-    date: todayISO(),
-    dismissed: false,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('purchase', 'create', `Logged buying ${quantity} × "${product.name}"`))
-  return batch.commit()
+// `lines` are [{ product, quantity, unitsPer, unitPrice, currency, supplier }].
+// `unitPrice` is what was paid per unit: the product's listed price times its
+// supplier's multiplier (see effectivePrice in calc.js). `quantity` is in
+// whatever unit Orders' to-buy counts (packs, for a product type with a pack
+// size - see unitsPerPurchase in calc.js; meters, for spools): stock goes up
+// by quantity x unitsPer, the cost stays quantity x unitPrice. `discrepancy` is what the order really cost minus the
+// lines added up ({ amount, currency, category, supplier }, or null): it is
+// logged as one extra line named "Cart discrepancy", a discount when negative
+// (see logFakePurchase) so it comes off the spend.
+export function logCart(teamId, lines, discrepancy) {
+  const date = todayISO()
+  const writes = []
+  for (const line of lines) {
+    const { product } = line
+    writes.push((batch) =>
+      batch.update(doc(db, 'teams', teamId, 'products', product.id), {
+        countInInventory: increment(Math.round(line.quantity * line.unitsPer * 100) / 100),
+      })
+    )
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: product.id,
+        productName: product.name,
+        category: product.category || '',
+        subcategory: product.subcategory || '',
+        supplier: line.supplier || product.supplier || '',
+        quantity: line.quantity,
+        unitsPerPurchase: line.unitsPer,
+        unitPrice: Number.isFinite(line.unitPrice) ? line.unitPrice : 0,
+        currency: line.currency || 'NIS',
+        date,
+        dismissed: false,
+      })
+    )
+  }
+  const hasDiscrepancy = discrepancy && Math.abs(discrepancy.amount) > 0.005
+  if (hasDiscrepancy) {
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: '',
+        productName: 'Cart discrepancy',
+        category: discrepancy.category || '',
+        quantity: 1,
+        unitPrice: discrepancy.amount,
+        currency: discrepancy.currency,
+        date,
+        dismissed: false,
+        supplier: discrepancy.supplier || '',
+        ...(discrepancy.amount < 0 ? { discount: true } : {}),
+      })
+    )
+  }
+  const extra = hasDiscrepancy ? `, ${discrepancy.amount > 0 ? '+' : ''}${discrepancy.amount.toFixed(2)} ${discrepancy.currency} off the listed prices` : ''
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('purchase', 'create', `Logged a cart of ${lines.length} item${lines.length === 1 ? '' : 's'} (${lines.map((l) => l.product.name).join(', ')})${extra}`)
+    )
+  )
+  return commitAll(writes)
 }
 
 // Hides one purchase from Orders' Bought table without touching anything
@@ -1105,4 +1166,49 @@ export function deleteSystem(teamId, system, inventoryDeltas = []) {
     ),
   ]
   return commitAll(writes)
+}
+
+// --- Borrowing -------------------------------------------------------------
+// Loans to and from other teams (see Borrowing.jsx). `inventoryDeltas`
+// (see loanInventoryDeltas in calc.js) applies what lending one of our own
+// products does to it - reserving it via `lentOut`, or taking a consumable
+// off its real stock - in the same batch as the loan itself, so a loan and
+// the stock it holds can never drift apart, same as addSystem.
+function loanInventoryWrites(teamId, inventoryDeltas) {
+  return inventoryDeltas.map(
+    ({ productId, field, delta }) =>
+      (batch) =>
+        batch.update(doc(db, 'teams', teamId, 'products', productId), { [field]: increment(delta) })
+  )
+}
+
+function loanLabel(loan) {
+  const direction = loan.direction === 'borrowed' ? 'from' : 'to'
+  return `${loan.quantity}× "${loan.itemName}" ${direction} team ${loan.teamNumber}`
+}
+
+export function addLoan(teamId, loan, inventoryDeltas = []) {
+  const verb = loan.direction === 'borrowed' ? 'Borrowed' : 'Lent'
+  return commitAll([
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'loans')), loan),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'create', `${verb} ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function updateLoan(teamId, loanId, loan, inventoryDeltas = [], summary = null) {
+  return commitAll([
+    (batch) => batch.update(doc(db, 'teams', teamId, 'loans', loanId), loan),
+    (batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'update', summary || `Updated loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
+}
+
+export function deleteLoan(teamId, loan, inventoryDeltas = []) {
+  return commitAll([
+    (batch) => batch.delete(doc(db, 'teams', teamId, 'loans', loan.id)),
+    (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'delete', `Deleted loan of ${loanLabel(loan)}`)),
+    ...loanInventoryWrites(teamId, inventoryDeltas),
+  ])
 }

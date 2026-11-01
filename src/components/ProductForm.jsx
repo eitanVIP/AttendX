@@ -139,6 +139,15 @@ export default function ProductForm({
           Notes
           <input value={form.notes} onChange={set('notes')} />
         </label>
+        <label className="span-2">
+          Spool sizes (optional)
+          <input
+            value={form.spools || ''}
+            onChange={set('spools')}
+            placeholder="7.6 m = 54, 15.2 m = 104"
+            title="Length and price of each spool the supplier sells. Orders then picks the cheapest spools that cover what you need."
+          />
+        </label>
         {productTypes.length > 0 && (
           <label className="span-2">
             Product type (optional)

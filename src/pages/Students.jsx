@@ -10,7 +10,7 @@ import { GRADES, activityLabel, movedWithinGroup, swappedRows } from '../lib/cal
 import { addStudent, deleteStudent, reorderDocs, updateStudent } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', notes: '' }
+const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', plan: '', notes: '' }
 
 export default function Students() {
   const { team } = useAuth()
@@ -23,6 +23,7 @@ export default function Students() {
 
   const divisions = team?.divisions || []
   const subdivisionsByDivision = team?.subdivisionsByDivision || {}
+  const plans = team?.attendancePlans || []
 
   const filtered = useMemo(() => {
     if (filterDivision === 'all') return students
@@ -37,6 +38,7 @@ export default function Students() {
       subdivisions: student.subdivisions,
       grade: student.grade || '',
       status: student.status || 'active',
+      plan: student.plan || '',
       notes: student.notes || '',
     })
     setFormError('')
@@ -194,6 +196,19 @@ export default function Students() {
               <option value="inactive">Inactive</option>
             </select>
           </label>
+          {plans.length > 0 && (
+            <label>
+              Attendance plan
+              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
+                <option value="">{plans[0].name} (default)</option>
+                {plans.slice(1).map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name} ({p.perWeek} a week)
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="span-2">
             Notes
             <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -227,6 +242,29 @@ export default function Students() {
             cell: (s) => s.divisions.flatMap((d) => s.subdivisions[d] || []).join(', '),
           },
           { key: 'grade', header: 'Grade', cell: (s) => s.grade },
+          ...(plans.length > 0
+            ? [
+                {
+                  key: 'plan',
+                  header: 'Plan',
+                  nowrap: true,
+                  cell: (s) => (
+                    <span>
+                      {s.planInfo?.plan}
+                      {s.planInfo?.flag && (
+                        <span
+                          className={`badge ${s.planInfo.flag.type === 'short' ? 'badge-warn' : 'badge-ok'}`}
+                          title={s.planInfo.flag.message}
+                          style={{ marginLeft: 6 }}
+                        >
+                          {s.planInfo.flag.type === 'short' ? 'Talk' : 'Move up?'}
+                        </span>
+                      )}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
           {
             key: 'status',
             header: 'Status',
