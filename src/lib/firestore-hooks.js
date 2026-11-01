@@ -167,7 +167,7 @@ export function useOrderRequests(teamId) {
   return { ...result, data }
 }
 
-// Logged purchases (see logPurchase in actions.js) - newest first, so
+// Logged purchases (see logCart in actions.js) - newest first, so
 // Orders' Bought table and the dashboard's budget section both see the
 // latest one at the top without sorting it themselves.
 export function usePurchases(teamId) {

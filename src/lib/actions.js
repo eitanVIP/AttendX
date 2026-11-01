@@ -19,7 +19,6 @@ import {
 import { auth, db } from '../firebase'
 import {
   DEFAULT_STREAK_RESET_DAYS,
-  effectivePrice,
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
@@ -965,41 +964,75 @@ export function fixOldPackPurchases(teamId, fixes) {
   return commitAll(writes)
 }
 
-// Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
-// product by however many were bought and drops a dated record of it - the
-// record snapshots the product's current name/category/price/currency
-// rather than pointing at the product live (see DEFAULT_PURCHASE in
-// calc.js), so it stays an accurate historical fact - and what the
-// dashboard's budget section sums up as "spent" - even if the product is
-// later renamed, recategorized, repriced, or deleted.
+// Logging a purchase (the "+ Log a purchase" button on Orders) takes a whole
+// cart - everything bought in one order - in one go: each line restocks its
+// product and gets its own dated purchase record (so spend per
+// category/supplier stays right and any one can still be reverted), and the
+// order as a whole is one entry in the change log. A record snapshots the
+// product's name/category/price/currency rather than pointing at the product
+// live (see DEFAULT_PURCHASE in calc.js), so it stays an accurate historical
+// fact even if the product is later renamed, repriced, or deleted.
 //
-// `unitPrice` snapshots what was actually paid per unit: the product's listed
-// price times its supplier's multiplier (see effectivePrice in calc.js), so
-// the dashboard's "spent" reflects reseller markups too.
-//
-// `quantity` is in whatever unit Orders' to-buy counts (packs, for a product
-// type with a pack size - see unitsPerPurchase in calc.js): stock goes up by
-// quantity × unitsPer, the cost stays quantity × the pack's price.
-export function logPurchase(teamId, product, quantity, suppliers, unitsPer = 1) {
-  const batch = writeBatch(db)
-  batch.update(doc(db, 'teams', teamId, 'products', product.id), {
-    countInInventory: (product.countInInventory || 0) + quantity * unitsPer,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
-    productId: product.id,
-    productName: product.name,
-    category: product.category || '',
-    subcategory: product.subcategory || '',
-    supplier: product.supplier || '',
-    quantity,
-    unitsPerPurchase: unitsPer,
-    unitPrice: effectivePrice(product, suppliers),
-    currency: product.currency || 'NIS',
-    date: todayISO(),
-    dismissed: false,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('purchase', 'create', `Logged buying ${quantity} × "${product.name}"`))
-  return batch.commit()
+// `lines` are [{ product, quantity, unitsPer, unitPrice, currency, supplier }].
+// `unitPrice` is what was paid per unit: the product's listed price times its
+// supplier's multiplier (see effectivePrice in calc.js). `quantity` is in
+// whatever unit Orders' to-buy counts (packs, for a product type with a pack
+// size - see unitsPerPurchase in calc.js; meters, for spools): stock goes up
+// by quantity x unitsPer, the cost stays quantity x unitPrice. `discrepancy` is what the order really cost minus the
+// lines added up ({ amount, currency, category, supplier }, or null): it is
+// logged as one extra line named "Cart discrepancy", a discount when negative
+// (see logFakePurchase) so it comes off the spend.
+export function logCart(teamId, lines, discrepancy) {
+  const date = todayISO()
+  const writes = []
+  for (const line of lines) {
+    const { product } = line
+    writes.push((batch) =>
+      batch.update(doc(db, 'teams', teamId, 'products', product.id), {
+        countInInventory: increment(Math.round(line.quantity * line.unitsPer * 100) / 100),
+      })
+    )
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: product.id,
+        productName: product.name,
+        category: product.category || '',
+        subcategory: product.subcategory || '',
+        supplier: line.supplier || product.supplier || '',
+        quantity: line.quantity,
+        unitsPerPurchase: line.unitsPer,
+        unitPrice: Number.isFinite(line.unitPrice) ? line.unitPrice : 0,
+        currency: line.currency || 'NIS',
+        date,
+        dismissed: false,
+      })
+    )
+  }
+  const hasDiscrepancy = discrepancy && Math.abs(discrepancy.amount) > 0.005
+  if (hasDiscrepancy) {
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: '',
+        productName: 'Cart discrepancy',
+        category: discrepancy.category || '',
+        quantity: 1,
+        unitPrice: discrepancy.amount,
+        currency: discrepancy.currency,
+        date,
+        dismissed: false,
+        supplier: discrepancy.supplier || '',
+        ...(discrepancy.amount < 0 ? { discount: true } : {}),
+      })
+    )
+  }
+  const extra = hasDiscrepancy ? `, ${discrepancy.amount > 0 ? '+' : ''}${discrepancy.amount.toFixed(2)} ${discrepancy.currency} off the listed prices` : ''
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('purchase', 'create', `Logged a cart of ${lines.length} item${lines.length === 1 ? '' : 's'} (${lines.map((l) => l.product.name).join(', ')})${extra}`)
+    )
+  )
+  return commitAll(writes)
 }
 
 // Hides one purchase from Orders' Bought table without touching anything

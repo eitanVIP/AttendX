@@ -10,7 +10,7 @@ import { logFakePurchase, revertPurchase } from '../lib/actions'
 
 const emptyForm = { productName: '', category: '', quantity: '1', unitPrice: '', currency: 'NIS', date: '', supplier: '' }
 
-// Every purchase ever logged (see logPurchase/logFakePurchase in actions.js)
+// Every purchase ever logged (see logCart/logFakePurchase in actions.js)
 // - not just what's currently visible in Orders' own Bought table, which
 // hides dismissed rows and whatever the category filter excludes. Dismissed
 // purchases still count toward spend (dismissing only hides a row on

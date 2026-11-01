@@ -713,6 +713,138 @@ export function supplierBudgetRows(purchases, products, productTypes, suppliers,
     .sort((a, b) => b.projected - a.projected)
 }
 
+// A supplier's optional order range (team.suppliers[].orderMin/orderMax, in
+// orderCurrency, USD when unset): e.g. Amazon ships free from 45 USD, and
+// stays under customs at 75 USD. Either end may be blank. null when the
+// supplier has no range.
+export function supplierOrderRange(name, suppliers) {
+  const wanted = (name || '').trim().toLowerCase()
+  const match = wanted && (suppliers || NO_SUPPLIERS).find((s) => s.name.trim().toLowerCase() === wanted)
+  const min = Number(match?.orderMin) > 0 ? Number(match.orderMin) : 0
+  const max = Number(match?.orderMax) > 0 ? Number(match.orderMax) : 0
+  if (!min && !max) return null
+  return { min, max, currency: match.orderCurrency || 'USD' }
+}
+
+// Where `total` (everything still to buy from this supplier, in the team's
+// preferred currency, shipping not included) sits against the supplier's
+// range. The range is per shipment and the buying can be split into as many
+// shipments as needed, so the question is whether some number of shipments
+// each lands between min and max (orders = how many, fewest first):
+//   in    - it splits cleanly
+//   below - short: the total itself is under the minimum (orders 1), or the
+//           nearest fix is adding `gap` to fill `orders` shipments
+//   above - the nearest fix is trimming `gap` to fit `orders` shipments
+// min/max/gap are in the preferred currency (0 = no limit on that side).
+// Item sizes aren't considered here - a spool can't be split - only the money.
+// null when there is nothing to buy, no range, or the range's currency has
+// no exchange rate.
+export function orderRangeStatus(name, total, suppliers, rates, preferred) {
+  const range = supplierOrderRange(name, suppliers)
+  if (!range || !(total > 0)) return null
+  const min = range.min ? convertPrice(range.min, range.currency, preferred, rates) : 0
+  const max = range.max ? convertPrice(range.max, range.currency, preferred, rates) : 0
+  if (min === null || max === null) return null
+  const result = (state, gap, orders) => ({ state, gap, orders, min, max, range })
+
+  if (min && total < min) return result('below', min - total, 1)
+  const fewest = max ? Math.ceil(total / max - 1e-9) : 1
+  const most = min ? Math.floor(total / min + 1e-9) : Infinity
+  if (fewest <= most) return result('in', 0, fewest)
+  // Between what `fewest - 1` shipments can hold and what `fewest` need.
+  const add = fewest * min - total
+  const trim = total - (fewest - 1) * max
+  return add <= trim ? result('below', add, fewest) : result('above', trim, fewest - 1)
+}
+
+// One line for the UI, e.g. "Order range 167-278 NIS per shipment (45-75
+// USD): 600 NIS fits 3 shipments of about 200 each."
+export function orderRangeText(status, total, preferred) {
+  const { min, max, range, orders } = status
+  const ends = (lo, hi, unit) => (lo && hi ? `${lo}-${hi} ${unit}` : lo ? `from ${lo} ${unit}` : `up to ${hi} ${unit}`)
+  const inPreferred = ends(Math.round(min) || 0, Math.round(max) || 0, preferred)
+  const original = ends(range.min, range.max, range.currency)
+  const head = `Order range ${inPreferred} per shipment${range.currency === preferred ? '' : ` (${original})`}: ${Math.round(total)} ${preferred}`
+  const gap = Math.round(status.gap)
+  if (status.state === 'in') {
+    return orders === 1
+      ? `${head}, fits one shipment.`
+      : `${head}, fits ${orders} shipments of about ${Math.round(total / orders)} each.`
+  }
+  if (status.state === 'below') {
+    return orders === 1
+      ? `${head}, ${gap} below the minimum.`
+      : `${head}, ${gap} more would fill ${orders} shipments.`
+  }
+  return `${head}, ${gap} less would fit ${orders} shipment${orders === 1 ? '' : 's'}.`
+}
+
+// A product's spool sizes as typed on its form, "7.6 m = 54, 15.2 m = 104":
+// a length in meters and what that spool costs (in the product's currency).
+// Anything that doesn't read as a length and a price is skipped.
+export function parseSpools(text) {
+  return String(text || '')
+    .split(/[,;\n]/)
+    .map((part) => part.match(/^\s*(\d+(?:\.\d+)?)\s*m?\s*[=:@]?\s*(\d+(?:\.\d+)?)\s*$/i))
+    .filter(Boolean)
+    .map((m) => ({ meters: Number(m[1]), price: Number(m[2]) }))
+    .filter((s) => s.meters > 0)
+}
+
+// Wire (or anything else sold in set lengths) that is bought in spools of
+// several fixed lengths, each with its own price. `spools` is
+// [{ meters, price }] - price is for the whole spool (see parseSpools). Finds the cheapest combination of spools that
+// covers `need` meters (more spools than needed only if it's cheaper, e.g. one
+// 50 m spool beating three 15 m ones; ties go to fewer spools). Returns
+// { counts: [{ meters, price, count }], meters, cost } or null when nothing is
+// needed or there are no usable spools.
+//
+// Lengths are counted in whole hundredths of a meter (coarser for a huge
+// need, to keep the table small) and the table holds the cheapest way to
+// reach each length, so the work grows with the need, not with how many
+// spools could be bought.
+export function planSpools(need, spools) {
+  const options = (spools || [])
+    .map((s) => ({ meters: Number(s.meters), price: Number(s.price) }))
+    .filter((s) => s.meters > 0 && s.price >= 0)
+    .sort((a, b) => b.meters - a.meters)
+  if (!(need > 0) || need > 1e6 || options.length === 0) return null
+
+  const scale = need * 100 <= 400000 ? 100 : Math.max(1, Math.floor(400000 / need))
+  const sizes = options.map((o) => Math.max(1, Math.floor(o.meters * scale + 1e-6)))
+  const target = Math.ceil(need * scale - 1e-6)
+  const cost = new Float64Array(target + 1).fill(Infinity)
+  const spoolsUsed = new Int32Array(target + 1)
+  const from = new Int32Array(target + 1).fill(-1)
+  const via = new Int16Array(target + 1)
+  cost[0] = 0
+  for (let j = 0; j < target; j++) {
+    if (cost[j] === Infinity) continue
+    for (let i = 0; i < options.length; i++) {
+      const next = Math.min(target, j + sizes[i])
+      const c = cost[j] + options[i].price
+      const n = spoolsUsed[j] + 1
+      if (c < cost[next] - 1e-9 || (Math.abs(c - cost[next]) <= 1e-9 && n < spoolsUsed[next])) {
+        cost[next] = c
+        spoolsUsed[next] = n
+        from[next] = j
+        via[next] = i
+      }
+    }
+  }
+  if (cost[target] === Infinity) return null
+
+  const counts = options.map(() => 0)
+  for (let j = target; j > 0; j = from[j]) counts[via[j]]++
+  return {
+    counts: options.map((o, i) => ({ ...o, count: counts[i] })).filter((c) => c.count > 0),
+    meters: Math.round(options.reduce((sum, o, i) => sum + o.meters * counts[i], 0) * 1e6) / 1e6,
+    cost: cost[target],
+  }
+}
+
+export const formatMeters = (m) => `${Math.round(m * 10) / 10} m`
+
 export function totalBudget(categoryBudgets) {
   return Object.values(categoryBudgets || {}).reduce((sum, b) => sum + (Number(b) || 0), 0)
 }

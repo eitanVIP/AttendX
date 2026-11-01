@@ -27,6 +27,8 @@ import {
   isCountableTraining,
   plannedSpendByCategory,
   spentByCategory,
+  orderRangeStatus,
+  orderRangeText,
   supplierBudgetRows,
   streakBoard,
   studentCommunityHours,
@@ -631,6 +633,24 @@ export default function Dashboard() {
             cell: (r) => `${r.projected.toFixed(0)} ${preferred}`,
             footerCell: () => <strong>{projectedSpent.toFixed(0)} {preferred}</strong>,
           },
+          ...(suppliers.some((s) => s.orderMin || s.orderMax) ? [{
+            key: 'range',
+            header: 'Order range',
+            cell: (r) => {
+              const status = orderRangeStatus(r.supplier, r.toBuy, suppliers, rates, preferred)
+              if (!status) return '—'
+              const word = {
+                below: `${status.gap.toFixed(0)} short`,
+                above: `${status.gap.toFixed(0)} over`,
+                in: status.orders > 1 ? `${status.orders} shipments` : 'OK',
+              }[status.state]
+              return (
+                <span title={orderRangeText(status, r.toBuy, preferred)} style={{ color: status.state === 'in' ? undefined : 'var(--danger)' }}>
+                  {word}
+                </span>
+              )
+            },
+          }] : []),
         ]}
         rows={supplierRows}
         getRowId={(r) => r.supplier || 'no-supplier'}
