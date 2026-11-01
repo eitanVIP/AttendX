@@ -325,7 +325,10 @@ export default function Orders() {
   const cartPaidNumber = cartPaid.trim() === '' ? null : Number(cartPaid)
   const cartDiscrepancy = cartPaidNumber !== null && Number.isFinite(cartPaidNumber) ? cartPaidNumber - cartTotal : 0
   // Spools are bought by the meter; everything else by whole units or packs.
-  const cartValid = cartLines.length > 0 && cartLines.every((l) => l.quantity > 0 && (l.spool || Number.isInteger(l.quantity)))
+  // What was actually paid can't be negative (a blank field means "as listed").
+  const cartPaidValid = cartPaidNumber === null || (Number.isFinite(cartPaidNumber) && cartPaidNumber >= 0)
+  const cartValid =
+    cartLines.length > 0 && cartPaidValid && cartLines.every((l) => l.quantity > 0 && (l.spool || Number.isInteger(l.quantity)))
 
   function setCartQuantity(productId, quantity) {
     setCart(cart.map((l) => (l.productId === productId ? { ...l, quantity } : l)))
@@ -911,6 +914,7 @@ export default function Orders() {
                 Actually paid ({preferred}, optional)
                 <input
                   type="number"
+                  min="0"
                   step="any"
                   value={cartPaid}
                   onChange={(e) => setCartPaid(e.target.value)}
