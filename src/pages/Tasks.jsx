@@ -6,7 +6,7 @@ import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
 import { createTask, deleteTask, setTaskStatus, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
-import { EMPTY_TASK, moveBlockedReason, prerequisiteCandidates, statusOf, useTaskData } from '../lib/tasks'
+import { EMPTY_TASK, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, useTaskData, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -79,15 +79,28 @@ export default function Tasks() {
     e.preventDefault()
     const task = { ...form, title: form.title.trim(), statusId: form.statusId || statuses[0].id }
     if (!task.title) return
-    // Only a status change is held back: a task already past "To do" can still
-    // be edited (and given prerequisites) without being moved.
-    const reason =
-      editing && statusOf(editing, statuses).id === task.statusId ? '' : moveBlockedReason({ ...task, id: editing?.id }, task.statusId, tasks, statuses)
+    // Choosing a later status for a waiting task is refused. A task that is
+    // already past the first status and now has unfinished prerequisites is
+    // sent back to the first status instead, so it never sits "started" while
+    // blocked.
+    const scheduleReason = scheduleBlockedReason({ ...task, id: editing?.id }, task.startDate, task.dueDate, tasks, statuses)
+    if (scheduleReason) {
+      setFormError(scheduleReason)
+      return
+    }
+    const statusChanged = !editing || statusOf(editing, statuses).id !== task.statusId
+    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, tasks, statuses) : ''
     if (reason) {
       setFormError(reason)
       return
     }
     setFormError('')
+    const waiting = waitingOn({ ...task, id: editing?.id }, tasks, statuses)
+    if (!statusChanged && waiting.length > 0 && task.statusId !== statuses[0].id) {
+      task.statusId = statuses[0].id
+      setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
+      setTimeout(() => setNotice(''), 8000)
+    }
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     if (editing) updateTask(team.id, editing, task, assigneeName)
     else createTask(team.id, task, assigneeName)
@@ -117,6 +130,13 @@ export default function Tasks() {
 
   // Dragging a task on the calendar (see TaskCalendar) just changes its dates.
   function handleSchedule(task, startDate, dueDate) {
+    const reason = scheduleBlockedReason(task, startDate, dueDate, tasks, statuses)
+    if (reason) {
+      setNotice(reason)
+      setTimeout(() => setNotice(''), 6000)
+      return
+    }
+    setNotice('')
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     updateTask(team.id, task, { title: task.title, startDate, dueDate }, assigneeName)
   }

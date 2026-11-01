@@ -59,6 +59,18 @@ export function divisionColor(division, divisions) {
   return i >= 0 ? DIVISION_COLORS[i % DIVISION_COLORS.length] : '#71717a'
 }
 
+// Earliest first by the day it starts (or is due); tasks with no date last.
+// Ties go by due date, then priority.
+export function sortTasksByDate(tasks) {
+  return [...tasks].sort(
+    (a, b) =>
+      (a.startDate || a.dueDate || '9999').localeCompare(b.startDate || b.dueDate || '9999') ||
+      (a.dueDate || a.startDate || '9999').localeCompare(b.dueDate || b.startDate || '9999') ||
+      (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) ||
+      (a.createdAt || '').localeCompare(b.createdAt || '')
+  )
+}
+
 // Dates are stored as 'YYYY-MM-DD' and shown as dd/mm/yy.
 export function formatDMY(isoDate) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '')
@@ -109,6 +121,22 @@ export function moveBlockedReason(task, statusId, allTasks, statuses) {
   const waiting = waitingOn(task, allTasks, statuses)
   if (waiting.length === 0) return ''
   return `"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')} - finish that first.`
+}
+
+// Why a task can't be scheduled to start on `startDate` ('' when it can): it
+// may not begin before the day an unfinished prerequisite ends (the same day
+// is fine).
+// Prerequisites with no date don't hold it back.
+export function scheduleBlockedReason(task, startDate, dueDate, allTasks, statuses) {
+  const start = startDate || dueDate
+  if (!start) return ''
+  for (const p of waitingOn(task, allTasks, statuses)) {
+    const ends = p.dueDate || p.startDate
+    if (ends && start < ends) {
+      return `"${task.title}" can't start before "${p.title}" is done - that one ends ${formatDMY(ends)}, so this can start on that day or later.`
+    }
+  }
+  return ''
 }
 
 // Tasks that can be picked as prerequisites of `taskId`: everything except

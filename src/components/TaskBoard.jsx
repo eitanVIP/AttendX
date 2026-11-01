@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import TaskCalendar from './TaskCalendar'
-import { TASK_PRIORITIES, divisionColor, isOverdue, sortTasks, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
+import { TASK_PRIORITIES, divisionColor, isOverdue, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
 const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.name]))
@@ -140,7 +140,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
             </tr>
           </thead>
           <tbody>
-            {sorted.map((t) => {
+            {sortTasksByDate(tasks).map((t) => {
               const assignee = students.find((s) => s.id === t.assigneeId)
               const overdue = isOverdue(t, statuses, today)
               return (
@@ -182,7 +182,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                 </tr>
               )
             })}
-            {sorted.length === 0 && (
+            {tasks.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted">
                   No tasks.

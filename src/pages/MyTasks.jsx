@@ -4,7 +4,7 @@ import { useStudentAuth } from '../context/StudentAuthContext'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
-import { EMPTY_TASK, moveBlockedReason, moveTask, prerequisiteCandidates, statusOf, useTaskData, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, statusOf, useTaskData, waitingOn, writeTask } from '../lib/tasks'
 
 // A StudentLayout tab. Students only watch their own tasks; a task lead
 // (taskLead on their roster doc, set by an admin on the Students page) sees
@@ -66,13 +66,24 @@ export default function MyTasks() {
     e.preventDefault()
     const task = { ...form, title: form.title.trim(), statusId: form.statusId || statuses[0].id }
     if (!task.title) return
-    const reason =
-      editing && statusOf(editing, statuses).id === task.statusId ? '' : moveBlockedReason({ ...task, id: editing?.id }, task.statusId, allTasks, statuses)
+    const scheduleReason = scheduleBlockedReason({ ...task, id: editing?.id }, task.startDate, task.dueDate, allTasks, statuses)
+    if (scheduleReason) {
+      setFormError(scheduleReason)
+      return
+    }
+    const statusChanged = !editing || statusOf(editing, statuses).id !== task.statusId
+    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, allTasks, statuses) : ''
     if (reason) {
       setFormError(reason)
       return
     }
     setFormError('')
+    const waiting = waitingOn({ ...task, id: editing?.id }, allTasks, statuses)
+    if (!statusChanged && waiting.length > 0 && task.statusId !== statuses[0].id) {
+      task.statusId = statuses[0].id
+      setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
+      setTimeout(() => setNotice(''), 8000)
+    }
     writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
     setShowForm(false)
@@ -97,6 +108,13 @@ export default function MyTasks() {
   }
 
   function handleSchedule(task, startDate, dueDate) {
+    const reason = scheduleBlockedReason(task, startDate, dueDate, allTasks, statuses)
+    if (reason) {
+      setNotice(reason)
+      setTimeout(() => setNotice(''), 6000)
+      return
+    }
+    setNotice('')
     writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Rescheduled task "${task.title}"`, student.fullName)
   }
