@@ -866,6 +866,7 @@ function teamToSupplierRows(team) {
 function SuppliersSection({ team }) {
   const [rows, setRows] = useState(teamToSupplierRows(team))
   const [input, setInput] = useState('')
+  const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const { data: products } = useProducts(team?.id)
@@ -912,6 +913,12 @@ function SuppliersSection({ team }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    const backwards = rows.find((r) => Number(r.orderMin) > 0 && Number(r.orderMax) > 0 && Number(r.orderMin) > Number(r.orderMax))
+    if (backwards) {
+      setError(`${backwards.name}: the order range minimum is above its maximum.`)
+      return
+    }
+    setError('')
     setSaving(true)
     setSaved(false)
     const cleanRows = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
@@ -1071,6 +1078,7 @@ function SuppliersSection({ team }) {
           </p>
         )}
         <div className="form-actions" style={{ marginTop: 10 }}>
+          {error && <span className="form-error">{error}</span>}
           {saved && <span className="muted">Saved.</span>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
