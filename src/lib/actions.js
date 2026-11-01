@@ -31,6 +31,7 @@ import {
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
+import { moveTask, removeTask, saveTaskStatuses, writeTask } from './tasks'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -59,11 +60,11 @@ function logEntry(entity, action, summary) {
 // googleCalendarEventId back onto once an event is created or replaced.
 // Resolves true unless the Calendar call actually failed (so the bulk sync
 // can count failures).
-async function syncDocCalendarEvent(ref, { title, date, description, previousEventId }) {
+async function syncDocCalendarEvent(ref, { title, date, endDate, description, previousEventId }) {
   if (!(await ensureGoogleCalendarToken())) return true
   try {
     if (date) {
-      const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, description })
+      const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, endDate, description })
       if (id && id !== previousEventId) await updateDoc(ref, { googleCalendarEventId: id })
     } else if (previousEventId) {
       await deleteCalendarEvent(previousEventId)
@@ -1211,4 +1212,87 @@ export function deleteLoan(teamId, loan, inventoryDeltas = []) {
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'delete', `Deleted loan of ${loanLabel(loan)}`)),
     ...loanInventoryWrites(teamId, inventoryDeltas),
   ])
+}
+
+// Tasks (see tasks.js): admin-side writes, each with a change-log entry.
+// Task leads do the same through communityDb (see MyTasks.jsx).
+//
+// A task with a date lands on the team's Google Calendar like events do (all
+// day; a start-to-due range is one multi-day entry). That sync only happens
+// here, in an admin's browser, so `calendarSynced` remembers which version of
+// the task the calendar last got - syncStaleTaskCalendars catches up whatever
+// a task lead changed since.
+const taskCalendarKey = (task) => [task.title, task.startDate || '', task.dueDate || '', task.assigneeId || '', task.division || ''].join('|')
+
+function taskCalendarArgs(task, assigneeName) {
+  const date = task.startDate || task.dueDate || ''
+  const endDate = task.dueDate && task.dueDate >= date ? task.dueDate : date
+  return {
+    title: `Task: ${task.title}`,
+    date,
+    endDate,
+    description: [assigneeName && `Assigned to ${assigneeName}`, task.division && `Division: ${task.division}`].filter(Boolean).join('\n'),
+    previousEventId: task.googleCalendarEventId,
+  }
+}
+
+// false when nobody has connected Google Calendar in this session (nothing
+// was synced, so the task stays marked as stale), true otherwise.
+async function syncTaskCalendar(teamId, task, assigneeName) {
+  if (!(await ensureGoogleCalendarToken())) return false
+  const ref = doc(db, 'teams', teamId, 'tasks', task.id)
+  const ok = await syncDocCalendarEvent(ref, taskCalendarArgs(task, assigneeName))
+  const key = taskCalendarKey(task)
+  if (ok && key !== task.calendarSynced) await updateDoc(ref, { calendarSynced: key })
+  return ok
+}
+
+export async function createTask(teamId, task, assigneeName) {
+  const [ref] = await Promise.all([
+    writeTask(db, teamId, null, task, auth.currentUser?.uid || ''),
+    logChange(teamId, 'task', 'create', `Added task "${task.title}"`),
+  ])
+  await syncTaskCalendar(teamId, { ...task, id: ref.id }, assigneeName)
+}
+
+// `previous` is the task as it was (it carries the linked calendar event).
+export async function updateTask(teamId, previous, task, assigneeName) {
+  await Promise.all([
+    writeTask(db, teamId, previous.id, task, auth.currentUser?.uid || ''),
+    logChange(teamId, 'task', 'update', `Updated task "${task.title}"`),
+  ])
+  await syncTaskCalendar(teamId, { ...previous, ...task }, assigneeName)
+}
+
+export function setTaskStatus(teamId, task, statusName, statusId) {
+  return Promise.all([
+    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || ''),
+    logChange(teamId, 'task', 'update', `Moved task "${task.title}" to ${statusName}`),
+  ])
+}
+
+export function deleteTask(teamId, task) {
+  return Promise.all([
+    removeTask(db, teamId, task.id),
+    logChange(teamId, 'task', 'delete', `Deleted task "${task.title}"`),
+    deleteCalendarEvent(task.googleCalendarEventId),
+  ])
+}
+
+export function updateTaskStatuses(teamId, statuses) {
+  return Promise.all([saveTaskStatuses(db, teamId, statuses), logChange(teamId, 'task', 'update', 'Updated task statuses')])
+}
+
+// Tasks whose calendar entry is out of date (changed by a task lead, or made
+// while nobody was connected) - what the Tasks page asks to catch up on.
+export function staleCalendarTasks(tasks) {
+  return tasks.filter((t) => (t.startDate || t.dueDate || t.googleCalendarEventId) && taskCalendarKey(t) !== t.calendarSynced)
+}
+
+// One at a time, like syncAllDatesToCalendar (Google rate-limits bursts).
+export async function syncStaleTaskCalendars(teamId, tasks, students) {
+  for (const task of staleCalendarTasks(tasks)) {
+    const name = students.find((s) => s.id === task.assigneeId)?.fullName || ''
+    if (!(await syncTaskCalendar(teamId, task, name))) return
+  }
 }

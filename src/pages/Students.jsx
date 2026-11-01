@@ -10,7 +10,7 @@ import { GRADES, activityLabel, movedWithinGroup, swappedRows } from '../lib/cal
 import { addStudent, deleteStudent, reorderDocs, updateStudent } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', plan: '', notes: '' }
+const emptyForm = { fullName: '', divisions: [], subdivisions: {}, grade: '', status: 'active', plan: '', notes: '', taskLead: false }
 
 export default function Students() {
   const { team } = useAuth()
@@ -40,6 +40,7 @@ export default function Students() {
       status: student.status || 'active',
       plan: student.plan || '',
       notes: student.notes || '',
+      taskLead: !!student.taskLead,
     })
     setFormError('')
     setShowForm(true)
@@ -212,6 +213,15 @@ export default function Students() {
           <label className="span-2">
             Notes
             <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </label>
+          <label className="span-2" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={!!form.taskLead}
+              onChange={(e) => setForm({ ...form, taskLead: e.target.checked })}
+              style={{ width: 'auto' }}
+            />
+            Task lead (can assign and move tasks)
           </label>
         </div>
         {formError && <p className="form-error">{formError}</p>}
