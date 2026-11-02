@@ -5,11 +5,12 @@ import FormPanel from '../components/FormPanel'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
-import { commentOnTask, createTask, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
+import { commentOnTask, createTask, decideTaskRequest, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
 import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
+import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -33,6 +34,8 @@ export default function Tasks() {
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
+  const requests = useTaskRequests(db, team?.id, null)
+  const [acceptingRequest, setAcceptingRequest] = useState(null)
   const [blockedAsk, setBlockedAsk] = useState(null)
 
   useEffect(() => {
@@ -120,6 +123,10 @@ export default function Tasks() {
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     if (editing) updateTask(team.id, editing, task, assigneeName)
     else createTask(team.id, task, assigneeName)
+    if (!editing && acceptingRequest) {
+      decideTaskRequest(team.id, acceptingRequest, 'accepted')
+      setAcceptingRequest(null)
+    }
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
   }
@@ -148,6 +155,15 @@ export default function Tasks() {
       ...completionFields(null, statusId, statuses),
     }
     createTask(team.id, task, students.find((s) => s.id === task.assigneeId)?.fullName || '')
+  }
+
+  // Accepting a request opens the new-task form filled in from it.
+  function acceptRequest(request) {
+    setFormError('')
+    setEditing(null)
+    setAcceptingRequest(request)
+    setForm({ ...EMPTY_TASK, title: request.title, description: request.description || '', division: request.division || '', statusId: statuses[0].id })
+    setShowForm(true)
   }
 
   // Approving a finish request moves the task to the first finished status.
@@ -320,13 +336,17 @@ export default function Tasks() {
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
       <UndoBar undo={undo} onClose={() => setUndo(null)} />
+      <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={(r, reason) => decideTaskRequest(team.id, r, 'declined', reason)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
       <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} onQuickAdd={quickAdd} />
 
       <TaskFormPanel
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={() => {
+          setShowForm(false)
+          setAcceptingRequest(null)
+        }}
         onSubmit={handleSubmit}
         form={form}
         setForm={setForm}

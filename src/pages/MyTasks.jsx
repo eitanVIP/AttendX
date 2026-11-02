@@ -6,8 +6,9 @@ import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
 import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
+import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, writeTask } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -27,6 +28,9 @@ export default function MyTasks() {
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
+  const requests = useTaskRequests(communityDb, verified.teamId, isLead ? null : studentId)
+  const [showRequest, setShowRequest] = useState(false)
+  const [acceptingRequest, setAcceptingRequest] = useState(null)
   const [blockedAsk, setBlockedAsk] = useState(null)
   const [division, setDivision] = useState('all')
   const divisions = verified.divisions || []
@@ -104,6 +108,11 @@ export default function MyTasks() {
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
     Object.assign(task, completionFields(editing, task.statusId, statuses))
     writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
+    if (!editing && acceptingRequest) {
+      decideTaskRequest(communityDb, verified.teamId, acceptingRequest.id, 'accepted', studentId)
+      logStudentChange(verified.teamId, 'task', 'update', `Accepted task request "${acceptingRequest.title}"`, student.fullName)
+      setAcceptingRequest(null)
+    }
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
@@ -128,6 +137,26 @@ export default function MyTasks() {
     }
     writeTask(communityDb, verified.teamId, null, task, studentId)
     logStudentChange(verified.teamId, 'task', 'create', `Added task "${title}"`, student.fullName)
+  }
+
+  function sendRequest(request) {
+    submitTaskRequest(communityDb, verified.teamId, { ...request, requestedBy: studentId, requestedByName: student.fullName })
+    logStudentChange(verified.teamId, 'task', 'create', `Requested task "${request.title}"`, student.fullName)
+    setShowRequest(false)
+  }
+
+  // A lead accepting a request opens the new-task form filled in from it.
+  function acceptRequest(request) {
+    setFormError('')
+    setEditing(null)
+    setAcceptingRequest(request)
+    setForm({ ...EMPTY_TASK, title: request.title, description: request.description || '', division: request.division || '', statusId: statuses[0].id })
+    setShowForm(true)
+  }
+
+  function declineRequest(request, reason) {
+    decideTaskRequest(communityDb, verified.teamId, request.id, 'declined', studentId, reason)
+    logStudentChange(verified.teamId, 'task', 'update', `Declined task request "${request.title}"`, student.fullName)
   }
 
   // The assignee asks for a task to be marked done; a lead or admin approves.
@@ -237,6 +266,10 @@ export default function MyTasks() {
       <UndoBar undo={undo} onClose={() => setUndo(null)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
+      {isLead && <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={declineRequest} />}
+      <MyTaskRequests requests={requests.filter((r) => r.requestedBy === studentId)} onRequest={() => setShowRequest(true)} />
+      <RequestTaskPanel open={showRequest} onClose={() => setShowRequest(false)} onSubmit={sendRequest} divisions={divisions} />
+
       <DueSoon tasks={allTasks} statuses={statuses} studentId={studentId} />
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -315,7 +348,10 @@ export default function MyTasks() {
       {isLead && (
         <TaskFormPanel
           open={showForm}
-          onClose={() => setShowForm(false)}
+          onClose={() => {
+            setShowForm(false)
+            setAcceptingRequest(null)
+          }}
           onSubmit={handleSubmit}
           form={form}
           setForm={setForm}

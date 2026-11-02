@@ -297,6 +297,47 @@ export function dueSoon(tasks, statuses, studentId, today = todayISO(), days = 7
     .sort((a, b) => (a.dueDate || a.startDate).localeCompare(b.dueDate || b.startDate))
 }
 
+// Task requests live at teams/{teamId}/taskRequests: { title, description,
+// division, requestedBy, requestedByName, status ('pending' | 'accepted' |
+// 'declined'), createdAt, and once decided decidedBy, decidedAt, declineReason }.
+// Any student can ask; a task lead or admin decides.
+export function submitTaskRequest(database, teamId, request) {
+  return addDoc(collection(database, 'teams', teamId, 'taskRequests'), {
+    title: request.title,
+    description: request.description || '',
+    division: request.division || '',
+    requestedBy: request.requestedBy,
+    requestedByName: request.requestedByName,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  })
+}
+
+export function decideTaskRequest(database, teamId, requestId, decision, deciderId, reason = '') {
+  return updateDoc(doc(database, 'teams', teamId, 'taskRequests', requestId), {
+    status: decision,
+    decidedBy: deciderId,
+    decidedAt: new Date().toISOString(),
+    declineReason: reason,
+  })
+}
+
+// Live task requests. `onlyStudentId` limits it to one student's own.
+export function useTaskRequests(database, teamId, onlyStudentId) {
+  const [requests, setRequests] = useState([])
+  useEffect(() => {
+    if (!teamId) return
+    const base = collection(database, 'teams', teamId, 'taskRequests')
+    const source = onlyStudentId ? query(base, where('requestedBy', '==', onlyStudentId)) : base
+    return onSnapshot(
+      source,
+      (snap) => setRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))),
+      () => {}
+    )
+  }, [database, teamId, onlyStudentId])
+  return requests
+}
+
 // Overdue = past its due date and not in a status marked finished.
 export function isOverdue(task, statuses, today) {
   if (!task.dueDate || task.dueDate >= today) return false
