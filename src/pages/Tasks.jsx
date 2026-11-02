@@ -7,7 +7,9 @@ import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
 import { commentOnTask, createTask, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
 import CompletionCelebration from '../components/CompletionCelebration'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
+import UndoBar from '../components/UndoBar'
+import BlockedPrompt from '../components/BlockedPrompt'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -30,6 +32,8 @@ export default function Tasks() {
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
+  const [undo, setUndo] = useState(null)
+  const [blockedAsk, setBlockedAsk] = useState(null)
 
   useEffect(() => {
     document.title = 'AttendX | Tasks'
@@ -75,6 +79,7 @@ export default function Tasks() {
       blockedBy: task.blockedBy || [],
       checklist: task.checklist || [],
       repeat: task.repeat || '',
+      blockedReason: task.blockedReason || '',
     })
     setShowForm(true)
   }
@@ -83,6 +88,11 @@ export default function Tasks() {
     e.preventDefault()
     const task = { ...form, title: form.title.trim(), statusId: form.statusId || statuses[0].id }
     if (!task.title) return
+    task.blockedReason = isBlockedStatus(statuses, task.statusId) ? (task.blockedReason || '').trim() : ''
+    if (isBlockedStatus(statuses, task.statusId) && !task.blockedReason) {
+      setFormError('Say why it is blocked.')
+      return
+    }
     // Choosing a later status for a waiting task is refused. A task that is
     // already past the first status and now has unfinished prerequisites is
     // sent back to the first status instead, so it never sits "started" while
@@ -120,6 +130,26 @@ export default function Tasks() {
     setShowForm(false)
   }
 
+  // Offers to take back the last drag or move for a few seconds.
+  function offerUndo(message, run) {
+    const stamp = Date.now()
+    setUndo({ message, run, stamp })
+    setTimeout(() => setUndo((u) => (u && u.stamp === stamp ? null : u)), 8000)
+  }
+
+  // "+ Add task" at the bottom of a column. The current filters carry over.
+  function quickAdd(title, statusId) {
+    const task = {
+      ...EMPTY_TASK,
+      title,
+      statusId,
+      division: division !== 'all' && division !== 'none' ? division : '',
+      assigneeId: assignee !== 'all' && assignee !== 'none' ? assignee : '',
+      ...completionFields(null, statusId, statuses),
+    }
+    createTask(team.id, task, students.find((s) => s.id === task.assigneeId)?.fullName || '')
+  }
+
   // Approving a finish request moves the task to the first finished status.
   function approveDone(task) {
     const done = firstDoneStatus(statuses)
@@ -144,24 +174,38 @@ export default function Tasks() {
     }
   }
 
-  function handleMove(task, statusId) {
+  // `reason` is the answer to "why is it blocked?" for a blocked status.
+  function handleMove(task, statusId, { reason: blockedWhy, skipUndo = false } = {}) {
     const reason = moveBlockedReason(task, statusId, tasks, statuses)
     if (reason) {
       setNotice(reason)
       setTimeout(() => setNotice(''), 6000)
       return
     }
+    const blocked = isBlockedStatus(statuses, statusId)
+    if (blocked && blockedWhy === undefined) {
+      setBlockedAsk({ task, statusId })
+      return
+    }
     setNotice('')
-    setTaskStatus(team.id, task, statuses.find((s) => s.id === statusId)?.name || statusId, statusId, completionFields(task, statusId, statuses))
-    if (becameDone(task, statusId, statuses)) afterDone(task)
+    const name = statuses.find((s) => s.id === statusId)?.name || statusId
+    const blockedFields = blocked ? { blockedReason: blockedWhy } : task.blockedReason ? { blockedReason: '' } : {}
+    setTaskStatus(team.id, task, name, statusId, { ...completionFields(task, statusId, statuses), ...blockedFields })
+    const finished = becameDone(task, statusId, statuses)
+    if (finished) afterDone(task)
+    if (!skipUndo && !(finished && task.repeat)) {
+      const before = statusOf(task, statuses).id
+      offerUndo(`Moved "${task.title}" to ${name}`, () => handleMove({ ...task, statusId }, before, { reason: task.blockedReason || '', skipUndo: true }))
+    }
   }
 
-  function handleAssign(task, assigneeId) {
+  function handleAssign(task, assigneeId, skipUndo = false) {
     updateTask(team.id, task, { title: task.title, assigneeId }, students.find((s) => s.id === assigneeId)?.fullName || '')
+    if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
 
   // Dragging a task on the calendar (see TaskCalendar) just changes its dates.
-  function handleSchedule(task, startDate, dueDate) {
+  function handleSchedule(task, startDate, dueDate, skipUndo = false) {
     const reason = scheduleBlockedReason(task, startDate, dueDate, tasks, statuses)
     if (reason) {
       setNotice(reason)
@@ -171,6 +215,7 @@ export default function Tasks() {
     setNotice('')
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     updateTask(team.id, task, { title: task.title, startDate, dueDate }, assigneeName)
+    if (!skipUndo) offerUndo(`Rescheduled "${task.title}"`, () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
   }
 
   function openStatuses() {
@@ -205,7 +250,7 @@ export default function Tasks() {
 
   function handleSaveStatuses(e) {
     e.preventDefault()
-    const clean = statusRows.map((s) => ({ ...s, name: s.name.trim(), done: !!s.done })).filter((s) => s.name)
+    const clean = statusRows.map((s) => ({ ...s, name: s.name.trim(), done: !!s.done, blocked: !!s.blocked })).filter((s) => s.name)
     if (clean.length === 0) {
       setStatusError('Keep at least one status.')
       return
@@ -274,8 +319,10 @@ export default function Tasks() {
       )}
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
+      <UndoBar undo={undo} onClose={() => setUndo(null)} />
+      <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
-      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} />
+      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} onQuickAdd={quickAdd} />
 
       <TaskFormPanel
         open={showForm}
@@ -288,6 +335,7 @@ export default function Tasks() {
         divisions={divisions}
         candidates={prerequisiteCandidates(editing?.id, tasks)}
         error={formError}
+        blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
         comments={tasks.find((t) => t.id === editing?.id)?.comments || []}
         onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
         editing={!!editing}
@@ -303,6 +351,10 @@ export default function Tasks() {
               <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Tasks in a finished status are never shown as overdue">
                 <input type="checkbox" checked={!!row.done} onChange={(e) => updateStatusRow(row.id, { done: e.target.checked })} style={{ width: 'auto' }} />
                 Finished
+              </label>
+              <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Moving a task here asks why it is blocked">
+                <input type="checkbox" checked={!!row.blocked} onChange={(e) => updateStatusRow(row.id, { blocked: e.target.checked })} style={{ width: 'auto' }} />
+                Blocked
               </label>
               <button type="button" className="link-btn" onClick={() => moveStatusRow(i, -1)} disabled={i === 0} aria-label="Move up">
                 ↑

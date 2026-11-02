@@ -11,7 +11,7 @@ import { todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -28,7 +28,7 @@ export const TASK_PRIORITIES = [
   { id: 'low', name: 'Low' },
 ]
 
-export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '' }
+export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '' }
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
 
@@ -210,6 +210,10 @@ export function nextOccurrence(task, today = todayISO()) {
 // The status a finished task moves to (the first one marked as finished), or
 // undefined when none is.
 export const firstDoneStatus = (statuses) => statuses.find((s) => s.done)
+
+// A status can be marked `blocked` in the Statuses editor: moving a task
+// into one asks why, and the answer shows on the card.
+export const isBlockedStatus = (statuses, statusId) => !!statuses.find((s) => s.id === statusId)?.blocked
 
 // The completedAt change for putting `task` (null for a new one) into
 // `statusId`: stamped when it becomes finished, cleared when it is reopened.

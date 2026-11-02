@@ -20,6 +20,26 @@ function TaskExtras({ task }) {
   )
 }
 
+// The "+ Add task" box at the bottom of a column: type a title, press Enter.
+function QuickAdd({ onAdd }) {
+  const [title, setTitle] = useState('')
+  return (
+    <input
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && title.trim()) {
+          onAdd(title.trim())
+          setTitle('')
+        }
+      }}
+      placeholder="+ Add task"
+      aria-label="Add a task here"
+      style={{ width: '100%', marginTop: 4, fontSize: 13, padding: '5px 8px' }}
+    />
+  )
+}
+
 function TaskCard({ task, students, statuses, divisions, allTasks, canMove, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
   const overdue = isOverdue(task, statuses, today)
@@ -43,6 +63,9 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, move
       </div>
       {waiting.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waiting.map((t) => t.title).join(', ')}</div>
+      )}
+      {task.blockedReason && statusOf(task, statuses).blocked && (
+        <div style={{ fontSize: 12, color: 'var(--danger)' }}>⛔ {task.blockedReason}</div>
       )}
       {task.description && (
         <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
@@ -97,7 +120,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, move
 // One column per status (drag a card to another to change its status, or use
 // the select on it) or a plain list. `canMove` is who may change a status;
 // `onOpen` is set only for people who may edit the task's details.
-export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject }) {
+export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd }) {
   const [overStatus, setOverStatus] = useState(null)
   const [overUnassign, setOverUnassign] = useState(false)
   const today = todayISO()
@@ -277,6 +300,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
               <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
             ))}
             {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>Nothing here</div>}
+            {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, status.id)} />}
           </div>
         )
       })}
