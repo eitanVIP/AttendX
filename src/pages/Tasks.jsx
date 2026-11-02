@@ -10,6 +10,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
+import SendBackPrompt from '../components/SendBackPrompt'
 import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone, duplicateOf } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
@@ -34,6 +35,7 @@ export default function Tasks() {
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
+  const [sendBackTask, setSendBackTask] = useState(null)
   const [system, setSystem] = useState('all')
   const [showOld, setShowOld] = useState(false)
   const { data: systems } = useSystems(team?.id)
@@ -196,8 +198,15 @@ export default function Tasks() {
     handleMove(task, done.id)
   }
 
+  // Sending a finish request back asks for an optional note, kept as a comment.
   function rejectDone(task) {
+    setSendBackTask(task)
+  }
+
+  function sendBack(task, note) {
     updateTask(team.id, task, { title: task.title, doneRequested: false }, students.find((s) => s.id === task.assigneeId)?.fullName || '')
+    if (note) commentOnTask(team.id, task.id, `Sent back: ${note}`)
+    setSendBackTask(null)
   }
 
   // A finished repeating task makes its next copy.
@@ -376,6 +385,7 @@ export default function Tasks() {
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
       <UndoBar undo={undo} onClose={() => setUndo(null)} />
+      <SendBackPrompt task={sendBackTask} onClose={() => setSendBackTask(null)} onSubmit={(note) => sendBack(sendBackTask, note)} />
       <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={(r, reason) => decideTaskRequest(team.id, r, 'declined', reason)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 

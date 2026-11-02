@@ -8,6 +8,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
+import SendBackPrompt from '../components/SendBackPrompt'
 import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
@@ -28,6 +29,7 @@ export default function MyTasks() {
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
+  const [sendBackTask, setSendBackTask] = useState(null)
   const requests = useTaskRequests(communityDb, verified.teamId, isLead ? null : studentId)
   const [showRequest, setShowRequest] = useState(false)
   const [acceptingRequest, setAcceptingRequest] = useState(null)
@@ -195,9 +197,16 @@ export default function MyTasks() {
     handleMove(task, done.id)
   }
 
+  // Sending a finish request back asks for an optional note, kept as a comment.
   function rejectDone(task) {
+    setSendBackTask(task)
+  }
+
+  function sendBack(task, note) {
     writeTask(communityDb, verified.teamId, task.id, { doneRequested: false }, studentId)
+    if (note) addTaskComment(communityDb, verified.teamId, task.id, `Sent back: ${note}`, student.fullName, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Sent task "${task.title}" back`, student.fullName)
+    setSendBackTask(null)
   }
 
   function toggleItem(task, itemId) {
@@ -285,6 +294,7 @@ export default function MyTasks() {
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
       <UndoBar undo={undo} onClose={() => setUndo(null)} />
+      <SendBackPrompt task={sendBackTask} onClose={() => setSendBackTask(null)} onSubmit={(note) => sendBack(sendBackTask, note)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
       {isLead && <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={declineRequest} />}
