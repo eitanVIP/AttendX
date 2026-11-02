@@ -11,7 +11,7 @@ import { computeToBuy, normalizeProduct, todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, links [{ id, url, label }] (http/https only), partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -28,7 +28,7 @@ export const TASK_PRIORITIES = [
   { id: 'low', name: 'Low' },
 ]
 
-export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '', partIds: [], systemId: '' }
+export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '', partIds: [], systemId: '', links: [] }
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
 
@@ -376,6 +376,28 @@ export function useTaskRequests(database, teamId, onlyStudentId) {
   return requests
 }
 
+// Links on a task (an Onshape document, a drawing, a photo). Only http(s)
+// addresses are kept or shown, so a link can never be a script.
+export function isWebLink(url) {
+  try {
+    const { protocol } = new URL(String(url || '').trim())
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+export function taskLinks(task) {
+  return (task.links || []).filter((l) => isWebLink(l.url))
+}
+export function linkLabel(link) {
+  if (link.label) return link.label
+  try {
+    return new URL(link.url).hostname
+  } catch {
+    return link.url
+  }
+}
+
 // A copy of `task` for the Duplicate button: same details, back in the first
 // status with the checklist unticked - no comments, history or completion.
 export function duplicateOf(task, firstStatusId) {
@@ -393,6 +415,7 @@ export function duplicateOf(task, firstStatusId) {
     repeat: task.repeat || '',
     partIds: task.partIds || [],
     systemId: task.systemId || '',
+    links: task.links || [],
   }
 }
 

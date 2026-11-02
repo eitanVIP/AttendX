@@ -95,6 +95,7 @@ export default function Tasks() {
       blockedReason: task.blockedReason || '',
       partIds: task.partIds || [],
       systemId: task.systemId || '',
+      links: task.links || [],
     })
     setShowForm(true)
   }

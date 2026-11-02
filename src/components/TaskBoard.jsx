@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import TaskCalendar from './TaskCalendar'
 import TaskStats from './TaskStats'
-import { TASK_PRIORITIES, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
+import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
 const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.name]))
@@ -67,6 +67,15 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
       )}
       {partsWaiting.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsWaiting.map((p) => p.name).join(', ')}</div>
+      )}
+      {taskLinks(task).length > 0 && (
+        <div style={{ fontSize: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {taskLinks(task).map((l) => (
+            <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer" draggable={false}>
+              🔗 {linkLabel(l)}
+            </a>
+          ))}
+        </div>
       )}
       {task.blockedReason && statusOf(task, statuses).blocked && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>⛔ {task.blockedReason}</div>

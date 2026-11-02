@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
-import { taskDateLabel } from '../lib/tasks'
+import { linkLabel, taskDateLabel, taskLinks } from '../lib/tasks'
 
 // What an assignee who isn't a task lead sees when they open their own task:
 // read-only details, plus the things they may do - move it between the
@@ -26,6 +26,15 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
       <p className="muted" style={{ marginTop: 0 }}>
         {[taskDateLabel(task), task.division].filter(Boolean).join(' - ')}
       </p>
+      {taskLinks(task).length > 0 && (
+        <p style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '4px 0' }}>
+          {taskLinks(task).map((l) => (
+            <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer">
+              🔗 {linkLabel(l)}
+            </a>
+          ))}
+        </p>
+      )}
       {!finished && (
         <label>
           Status
