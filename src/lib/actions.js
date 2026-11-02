@@ -31,7 +31,7 @@ import {
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
-import { moveTask, removeTask, saveTaskStatuses, writeTask } from './tasks'
+import { addTaskComment, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -1268,6 +1268,20 @@ export async function updateTask(teamId, previous, task, assigneeName) {
     logChange(teamId, 'task', 'update', `Updated task "${task.title}"`),
   ])
   await syncTaskCalendar(teamId, { ...previous, ...task }, assigneeName)
+}
+
+// A finished repeating task: create its next copy (see spawnNextOccurrence).
+export async function spawnRecurringTask(teamId, task, firstStatusId, students) {
+  const created = await spawnNextOccurrence(db, teamId, task, firstStatusId, auth.currentUser?.uid || '')
+  if (!created) return null
+  await logChange(teamId, 'task', 'create', `Added next "${task.title}" (repeating task)`)
+  await syncTaskCalendar(teamId, created, students.find((s) => s.id === created.assigneeId)?.fullName || '')
+  return created
+}
+
+export function commentOnTask(teamId, taskId, text) {
+  const user = auth.currentUser
+  return addTaskComment(db, teamId, taskId, text, user?.displayName || user?.email || 'Admin', user?.uid || '')
 }
 
 export function setTaskStatus(teamId, task, statusName, statusId) {

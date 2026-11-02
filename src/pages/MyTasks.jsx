@@ -4,7 +4,8 @@ import { useStudentAuth } from '../context/StudentAuthContext'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
-import { EMPTY_TASK, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, statusOf, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import DueSoon from '../components/DueSoon'
 
 // A StudentLayout tab. Students only watch their own tasks; a task lead
 // (taskLead on their roster doc, set by an admin on the Students page) sees
@@ -20,6 +21,7 @@ export default function MyTasks() {
   const [mineOnly, setMineOnly] = useState(false)
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
+  const [info, setInfo] = useState('')
   const [division, setDivision] = useState('all')
   const divisions = verified.divisions || []
   const [showForm, setShowForm] = useState(false)
@@ -58,6 +60,8 @@ export default function MyTasks() {
       statusId: statusOf(task, statuses).id,
       division: task.division || '',
       blockedBy: task.blockedBy || [],
+      checklist: task.checklist || [],
+      repeat: task.repeat || '',
     })
     setShowForm(true)
   }
@@ -86,7 +90,19 @@ export default function MyTasks() {
     }
     writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
+    if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
+  }
+
+  // A finished repeating task makes its next copy.
+  async function afterDone(task) {
+    if (!task.repeat) return
+    const created = await spawnNextOccurrence(communityDb, verified.teamId, task, statuses[0].id, studentId).catch(() => null)
+    if (created) {
+      logStudentChange(verified.teamId, 'task', 'create', `Added next "${task.title}" (repeating task)`, student.fullName)
+      setInfo(`Next "${task.title}" created: ${taskDateLabel(created)}`)
+      setTimeout(() => setInfo(''), 8000)
+    }
   }
 
   function handleMove(task, statusId) {
@@ -100,6 +116,7 @@ export default function MyTasks() {
     const name = statuses.find((s) => s.id === statusId)?.name || statusId
     moveTask(communityDb, verified.teamId, task.id, statusId, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
+    if (becameDone(task, statusId, statuses)) afterDone(task)
   }
 
   function handleAssign(task, assigneeId) {
@@ -134,6 +151,8 @@ export default function MyTasks() {
         </div>
       </div>
 
+      <DueSoon tasks={allTasks} statuses={statuses} studentId={studentId} />
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {isLead && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -164,6 +183,7 @@ export default function MyTasks() {
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
+      {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
 
       {!isLead && tasks.length === 0 ? (
         <p className="muted">No tasks assigned to you.</p>
@@ -196,6 +216,8 @@ export default function MyTasks() {
           divisions={divisions}
           candidates={prerequisiteCandidates(editing?.id, allTasks)}
           error={formError}
+          comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
+          onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
           editing={!!editing}
         />
       )}
