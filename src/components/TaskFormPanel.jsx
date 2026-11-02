@@ -1,11 +1,28 @@
+import { useState } from 'react'
 import FormPanel from './FormPanel'
 import DateField from './DateField'
-import { TASK_PRIORITIES } from '../lib/tasks'
+import { REPEATS, TASK_PRIORITIES } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
+  const [newItem, setNewItem] = useState('')
+  const [newComment, setNewComment] = useState('')
+  const checklist = form.checklist || []
+  const setChecklist = (next) => setForm({ ...form, checklist: next })
+  function addItem() {
+    const text = newItem.trim()
+    if (!text) return
+    setChecklist([...checklist, { id: Math.random().toString(36).slice(2, 8), text, done: false }])
+    setNewItem('')
+  }
+  function postComment() {
+    const text = newComment.trim()
+    if (!text) return
+    onAddComment(text)
+    setNewComment('')
+  }
   return (
     <FormPanel open={open} onClose={onClose} onSubmit={onSubmit}>
       <h3>{editing ? 'Edit task' : 'New task'}</h3>
@@ -70,6 +87,62 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             ))}
           </select>
         </label>
+        <label>
+          Repeats
+          <select value={form.repeat || ''} onChange={set('repeat')}>
+            {REPEATS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form.repeat && !form.startDate && !form.dueDate && (
+          <p className="muted span-2" style={{ fontSize: 12, margin: 0 }}>
+            A repeating task needs a start or due date. The next copy is made when this one is finished.
+          </p>
+        )}
+        <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
+          <legend className="muted" style={{ fontSize: 13 }}>
+            Checklist{checklist.length > 0 && ` (${checklist.filter((i) => i.done).length}/${checklist.length})`}
+          </legend>
+          {checklist.map((item) => (
+            <div key={item.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+              <input
+                type="checkbox"
+                style={{ width: 'auto' }}
+                checked={item.done}
+                aria-label={`Done: ${item.text}`}
+                onChange={(e) => setChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: e.target.checked } : i)))}
+              />
+              <input
+                value={item.text}
+                onChange={(e) => setChecklist(checklist.map((i) => (i.id === item.id ? { ...i, text: e.target.value } : i)))}
+                style={{ flex: 1, textDecoration: item.done ? 'line-through' : 'none' }}
+              />
+              <button type="button" className="link-btn danger" aria-label={`Remove ${item.text}`} onClick={() => setChecklist(checklist.filter((i) => i.id !== item.id))}>
+                ✕
+              </button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addItem()
+                }
+              }}
+              placeholder="Add a step and press Enter"
+              style={{ flex: 1 }}
+            />
+            <button type="button" className="secondary" onClick={addItem}>
+              Add
+            </button>
+          </div>
+        </fieldset>
         {candidates.length > 0 && (
           <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
             <legend className="muted" style={{ fontSize: 13 }}>Waits for (can't start until these are finished)</legend>
@@ -94,6 +167,27 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
           </fieldset>
         )}
       </div>
+      {editing && onAddComment && (
+        <div style={{ marginTop: 10 }}>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
+            Comments{comments.length > 0 && ` (${comments.length})`}
+          </div>
+          <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+            {comments.map((c) => (
+              <div key={c.id} style={{ fontSize: 13 }}>
+                <strong>{c.authorName}</strong> <span className="muted">{new Date(c.at).toLocaleString()}</span>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{c.text}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a comment" style={{ flex: 1 }} />
+            <button type="button" className="secondary" onClick={postComment}>
+              Post
+            </button>
+          </div>
+        </div>
+      )}
       {error && <p className="form-error">{error}</p>}
       <div className="form-actions">
         {onDelete && (

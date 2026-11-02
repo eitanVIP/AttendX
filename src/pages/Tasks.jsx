@@ -5,8 +5,8 @@ import FormPanel from '../components/FormPanel'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
-import { createTask, deleteTask, setTaskStatus, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
-import { EMPTY_TASK, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, useTaskData, waitingOn } from '../lib/tasks'
+import { commentOnTask, createTask, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
+import { EMPTY_TASK, becameDone, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -28,6 +28,7 @@ export default function Tasks() {
   const [statusError, setStatusError] = useState('')
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
+  const [info, setInfo] = useState('')
 
   useEffect(() => {
     document.title = 'AttendX | Tasks'
@@ -71,6 +72,8 @@ export default function Tasks() {
       statusId: statusOf(task, statuses).id,
       division: task.division || '',
       blockedBy: task.blockedBy || [],
+      checklist: task.checklist || [],
+      repeat: task.repeat || '',
     })
     setShowForm(true)
   }
@@ -104,6 +107,7 @@ export default function Tasks() {
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     if (editing) updateTask(team.id, editing, task, assigneeName)
     else createTask(team.id, task, assigneeName)
+    if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
   }
 
@@ -111,6 +115,16 @@ export default function Tasks() {
     if (!confirm(`Delete "${editing.title}"?`)) return
     await deleteTask(team.id, editing)
     setShowForm(false)
+  }
+
+  // A finished repeating task makes its next copy.
+  async function afterDone(task) {
+    if (!task.repeat) return
+    const created = await spawnRecurringTask(team.id, task, statuses[0].id, students).catch(() => null)
+    if (created) {
+      setInfo(`Next "${task.title}" created: ${taskDateLabel(created)}`)
+      setTimeout(() => setInfo(''), 8000)
+    }
   }
 
   function handleMove(task, statusId) {
@@ -122,6 +136,7 @@ export default function Tasks() {
     }
     setNotice('')
     setTaskStatus(team.id, task, statuses.find((s) => s.id === statusId)?.name || statusId, statusId)
+    if (becameDone(task, statusId, statuses)) afterDone(task)
   }
 
   function handleAssign(task, assigneeId) {
@@ -236,6 +251,7 @@ export default function Tasks() {
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
+      {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
 
       <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} />
 
@@ -250,6 +266,8 @@ export default function Tasks() {
         divisions={divisions}
         candidates={prerequisiteCandidates(editing?.id, tasks)}
         error={formError}
+        comments={tasks.find((t) => t.id === editing?.id)?.comments || []}
+        onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
         editing={!!editing}
         onDelete={editing ? handleDelete : undefined}
       />

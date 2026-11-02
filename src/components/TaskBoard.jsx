@@ -1,9 +1,23 @@
 import { useState } from 'react'
 import TaskCalendar from './TaskCalendar'
-import { TASK_PRIORITIES, divisionColor, isOverdue, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
+import { TASK_PRIORITIES, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
 const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.name]))
+
+// Small marks for a task's checklist progress, repeat and comments.
+function TaskExtras({ task }) {
+  const { done, total } = checklistProgress(task)
+  const comments = (task.comments || []).length
+  if (!total && !task.repeat && !comments) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 8 }}>
+      {total > 0 && <span title="Checklist">☑ {done}/{total}</span>}
+      {task.repeat && <span title={repeatLabel(task)}>🔁</span>}
+      {comments > 0 && <span title="Comments">💬 {comments}</span>}
+    </span>
+  )
+}
 
 function TaskCard({ task, students, statuses, divisions, allTasks, canMove, onMove, onOpen, today }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
@@ -39,6 +53,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, onMo
         {taskDateLabel(task) && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(task)}</span>}
         {task.division && <span>{task.division}</span>}
         {task.priority === 'low' && <span>Low</span>}
+        <TaskExtras task={task} />
       </div>
       {canMove && (
         <select
@@ -153,6 +168,9 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                     ) : (
                       t.title
                     )}
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      <TaskExtras task={t} />
+                    </div>
                     {waitingOn(t, allTasks, statuses).length > 0 && (
                       <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waitingOn(t, allTasks, statuses).map((w) => w.title).join(', ')}</div>
                     )}
