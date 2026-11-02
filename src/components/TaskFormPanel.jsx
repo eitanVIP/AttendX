@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
 import DateField from './DateField'
-import { REPEATS, TASK_PRIORITIES } from '../lib/tasks'
+import { REPEATS, TASK_PRIORITIES, isWebLink } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
@@ -9,6 +9,20 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
   const [partSearch, setPartSearch] = useState('')
+  const [newLink, setNewLink] = useState({ url: '', label: '' })
+  const [linkError, setLinkError] = useState('')
+  const links = form.links || []
+  function addLink() {
+    const url = newLink.url.trim()
+    if (!url) return
+    if (!isWebLink(url)) {
+      setLinkError('A link has to start with http:// or https://')
+      return
+    }
+    setLinkError('')
+    setForm({ ...form, links: [...links, { id: Math.random().toString(36).slice(2, 8), url, label: newLink.label.trim() }] })
+    setNewLink({ url: '', label: '' })
+  }
   const [newComment, setNewComment] = useState('')
   const checklist = form.checklist || []
   const setChecklist = (next) => setForm({ ...form, checklist: next })
@@ -156,6 +170,39 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             A repeating task needs a start or due date. The next copy is made when this one is finished.
           </p>
         )}
+        <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
+          <legend className="muted" style={{ fontSize: 13 }}>Links</legend>
+          {links.map((l) => (
+            <div key={l.id} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, fontSize: 13 }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {l.label ? `${l.label} - ` : ''}
+                {l.url}
+              </span>
+              <button type="button" className="link-btn danger" aria-label="Remove link" onClick={() => setForm({ ...form, links: links.filter((x) => x.id !== l.id) })}>
+                ✕
+              </button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              value={newLink.url}
+              onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addLink()
+                }
+              }}
+              placeholder="https://..."
+              style={{ flex: 2 }}
+            />
+            <input value={newLink.label} onChange={(e) => setNewLink({ ...newLink, label: e.target.value })} placeholder="Name (optional)" style={{ flex: 1 }} />
+            <button type="button" className="secondary" onClick={addLink}>
+              Add
+            </button>
+          </div>
+          {linkError && <p className="form-error" style={{ margin: '4px 0 0' }}>{linkError}</p>}
+        </fieldset>
         <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
           <legend className="muted" style={{ fontSize: 13 }}>
             Checklist{checklist.length > 0 && ` (${checklist.filter((i) => i.done).length}/${checklist.length})`}
