@@ -31,7 +31,7 @@ import {
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
-import { addTaskComment, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
+import { addTaskComment, decideTaskRequest as writeTaskRequestDecision, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -1277,6 +1277,13 @@ export async function spawnRecurringTask(teamId, task, firstStatusId, students) 
   await logChange(teamId, 'task', 'create', `Added next "${task.title}" (repeating task)`)
   await syncTaskCalendar(teamId, created, students.find((s) => s.id === created.assigneeId)?.fullName || '')
   return created
+}
+
+export function decideTaskRequest(teamId, request, decision, reason = '') {
+  return Promise.all([
+    writeTaskRequestDecision(db, teamId, request.id, decision, auth.currentUser?.uid || '', reason),
+    logChange(teamId, 'task', 'update', `${decision === 'accepted' ? 'Accepted' : 'Declined'} task request "${request.title}"`),
+  ])
 }
 
 export function commentOnTask(teamId, taskId, text) {

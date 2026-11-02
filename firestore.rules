@@ -200,6 +200,29 @@ service cloud.firestore {
           .hasOnly(['statusId', 'doneRequested', 'checklist', 'comments', 'history', 'blockedReason', 'updatedBy', 'updatedAt']);
     }
 
+    // Task requests: any verified student can propose a task (it starts
+    // 'pending'); only a task lead (or an admin, through the catch-all) can
+    // accept or decline it - the claimed `decidedBy` must be a task lead.
+    match /teams/{teamId}/taskRequests/{requestId} {
+      allow read: if hasStudentAccess(teamId);
+      allow create: if hasStudentAccess(teamId)
+        && request.resource.data.keys().hasOnly(['title', 'description', 'division', 'requestedBy', 'requestedByName', 'status', 'createdAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.requestedBy is string
+        && exists(/databases/$(database)/documents/teams/$(teamId)/students/$(request.resource.data.requestedBy));
+      allow update: if hasStudentAccess(teamId)
+        && request.resource.data.status in ['accepted', 'declined']
+        && request.resource.data.decidedBy is string
+        && exists(/databases/$(database)/documents/teams/$(teamId)/students/$(request.resource.data.decidedBy))
+        && get(/databases/$(database)/documents/teams/$(teamId)/students/$(request.resource.data.decidedBy)).data.taskLead == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedBy', 'decidedAt', 'declineReason']);
+    }
+
     // The system log (see logChange in actions.js): admins write to it
     // through the catch-all above, but a student's own actions (logging
     // hours, requesting a product, managing a system - see logStudentChange
