@@ -11,7 +11,7 @@ import { todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -207,6 +207,10 @@ export function nextOccurrence(task, today = todayISO()) {
   }
 }
 
+// The status a finished task moves to (the first one marked as finished), or
+// undefined when none is.
+export const firstDoneStatus = (statuses) => statuses.find((s) => s.done)
+
 // True when moving `task` to `statusId` takes it from unfinished to finished.
 export function becameDone(task, statusId, statuses) {
   return !statusOf(task, statuses).done && !!statuses.find((s) => s.id === statusId)?.done
@@ -266,8 +270,9 @@ export function writeTask(database, teamId, taskId, data, actorId) {
   return addDoc(collection(database, 'teams', teamId, 'tasks'), { ...payload, createdAt: now })
 }
 
-export function moveTask(database, teamId, taskId, statusId, actorId) {
+export function moveTask(database, teamId, taskId, statusId, actorId, extra = {}) {
   return updateDoc(doc(database, 'teams', teamId, 'tasks', taskId), {
+    ...extra,
     statusId,
     updatedBy: actorId,
     updatedAt: new Date().toISOString(),

@@ -4,8 +4,9 @@ import { useStudentAuth } from '../context/StudentAuthContext'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
-import { EMPTY_TASK, addTaskComment, becameDone, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, firstDoneStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
+import TaskDetailPanel from '../components/TaskDetailPanel'
 
 // A StudentLayout tab. Students only watch their own tasks; a task lead
 // (taskLead on their roster doc, set by an admin on the Students page) sees
@@ -26,6 +27,7 @@ export default function MyTasks() {
   const divisions = verified.divisions || []
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [detailId, setDetailId] = useState(null)
   const [form, setForm] = useState(EMPTY_TASK)
 
   useEffect(() => {
@@ -88,10 +90,35 @@ export default function MyTasks() {
       setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
       setTimeout(() => setNotice(''), 8000)
     }
+    if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
     writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
+  }
+
+  // The assignee asks for a task to be marked done; a lead or admin approves.
+  function requestDone(task, wanted) {
+    writeTask(communityDb, verified.teamId, task.id, { doneRequested: wanted }, studentId)
+    logStudentChange(verified.teamId, 'task', 'update', `${wanted ? 'Asked to finish' : 'Withdrew the finish request for'} task "${task.title}"`, student.fullName)
+  }
+
+  function approveDone(task) {
+    const done = firstDoneStatus(statuses)
+    if (!done) {
+      setNotice('Mark one of the statuses as Finished first.')
+      return
+    }
+    handleMove(task, done.id)
+  }
+
+  function rejectDone(task) {
+    writeTask(communityDb, verified.teamId, task.id, { doneRequested: false }, studentId)
+    logStudentChange(verified.teamId, 'task', 'update', `Sent task "${task.title}" back`, student.fullName)
+  }
+
+  function toggleItem(task, itemId) {
+    writeTask(communityDb, verified.teamId, task.id, { checklist: (task.checklist || []).map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)) }, studentId)
   }
 
   // A finished repeating task makes its next copy.
@@ -106,6 +133,14 @@ export default function MyTasks() {
   }
 
   function handleMove(task, statusId) {
+    if (!isLead) {
+      if (task.assigneeId !== studentId) return
+      if (statuses.find((s) => s.id === statusId)?.done) {
+        setNotice('A task lead has to approve finishing a task - use "Request done" instead.')
+        setTimeout(() => setNotice(''), 6000)
+        return
+      }
+    }
     const reason = moveBlockedReason(task, statusId, allTasks, statuses)
     if (reason) {
       setNotice(reason)
@@ -114,7 +149,7 @@ export default function MyTasks() {
     }
     setNotice('')
     const name = statuses.find((s) => s.id === statusId)?.name || statusId
-    moveTask(communityDb, verified.teamId, task.id, statusId, studentId)
+    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false })
     logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
     if (becameDone(task, statusId, statuses)) afterDone(task)
   }
@@ -184,6 +219,9 @@ export default function MyTasks() {
 
       {notice && <p className="form-error">{notice}</p>}
       {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
+      {isLead && tasks.some((t) => t.doneRequested && !statusOf(t, statuses).done) && (
+        <p style={{ color: 'var(--warn-text)' }}>✋ {tasks.filter((t) => t.doneRequested && !statusOf(t, statuses).done).length} task(s) waiting for approval</p>
+      )}
 
       {!isLead && tasks.length === 0 ? (
         <p className="muted">No tasks assigned to you.</p>
@@ -197,10 +235,28 @@ export default function MyTasks() {
           weekStartsOn={verified.weekStartsOn ?? 0}
           view={view}
           canMove={isLead}
+          ownId={studentId}
+          onRequestDone={requestDone}
+          onApprove={isLead ? approveDone : undefined}
+          onReject={isLead ? rejectDone : undefined}
           onMove={handleMove}
-          onOpen={isLead ? startEdit : undefined}
+          onOpen={isLead ? startEdit : (t) => setDetailId(t.id)}
           onSchedule={isLead ? handleSchedule : undefined}
           onAssign={isLead ? handleAssign : undefined}
+        />
+      )}
+
+      {!isLead && detailId && allTasks.some((t) => t.id === detailId) && (
+        <TaskDetailPanel
+          open
+          onClose={() => setDetailId(null)}
+          task={allTasks.find((t) => t.id === detailId)}
+          statuses={statuses}
+          currentStatusId={statusOf(allTasks.find((t) => t.id === detailId), statuses).id}
+          onMove={(statusId) => handleMove(allTasks.find((t) => t.id === detailId), statusId)}
+          onToggleItem={(itemId) => toggleItem(allTasks.find((t) => t.id === detailId), itemId)}
+          onAddComment={(text) => addTaskComment(communityDb, verified.teamId, detailId, text, student.fullName, studentId)}
+          onRequestDone={(wanted) => requestDone(allTasks.find((t) => t.id === detailId), wanted)}
         />
       )}
 

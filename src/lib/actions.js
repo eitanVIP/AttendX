@@ -1286,7 +1286,7 @@ export function commentOnTask(teamId, taskId, text) {
 
 export function setTaskStatus(teamId, task, statusName, statusId) {
   return Promise.all([
-    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || ''),
+    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false }),
     logChange(teamId, 'task', 'update', `Moved task "${task.title}" to ${statusName}`),
   ])
 }
