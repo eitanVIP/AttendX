@@ -40,7 +40,7 @@ function QuickAdd({ onAdd }) {
   )
 }
 
-function TaskCard({ task, students, statuses, divisions, allTasks, canMove, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
+function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting = [], systemName, canMove, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
   const overdue = isOverdue(task, statuses, today)
   const waiting = waitingOn(task, allTasks, statuses)
@@ -64,6 +64,9 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, move
       {waiting.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waiting.map((t) => t.title).join(', ')}</div>
       )}
+      {partsWaiting.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsWaiting.map((p) => p.name).join(', ')}</div>
+      )}
       {task.blockedReason && statusOf(task, statuses).blocked && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>⛔ {task.blockedReason}</div>
       )}
@@ -76,6 +79,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, move
         <span>{assignee ? assignee.fullName : task.assigneeId ? '(removed student)' : 'Unassigned'}</span>
         {taskDateLabel(task) && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(task)}</span>}
         {task.division && <span>{task.division}</span>}
+        {systemName && <span>⚙ {systemName}</span>}
         {task.priority === 'low' && <span>Low</span>}
         <TaskExtras task={task} />
       </div>
@@ -120,7 +124,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, move
 // One column per status (drag a card to another to change its status, or use
 // the select on it) or a plain list. `canMove` is who may change a status;
 // `onOpen` is set only for people who may edit the task's details.
-export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd }) {
+export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd, partsFor = () => [], systems = [] }) {
   const [overStatus, setOverStatus] = useState(null)
   const [overUnassign, setOverUnassign] = useState(false)
   const today = todayISO()
@@ -223,6 +227,9 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                     {waitingOn(t, allTasks, statuses).length > 0 && (
                       <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waitingOn(t, allTasks, statuses).map((w) => w.title).join(', ')}</div>
                     )}
+                    {partsFor(t).length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsFor(t).map((p) => p.name).join(', ')}</div>
+                    )}
                   </td>
                   <td>{assignee ? assignee.fullName : t.assigneeId ? '(removed student)' : '—'}</td>
                   <td>
@@ -297,7 +304,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
               {status.name} <span className="muted">{column.length}</span>
             </div>
             {column.map((t) => (
-              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
+              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} systemName={systems.find((s) => s.id === t.systemId)?.name} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
             ))}
             {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>Nothing here</div>}
             {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, status.id)} />}

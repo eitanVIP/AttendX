@@ -8,7 +8,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -38,6 +38,12 @@ export default function MyTasks() {
   const [editing, setEditing] = useState(null)
   const [detailId, setDetailId] = useState(null)
   const [form, setForm] = useState(EMPTY_TASK)
+  const [system, setSystem] = useState('all')
+  const systems = useSystemList(communityDb, verified.teamId)
+  // The inventory is only read when a task needs parts or the form is open.
+  const needStock = allTasks.some((t) => (t.partIds || []).length > 0) || showForm
+  const products = useProductList(communityDb, verified.teamId, needStock)
+  const partsFor = (task) => waitingParts(task, products, verified.productTypes || [])
 
   useEffect(() => {
     document.title = 'AttendX | My Tasks'
@@ -47,8 +53,9 @@ export default function MyTasks() {
     () =>
       tasks
         .filter((t) => !(isLead && mineOnly) || t.assigneeId === studentId)
-        .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division)),
-    [tasks, isLead, mineOnly, studentId, division]
+        .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
+        .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system)),
+    [tasks, isLead, mineOnly, studentId, division, system]
   )
 
   function startNew() {
@@ -74,6 +81,8 @@ export default function MyTasks() {
       checklist: task.checklist || [],
       repeat: task.repeat || '',
       blockedReason: task.blockedReason || '',
+      partIds: task.partIds || [],
+      systemId: task.systemId || '',
     })
     setShowForm(true)
   }
@@ -93,16 +102,16 @@ export default function MyTasks() {
       return
     }
     const statusChanged = !editing || statusOf(editing, statuses).id !== task.statusId
-    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, allTasks, statuses) : ''
+    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, allTasks, statuses, partsFor(task)) : ''
     if (reason) {
       setFormError(reason)
       return
     }
     setFormError('')
-    const waiting = waitingOn({ ...task, id: editing?.id }, allTasks, statuses)
+    const waiting = [...waitingOn({ ...task, id: editing?.id }, allTasks, statuses).map((t) => `"${t.title}"`), ...partsFor(task).map((p) => `the part "${p.name}"`)]
     if (!statusChanged && waiting.length > 0 && task.statusId !== statuses[0].id) {
       task.statusId = statuses[0].id
-      setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
+      setNotice(`"${task.title}" is waiting on ${waiting.join(', ')}, so it was moved back to ${statuses[0].name}.`)
       setTimeout(() => setNotice(''), 8000)
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
@@ -204,7 +213,7 @@ export default function MyTasks() {
         return
       }
     }
-    const reason = moveBlockedReason(task, statusId, allTasks, statuses)
+    const reason = moveBlockedReason(task, statusId, allTasks, statuses, partsFor(task))
     if (reason) {
       setNotice(reason)
       setTimeout(() => setNotice(''), 6000)
@@ -290,6 +299,17 @@ export default function MyTasks() {
             ))}
           </select>
         )}
+        {systems.length > 0 && (
+          <select value={system} onChange={(e) => setSystem(e.target.value)} aria-label="Filter by robot system">
+            <option value="all">All systems</option>
+            <option value="none">No system</option>
+            {systems.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
         </button>
@@ -324,6 +344,8 @@ export default function MyTasks() {
           onApprove={isLead ? approveDone : undefined}
           onReject={isLead ? rejectDone : undefined}
           onQuickAdd={isLead ? quickAdd : undefined}
+          partsFor={partsFor}
+          systems={systems}
           onMove={handleMove}
           onOpen={isLead ? startEdit : (t) => setDetailId(t.id)}
           onSchedule={isLead ? handleSchedule : undefined}
@@ -361,6 +383,8 @@ export default function MyTasks() {
           candidates={prerequisiteCandidates(editing?.id, allTasks)}
           error={formError}
           blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
+          products={products}
+          systems={systems}
           comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
           onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
           editing={!!editing}

@@ -5,9 +5,10 @@ import { REPEATS, TASK_PRIORITIES } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [] }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [] }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
+  const [partSearch, setPartSearch] = useState('')
   const [newComment, setNewComment] = useState('')
   const checklist = form.checklist || []
   const setChecklist = (next) => setForm({ ...form, checklist: next })
@@ -87,6 +88,53 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             ))}
           </select>
         </label>
+        {systems.length > 0 && (
+          <label className="span-2">
+            Robot system
+            <select value={form.systemId || ''} onChange={set('systemId')}>
+              <option value="">None</option>
+              {systems.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {products.length > 0 && (
+          <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
+            <legend className="muted" style={{ fontSize: 13 }}>Needs parts (locked until they are bought)</legend>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+              {(form.partIds || []).map((id) => (
+                <span key={id} className="badge badge-muted">
+                  {products.find((p) => p.id === id)?.name || '(deleted part)'}{' '}
+                  <button type="button" className="link-btn" aria-label="Remove part" onClick={() => setForm({ ...form, partIds: form.partIds.filter((x) => x !== id) })}>
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+            <input value={partSearch} onChange={(e) => setPartSearch(e.target.value)} placeholder="Search parts to add" />
+            {partSearch.trim() &&
+              products
+                .filter((p) => !(form.partIds || []).includes(p.id) && p.name.toLowerCase().includes(partSearch.trim().toLowerCase()))
+                .slice(0, 6)
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="link-btn"
+                    style={{ display: 'block', textAlign: 'left' }}
+                    onClick={() => {
+                      setForm({ ...form, partIds: [...(form.partIds || []), p.id] })
+                      setPartSearch('')
+                    }}
+                  >
+                    + {p.name}
+                  </button>
+                ))}
+          </fieldset>
+        )}
         {blockedIds.includes(form.statusId || statuses[0].id) && (
           <label className="span-2">
             Why is it blocked?
