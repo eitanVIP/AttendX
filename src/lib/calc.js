@@ -1428,8 +1428,10 @@ export function studentCommunityHours(logs, studentId) {
 // Certifications are earned automatically: an admin picks which trainings
 // are required, and a student holds the cert once they've completed every
 // one of them - no manual "certify this student" step.
+// A required training that has since been deleted is skipped - it can no
+// longer be completed, so it must not keep everyone from earning the cert.
 export function studentHasCert(cert, studentId, trainings) {
-  const required = cert.requiredTrainingIds || []
+  const required = (cert.requiredTrainingIds || []).filter((tid) => trainings.some((t) => t.id === tid))
   if (required.length === 0) return false
   return required.every((tid) => trainings.find((t) => t.id === tid)?.completedStudentIds?.includes(studentId))
 }
