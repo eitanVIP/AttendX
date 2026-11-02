@@ -8,7 +8,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -39,6 +39,7 @@ export default function MyTasks() {
   const [detailId, setDetailId] = useState(null)
   const [form, setForm] = useState(EMPTY_TASK)
   const [system, setSystem] = useState('all')
+  const [showOld, setShowOld] = useState(false)
   const systems = useSystemList(communityDb, verified.teamId)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = allTasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -54,9 +55,11 @@ export default function MyTasks() {
       tasks
         .filter((t) => !(isLead && mineOnly) || t.assigneeId === studentId)
         .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
-        .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system)),
-    [tasks, isLead, mineOnly, studentId, division, system]
+        .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system))
+        .filter((t) => view === 'stats' || showOld || !isOldDone(t, statuses)),
+    [tasks, isLead, mineOnly, studentId, division, system, view, showOld, statuses]
   )
+  const hiddenOld = tasks.filter((t) => isOldDone(t, statuses)).length
 
   function startNew() {
     setFormError('')
@@ -309,6 +312,12 @@ export default function MyTasks() {
               </option>
             ))}
           </select>
+        )}
+        {(hiddenOld > 0 || showOld) && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
+            Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
+          </label>
         )}
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
