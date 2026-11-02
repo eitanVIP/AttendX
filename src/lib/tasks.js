@@ -376,6 +376,15 @@ export function useTaskRequests(database, teamId, onlyStudentId) {
   return requests
 }
 
+// A finished task that was finished more than `days` days ago. The board
+// hides these unless asked (a long season piles up a lot of done tasks).
+export const ARCHIVE_DAYS = 14
+export function isOldDone(task, statuses, now = Date.now(), days = ARCHIVE_DAYS) {
+  if (!statusOf(task, statuses).done) return false
+  const at = Date.parse(task.completedAt || task.updatedAt)
+  return Number.isFinite(at) && now - at > days * 86400000
+}
+
 // Numbers for the Stats view. `weeks` rolling 7-day windows ending now
 // (oldest first) count the tasks finished in each; "days to finish" averages,
 // over tasks with a recorded completion time, the days from their start date

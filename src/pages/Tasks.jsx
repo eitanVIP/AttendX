@@ -10,7 +10,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -35,6 +35,7 @@ export default function Tasks() {
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
   const [system, setSystem] = useState('all')
+  const [showOld, setShowOld] = useState(false)
   const { data: systems } = useSystems(team?.id)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = tasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -65,7 +66,9 @@ export default function Tasks() {
       .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
       .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system))
       .filter((t) => !q || `${t.title} ${t.description || ''}`.toLowerCase().includes(q))
-  }, [tasks, assignee, division, system, search])
+      .filter((t) => view === 'stats' || showOld || !isOldDone(t, statuses))
+  }, [tasks, assignee, division, system, search, view, showOld, statuses])
+  const hiddenOld = tasks.filter((t) => isOldDone(t, statuses)).length
 
   function startNew() {
     setFormError('')
@@ -336,6 +339,12 @@ export default function Tasks() {
               </option>
             ))}
           </select>
+        )}
+        {(hiddenOld > 0 || showOld) && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
+            Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
+          </label>
         )}
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
