@@ -5,7 +5,7 @@ import { REPEATS, TASK_PRIORITIES } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [] }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [], onDuplicate }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
   const [partSearch, setPartSearch] = useState('')
@@ -244,6 +244,11 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
       )}
       {error && <p className="form-error">{error}</p>}
       <div className="form-actions">
+        {editing && onDuplicate && (
+          <button type="button" className="secondary" onClick={onDuplicate}>
+            Duplicate
+          </button>
+        )}
         {onDelete && (
           <button type="button" className="secondary danger" onClick={onDelete}>
             Delete

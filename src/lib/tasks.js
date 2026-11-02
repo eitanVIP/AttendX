@@ -376,6 +376,26 @@ export function useTaskRequests(database, teamId, onlyStudentId) {
   return requests
 }
 
+// A copy of `task` for the Duplicate button: same details, back in the first
+// status with the checklist unticked - no comments, history or completion.
+export function duplicateOf(task, firstStatusId) {
+  return {
+    title: `${task.title} (copy)`,
+    description: task.description || '',
+    assigneeId: task.assigneeId || '',
+    startDate: task.startDate || '',
+    dueDate: task.dueDate || '',
+    priority: task.priority || 'normal',
+    division: task.division || '',
+    statusId: firstStatusId,
+    blockedBy: task.blockedBy || [],
+    checklist: (task.checklist || []).map((i) => ({ ...i, done: false })),
+    repeat: task.repeat || '',
+    partIds: task.partIds || [],
+    systemId: task.systemId || '',
+  }
+}
+
 // A finished task that was finished more than `days` days ago. The board
 // hides these unless asked (a long season piles up a lot of done tasks).
 export const ARCHIVE_DAYS = 14
