@@ -611,6 +611,12 @@ export async function deleteTraining(teamId, training, subTrainings = []) {
       })
     )
   }
+  // Certifications that required this training (or its sub-trainings) stop
+  // listing it, so a cert is never left waiting on something that's gone.
+  for (const gone of [training, ...subTrainings]) {
+    const certs = await getDocs(query(collection(db, 'teams', teamId, 'trainings'), where('requiredTrainingIds', 'array-contains', gone.id)))
+    for (const c of certs.docs) writes.push((batch) => batch.update(c.ref, { requiredTrainingIds: arrayRemove(gone.id) }))
+  }
   const kind = training.category === 'professional' ? 'certification' : training.parentTrainingId ? 'sub-training' : 'training'
   const withSubs = subTrainings.length > 0 ? ` and its ${subTrainings.length} sub-training${subTrainings.length === 1 ? '' : 's'}` : ''
   writes.push((batch) =>
