@@ -3,6 +3,7 @@ import TaskCalendar from './TaskCalendar'
 import TaskStats from './TaskStats'
 import TaskWorkload from './TaskWorkload'
 import TaskProjects from './TaskProjects'
+import TaskTimeline from './TaskTimeline'
 import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
@@ -193,6 +194,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
       Unassigned - drop a task here to take its assignee off
     </div>
   )
+
+  if (view === 'timeline') return <TaskTimeline tasks={tasks} allTasks={allTasks} statuses={statuses} students={students} divisions={divisions} onOpen={onOpen} />
 
   if (view === 'projects') return <TaskProjects tasks={tasks} statuses={statuses} />
 

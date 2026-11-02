@@ -376,6 +376,9 @@ export default function MyTasks() {
         <button type="button" className={view === 'projects' ? '' : 'secondary'} onClick={() => setView('projects')}>
           Projects
         </button>
+        <button type="button" className={view === 'timeline' ? '' : 'secondary'} onClick={() => setView('timeline')}>
+          Timeline
+        </button>
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
