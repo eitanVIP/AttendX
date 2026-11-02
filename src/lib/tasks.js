@@ -1,6 +1,6 @@
 import { addDoc, arrayUnion, collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
-import { todayISO } from './calc'
+import { computeToBuy, normalizeProduct, todayISO } from './calc'
 
 // Tasks live at teams/{teamId}/tasks. Admins and task leads (students with
 // `taskLead` on their roster doc) write them; every other student only reads
@@ -11,7 +11,7 @@ import { todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -28,7 +28,7 @@ export const TASK_PRIORITIES = [
   { id: 'low', name: 'Low' },
 ]
 
-export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '' }
+export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '', partIds: [], systemId: '' }
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
 
@@ -118,11 +118,49 @@ export function waitingOn(task, allTasks, statuses) {
 
 // Why a task can't go to `statusId` right now ('' when it can): while it's
 // waiting on others it has to stay in the first status.
-export function moveBlockedReason(task, statusId, allTasks, statuses) {
+export function moveBlockedReason(task, statusId, allTasks, statuses, parts = []) {
   if (statusId === statuses[0].id) return ''
   const waiting = waitingOn(task, allTasks, statuses)
-  if (waiting.length === 0) return ''
-  return `"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')} - finish that first.`
+  if (waiting.length === 0 && parts.length === 0) return ''
+  const names = [...waiting.map((t) => `"${t.title}"`), ...parts.map((p) => `the part "${p.name}"`)]
+  return `"${task.title}" is waiting on ${names.join(', ')} - that has to be done (or bought) first.`
+}
+
+// The parts a task needs that are still on the to-buy list. Logging the
+// purchase on the Orders page brings stock up, takes the part off that list
+// and so unlocks the task by itself.
+export function waitingParts(task, products, productTypes) {
+  return (task.partIds || [])
+    .map((id) => products.find((p) => p.id === id))
+    .filter((p) => p && (computeToBuy(p, productTypes).value ?? 0) > 0)
+}
+
+// Live lists for a student-side page (admins use useProducts/useSystems).
+// Products are only read when `enabled` - the inventory can be large.
+export function useProductList(database, teamId, enabled) {
+  const [products, setProducts] = useState([])
+  useEffect(() => {
+    if (!teamId || !enabled) return
+    return onSnapshot(
+      collection(database, 'teams', teamId, 'products'),
+      (snap) => setProducts(snap.docs.map((d) => normalizeProduct({ id: d.id, ...d.data() }))),
+      () => {}
+    )
+  }, [database, teamId, enabled])
+  return products
+}
+
+export function useSystemList(database, teamId) {
+  const [systems, setSystems] = useState([])
+  useEffect(() => {
+    if (!teamId) return
+    return onSnapshot(
+      collection(database, 'teams', teamId, 'systems'),
+      (snap) => setSystems(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''))),
+      () => {}
+    )
+  }, [database, teamId])
+  return systems
 }
 
 // Why a task can't be scheduled to start on `startDate` ('' when it can): it

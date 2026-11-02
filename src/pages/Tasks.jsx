@@ -4,13 +4,13 @@ import { db } from '../firebase'
 import FormPanel from '../components/FormPanel'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
-import { useStudents } from '../lib/firestore-hooks'
+import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
 import { commentOnTask, createTask, decideTaskRequest, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
 import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -34,6 +34,12 @@ export default function Tasks() {
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
+  const [system, setSystem] = useState('all')
+  const { data: systems } = useSystems(team?.id)
+  // The inventory is only read when a task needs parts or the form is open.
+  const needStock = tasks.some((t) => (t.partIds || []).length > 0) || showForm
+  const { data: products } = useProducts(needStock ? team?.id : null)
+  const partsFor = (task) => waitingParts(task, products, team?.productTypes || [])
   const requests = useTaskRequests(db, team?.id, null)
   const [acceptingRequest, setAcceptingRequest] = useState(null)
   const [blockedAsk, setBlockedAsk] = useState(null)
@@ -57,8 +63,9 @@ export default function Tasks() {
     return tasks
       .filter((t) => assignee === 'all' || (assignee === 'none' ? !t.assigneeId : t.assigneeId === assignee))
       .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
+      .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system))
       .filter((t) => !q || `${t.title} ${t.description || ''}`.toLowerCase().includes(q))
-  }, [tasks, assignee, division, search])
+  }, [tasks, assignee, division, system, search])
 
   function startNew() {
     setFormError('')
@@ -83,6 +90,8 @@ export default function Tasks() {
       checklist: task.checklist || [],
       repeat: task.repeat || '',
       blockedReason: task.blockedReason || '',
+      partIds: task.partIds || [],
+      systemId: task.systemId || '',
     })
     setShowForm(true)
   }
@@ -106,16 +115,16 @@ export default function Tasks() {
       return
     }
     const statusChanged = !editing || statusOf(editing, statuses).id !== task.statusId
-    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, tasks, statuses) : ''
+    const reason = statusChanged ? moveBlockedReason({ ...task, id: editing?.id }, task.statusId, tasks, statuses, partsFor(task)) : ''
     if (reason) {
       setFormError(reason)
       return
     }
     setFormError('')
-    const waiting = waitingOn({ ...task, id: editing?.id }, tasks, statuses)
+    const waiting = [...waitingOn({ ...task, id: editing?.id }, tasks, statuses).map((t) => `"${t.title}"`), ...partsFor(task).map((p) => `the part "${p.name}"`)]
     if (!statusChanged && waiting.length > 0 && task.statusId !== statuses[0].id) {
       task.statusId = statuses[0].id
-      setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
+      setNotice(`"${task.title}" is waiting on ${waiting.join(', ')}, so it was moved back to ${statuses[0].name}.`)
       setTimeout(() => setNotice(''), 8000)
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
@@ -192,7 +201,7 @@ export default function Tasks() {
 
   // `reason` is the answer to "why is it blocked?" for a blocked status.
   function handleMove(task, statusId, { reason: blockedWhy, skipUndo = false } = {}) {
-    const reason = moveBlockedReason(task, statusId, tasks, statuses)
+    const reason = moveBlockedReason(task, statusId, tasks, statuses, partsFor(task))
     if (reason) {
       setNotice(reason)
       setTimeout(() => setNotice(''), 6000)
@@ -317,6 +326,17 @@ export default function Tasks() {
             ))}
           </select>
         )}
+        {systems.length > 0 && (
+          <select value={system} onChange={(e) => setSystem(e.target.value)} aria-label="Filter by robot system">
+            <option value="all">All systems</option>
+            <option value="none">No system</option>
+            {systems.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
         </button>
@@ -339,7 +359,7 @@ export default function Tasks() {
       <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={(r, reason) => decideTaskRequest(team.id, r, 'declined', reason)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
-      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} onQuickAdd={quickAdd} />
+      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} onQuickAdd={quickAdd} partsFor={partsFor} systems={systems} />
 
       <TaskFormPanel
         open={showForm}
@@ -356,6 +376,8 @@ export default function Tasks() {
         candidates={prerequisiteCandidates(editing?.id, tasks)}
         error={formError}
         blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
+        products={products}
+        systems={systems}
         comments={tasks.find((t) => t.id === editing?.id)?.comments || []}
         onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
         editing={!!editing}
