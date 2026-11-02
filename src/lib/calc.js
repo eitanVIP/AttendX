@@ -354,7 +354,10 @@ export function certTargetForTraining(training, allTrainings, students) {
 // what the certifications requiring it need (see certTargetForTraining),
 // otherwise everyone in its division/subdivision scope.
 export function trainingProgress(training, students, allTrainings) {
-  const completed = training.completedStudentIds?.length ?? 0
+  // Only students still on the team count: deleting a student doesn't clear
+  // their id from completedStudentIds, and a ghost check shouldn't add up.
+  const known = new Set(students.map((s) => s.id))
+  const completed = (training.completedStudentIds || []).filter((id) => known.has(id)).length
   const target =
     training.targetCount ??
     certTargetForTraining(training, allTrainings, students) ??
