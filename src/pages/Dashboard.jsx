@@ -6,6 +6,8 @@ import PieChart from '../components/PieChart'
 import DataTable from '../components/DataTable'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
+import { db } from '../firebase'
+import { taskStreaksByStudent, useTaskData } from '../lib/tasks'
 import {
   useAllAttendance,
   useCommunityLogs,
@@ -31,6 +33,8 @@ import {
   orderRangeText,
   supplierBudgetRows,
   streakBoard,
+  DEFAULT_STREAK_RESET_DAYS,
+  LEADERBOARD_STREAK_KINDS,
   studentCommunityHours,
   countedRecords,
   skippedWeekStarts,
@@ -278,11 +282,18 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spending, categories])
 
+  // Tasks are only read once the Tasks streak tab is opened.
+  const { tasks: streakTasks, statuses: streakStatuses } = useTaskData(db, streakKind === 'tasks' ? team?.id : null, null)
+  const taskStreaks = useMemo(
+    () => taskStreaksByStudent(streakTasks, streakStatuses, team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS),
+    [streakTasks, streakStatuses, team?.streakResetDays]
+  )
+
   const topStreaks = useMemo(() => {
-    return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById)
+    return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById, taskStreaks)
       .filter((r) => r.streak > 0)
       .slice(0, TOP_STREAKS_LIMIT)
-  }, [students, streakKind, team?.streakResetDays, recordsByStudent, sessionById])
+  }, [students, streakKind, team?.streakResetDays, recordsByStudent, sessionById, taskStreaks])
 
   const loading =
     studentsLoading || trainingsLoading || attLoading || logsLoading || settingsLoading || productsLoading || purchasesLoading
@@ -504,7 +515,7 @@ export default function Dashboard() {
       )}
 
       <h2>Top streaks</h2>
-      <StreakTabs kind={streakKind} onChange={setStreakKind} />
+      <StreakTabs kind={streakKind} onChange={setStreakKind} kinds={LEADERBOARD_STREAK_KINDS} />
       {topStreaks.length === 0 ? (
         <p className="muted">No active streaks yet.</p>
       ) : (

@@ -1284,9 +1284,9 @@ export function commentOnTask(teamId, taskId, text) {
   return addTaskComment(db, teamId, taskId, text, user?.displayName || user?.email || 'Admin', user?.uid || '')
 }
 
-export function setTaskStatus(teamId, task, statusName, statusId) {
+export function setTaskStatus(teamId, task, statusName, statusId, extra = {}) {
   return Promise.all([
-    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false }),
+    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false, ...extra }),
     logChange(teamId, 'task', 'update', `Moved task "${task.title}" to ${statusName}`),
   ])
 }

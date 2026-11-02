@@ -1193,6 +1193,11 @@ export const STREAK_KINDS = [
   { id: 'attendance', label: 'Attendance' },
 ]
 
+// The leaderboards (Dashboard, Streaks page) also rank a tasks streak. Like
+// attendance it isn't stored on the student - see taskStreaksByStudent in
+// tasks.js - so a profile's own streak card keeps to STREAK_KINDS.
+export const LEADERBOARD_STREAK_KINDS = [...STREAK_KINDS, { id: 'tasks', label: 'Tasks' }]
+
 // Which field on the student doc holds a kind's contribution list. Kept
 // irregular for 'training' (`streakContributions`, no prefix) rather than
 // renamed to `trainingStreakContributions` - that field predates community/
@@ -1296,14 +1301,16 @@ export function attendanceStreak(records, sessionById) {
 // student's own stored counter (see effectiveStreak), attendance is
 // computed live from `attendanceRecordsByStudent` (see attendanceStreak
 // above, and the `sessionById` map it needs for each record's date).
-export function streakBoard(students, kind, resetDays, attendanceRecordsByStudent = {}, sessionById = {}) {
+export function streakBoard(students, kind, resetDays, attendanceRecordsByStudent = {}, sessionById = {}, taskStreaks = {}) {
   return students
     .map((s) => ({
       student: s,
       streak:
         kind === 'attendance'
           ? attendanceStreak(attendanceRecordsByStudent[s.id] || [], sessionById)
-          : effectiveStreak(s, resetDays, kind),
+          : kind === 'tasks'
+            ? taskStreaks[s.id] || 0
+            : effectiveStreak(s, resetDays, kind),
     }))
     .sort((a, b) => b.streak - a.streak)
 }
