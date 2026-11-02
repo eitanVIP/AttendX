@@ -5,7 +5,7 @@ import { REPEATS, TASK_PRIORITIES, isWebLink } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [], onDuplicate }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [], projects = [], onDuplicate }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
   const [partSearch, setPartSearch] = useState('')
@@ -101,6 +101,15 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
               </option>
             ))}
           </select>
+        </label>
+        <label className="span-2">
+          Project (optional)
+          <input list="task-projects" value={form.project || ''} onChange={set('project')} placeholder="e.g. Drivetrain v2" maxLength={80} />
+          <datalist id="task-projects">
+            {projects.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
         </label>
         {systems.length > 0 && (
           <label className="span-2">
