@@ -376,6 +376,60 @@ export function useTaskRequests(database, teamId, onlyStudentId) {
   return requests
 }
 
+// Numbers for the Stats view. `weeks` rolling 7-day windows ending now
+// (oldest first) count the tasks finished in each; "days to finish" averages,
+// over tasks with a recorded completion time, the days from their start date
+// (or creation) to being finished.
+export function taskStats(tasks, statuses, now = Date.now(), weeks = 8) {
+  const dayMs = 86400000
+  const today = new Date(now).toISOString().slice(0, 10)
+  const doneAt = (t) => Date.parse(t.completedAt || t.updatedAt)
+  const open = tasks.filter((t) => !statusOf(t, statuses).done)
+  const done = tasks.filter((t) => statusOf(t, statuses).done)
+
+  const weekly = Array.from({ length: weeks }, (_, i) => {
+    const end = now - (weeks - 1 - i) * 7 * dayMs
+    const d = new Date(end)
+    return { label: `${d.getDate()}/${d.getMonth() + 1}`, start: end - 7 * dayMs, end, count: 0 }
+  })
+  for (const t of done) {
+    const at = doneAt(t)
+    const w = weekly.find((x) => at > x.start && at <= x.end)
+    if (w) w.count++
+  }
+
+  const spans = done
+    .filter((t) => t.completedAt)
+    .map((t) => (Date.parse(t.completedAt) - Date.parse(t.startDate || t.createdAt)) / dayMs)
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.max(0, n))
+  const avgDays = spans.length ? Math.round((spans.reduce((a, b) => a + b, 0) / spans.length) * 10) / 10 : null
+
+  const byDivision = {}
+  const byStudent = {}
+  for (const t of tasks) {
+    const isDone = !!statusOf(t, statuses).done
+    const div = (byDivision[t.division || ''] ??= { open: 0, done: 0 })
+    div[isDone ? 'done' : 'open']++
+    if (t.assigneeId) {
+      const s = (byStudent[t.assigneeId] ??= { open: 0, done: 0, recent: 0, overdue: 0 })
+      s[isDone ? 'done' : 'open']++
+      if (isDone && now - doneAt(t) <= 30 * dayMs) s.recent++
+      if (isOverdue(t, statuses, today)) s.overdue++
+    }
+  }
+  return {
+    open: open.length,
+    done: done.length,
+    overdue: open.filter((t) => isOverdue(t, statuses, today)).length,
+    recent: done.filter((t) => now - doneAt(t) <= 30 * dayMs).length,
+    avgDays,
+    weekly,
+    byDivision,
+    byStudent,
+  }
+}
+
 // Overdue = past its due date and not in a status marked finished.
 export function isOverdue(task, statuses, today) {
   if (!task.dueDate || task.dueDate >= today) return false

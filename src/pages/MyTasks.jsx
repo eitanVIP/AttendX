@@ -319,6 +319,11 @@ export default function MyTasks() {
         <button type="button" className={view === 'calendar' ? '' : 'secondary'} onClick={() => setView('calendar')}>
           Calendar
         </button>
+        {isLead && (
+          <button type="button" className={view === 'stats' ? '' : 'secondary'} onClick={() => setView('stats')}>
+            Stats
+          </button>
+        )}
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
