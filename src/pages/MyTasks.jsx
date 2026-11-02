@@ -4,7 +4,8 @@ import { useStudentAuth } from '../context/StudentAuthContext'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
-import { EMPTY_TASK, addTaskComment, becameDone, firstDoneStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import CompletionCelebration from '../components/CompletionCelebration'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, firstDoneStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -91,6 +92,7 @@ export default function MyTasks() {
       setTimeout(() => setNotice(''), 8000)
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
+    Object.assign(task, completionFields(editing, task.statusId, statuses))
     writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
@@ -149,7 +151,7 @@ export default function MyTasks() {
     }
     setNotice('')
     const name = statuses.find((s) => s.id === statusId)?.name || statusId
-    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false })
+    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false, ...completionFields(task, statusId, statuses) })
     logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
     if (becameDone(task, statusId, statuses)) afterDone(task)
   }
@@ -185,6 +187,8 @@ export default function MyTasks() {
           )}
         </div>
       </div>
+
+      <CompletionCelebration tasks={tasks} statuses={statuses} />
 
       <DueSoon tasks={allTasks} statuses={statuses} studentId={studentId} />
 

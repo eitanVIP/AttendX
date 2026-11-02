@@ -5,7 +5,8 @@ import { loadAttendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
-import { streakBoard } from '../lib/calc'
+import { DEFAULT_STREAK_RESET_DAYS, LEADERBOARD_STREAK_KINDS, streakBoard } from '../lib/calc'
+import { taskStreaksByStudent, useTaskData } from '../lib/tasks'
 
 // A StudentLayout tab - the same Training/Community/Attendance leaderboard
 // an admin sees on the Dashboard, but the full roster rather than just the
@@ -48,9 +49,16 @@ export default function Streaks() {
 
   const sessionById = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions])
 
+  // Tasks are only read once the Tasks tab is opened.
+  const { tasks, statuses } = useTaskData(communityDb, kind === 'tasks' ? verified.teamId : null, null)
+  const taskStreaks = useMemo(
+    () => taskStreaksByStudent(tasks, statuses, verified.streakResetDays || DEFAULT_STREAK_RESET_DAYS),
+    [tasks, statuses, verified.streakResetDays]
+  )
+
   const board = useMemo(
-    () => streakBoard(verified.students, kind, verified.streakResetDays, recordsByStudent, sessionById),
-    [verified.students, kind, verified.streakResetDays, recordsByStudent, sessionById]
+    () => streakBoard(verified.students, kind, verified.streakResetDays, recordsByStudent, sessionById, taskStreaks),
+    [verified.students, kind, verified.streakResetDays, recordsByStudent, sessionById, taskStreaks]
   )
 
   if (loading) return <div className="page-loading">Loading…</div>
@@ -58,7 +66,7 @@ export default function Streaks() {
   return (
     <div className="page">
       <h1>Streaks</h1>
-      <StreakTabs kind={kind} onChange={setKind} />
+      <StreakTabs kind={kind} onChange={setKind} kinds={LEADERBOARD_STREAK_KINDS} />
       {board.length === 0 ? (
         <p className="muted">No students yet.</p>
       ) : (

@@ -6,7 +6,8 @@ import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
 import { commentOnTask, createTask, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
-import { EMPTY_TASK, becameDone, firstDoneStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
+import CompletionCelebration from '../components/CompletionCelebration'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -105,6 +106,7 @@ export default function Tasks() {
       setTimeout(() => setNotice(''), 8000)
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
+    Object.assign(task, completionFields(editing, task.statusId, statuses))
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     if (editing) updateTask(team.id, editing, task, assigneeName)
     else createTask(team.id, task, assigneeName)
@@ -150,7 +152,7 @@ export default function Tasks() {
       return
     }
     setNotice('')
-    setTaskStatus(team.id, task, statuses.find((s) => s.id === statusId)?.name || statusId, statusId)
+    setTaskStatus(team.id, task, statuses.find((s) => s.id === statusId)?.name || statusId, statusId, completionFields(task, statusId, statuses))
     if (becameDone(task, statusId, statuses)) afterDone(task)
   }
 
@@ -270,6 +272,8 @@ export default function Tasks() {
       {tasks.some((t) => t.doneRequested && !statusOf(t, statuses).done) && (
         <p style={{ color: 'var(--warn-text)' }}>✋ {tasks.filter((t) => t.doneRequested && !statusOf(t, statuses).done).length} task(s) waiting for your approval</p>
       )}
+
+      <CompletionCelebration tasks={tasks} statuses={statuses} />
 
       <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} />
 

@@ -11,7 +11,7 @@ import { todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -210,6 +210,42 @@ export function nextOccurrence(task, today = todayISO()) {
 // The status a finished task moves to (the first one marked as finished), or
 // undefined when none is.
 export const firstDoneStatus = (statuses) => statuses.find((s) => s.done)
+
+// The completedAt change for putting `task` (null for a new one) into
+// `statusId`: stamped when it becomes finished, cleared when it is reopened.
+export function completionFields(task, statusId, statuses) {
+  const wasDone = task ? !!statusOf(task, statuses).done : false
+  const isDone = !!statuses.find((s) => s.id === statusId)?.done
+  if (isDone && !wasDone) return { completedAt: new Date().toISOString() }
+  if (!isDone && wasDone) return { completedAt: '' }
+  return {}
+}
+
+// Each student's tasks streak, like the training and community ones: every
+// finished task of theirs adds one, and the streak ends once `resetDays` pass
+// without another. Worked out from the tasks themselves (a task's
+// completedAt, or its last update for ones finished before that existed).
+export function taskStreaksByStudent(tasks, statuses, resetDays, now = Date.now()) {
+  const dayMs = 86400000
+  const byStudent = {}
+  for (const t of tasks) {
+    if (!t.assigneeId || !statusOf(t, statuses).done) continue
+    const at = Date.parse(t.completedAt || t.updatedAt)
+    if (!Number.isNaN(at)) (byStudent[t.assigneeId] ??= []).push(at)
+  }
+  const streaks = {}
+  for (const [id, times] of Object.entries(byStudent)) {
+    times.sort((a, b) => b - a)
+    if (now - times[0] > resetDays * dayMs) {
+      streaks[id] = 0
+      continue
+    }
+    let n = 1
+    while (n < times.length && times[n - 1] - times[n] <= resetDays * dayMs) n++
+    streaks[id] = n
+  }
+  return streaks
+}
 
 // True when moving `task` to `statusId` takes it from unfinished to finished.
 export function becameDone(task, statusId, statuses) {
