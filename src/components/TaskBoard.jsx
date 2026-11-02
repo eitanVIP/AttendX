@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import TaskCalendar from './TaskCalendar'
 import TaskStats from './TaskStats'
+import TaskWorkload from './TaskWorkload'
 import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
@@ -190,6 +191,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
       Unassigned - drop a task here to take its assignee off
     </div>
   )
+
+  if (view === 'workload') return <TaskWorkload tasks={tasks} statuses={statuses} students={students} />
 
   if (view === 'stats') return <TaskStats tasks={tasks} statuses={statuses} students={students} divisions={divisions} />
 

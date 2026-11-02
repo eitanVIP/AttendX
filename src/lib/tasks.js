@@ -428,6 +428,29 @@ export function isOldDone(task, statuses, now = Date.now(), days = ARCHIVE_DAYS)
   return Number.isFinite(at) && now - at > days * 86400000
 }
 
+// Workload: for each student their open and overdue tasks and, for each of
+// the next `span` days, how many of their open (dated) tasks run that day.
+export function workloadRows(tasks, statuses, students, today = todayISO(), span = 14) {
+  const days = Array.from({ length: span }, (_, i) => {
+    const iso = addDays(today, i)
+    const d = new Date(`${iso}T00:00:00Z`)
+    return { iso, label: `${d.getUTCDate()}/${d.getUTCMonth() + 1}`, weekday: d.getUTCDay() }
+  })
+  const rows = students.map((student) => {
+    const open = tasks.filter((t) => t.assigneeId === student.id && !statusOf(t, statuses).done)
+    const cells = days.map(({ iso }) =>
+      open.filter((t) => {
+        const start = t.startDate || t.dueDate
+        const end = t.dueDate || t.startDate
+        return start && iso >= start && iso <= (end < start ? start : end)
+      }).length
+    )
+    return { student, open: open.length, overdue: open.filter((t) => isOverdue(t, statuses, today)).length, cells }
+  })
+  rows.sort((a, b) => b.open - a.open || a.student.fullName.localeCompare(b.student.fullName))
+  return { days, rows }
+}
+
 // Numbers for the Stats view. `weeks` rolling 7-day windows ending now
 // (oldest first) count the tasks finished in each; "days to finish" averages,
 // over tasks with a recorded completion time, the days from their start date
