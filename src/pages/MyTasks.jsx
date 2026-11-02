@@ -9,7 +9,7 @@ import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
 import SendBackPrompt from '../components/SendBackPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, historyUnion, describeChange, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -126,7 +126,8 @@ export default function MyTasks() {
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
     Object.assign(task, completionFields(editing, task.statusId, statuses))
-    writeTask(communityDb, verified.teamId, editing?.id ?? null, task, studentId)
+    const change = editing ? describeChange(editing, task, { statuses, students: verified.students }) : ''
+    writeTask(communityDb, verified.teamId, editing?.id ?? null, change ? { ...task, history: historyUnion(student.fullName, change) } : task, studentId)
     if (!editing && acceptingRequest) {
       decideTaskRequest(communityDb, verified.teamId, acceptingRequest.id, 'accepted', studentId)
       logStudentChange(verified.teamId, 'task', 'update', `Accepted task request "${acceptingRequest.title}"`, student.fullName)
@@ -188,7 +189,7 @@ export default function MyTasks() {
 
   // The assignee asks for a task to be marked done; a lead or admin approves.
   function requestDone(task, wanted) {
-    writeTask(communityDb, verified.teamId, task.id, { doneRequested: wanted }, studentId)
+    writeTask(communityDb, verified.teamId, task.id, { doneRequested: wanted, history: historyUnion(student.fullName, wanted ? 'Asked for this to be marked done' : 'Withdrew the finish request') }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `${wanted ? 'Asked to finish' : 'Withdrew the finish request for'} task "${task.title}"`, student.fullName)
   }
 
@@ -207,7 +208,7 @@ export default function MyTasks() {
   }
 
   function sendBack(task, note) {
-    writeTask(communityDb, verified.teamId, task.id, { doneRequested: false }, studentId)
+    writeTask(communityDb, verified.teamId, task.id, { doneRequested: false, history: historyUnion(student.fullName, 'Finish request sent back') }, studentId)
     if (note) addTaskComment(communityDb, verified.teamId, task.id, `Sent back: ${note}`, student.fullName, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Sent task "${task.title}" back`, student.fullName)
     setSendBackTask(null)
@@ -252,7 +253,7 @@ export default function MyTasks() {
     setNotice('')
     const name = statuses.find((s) => s.id === statusId)?.name || statusId
     const blockedFields = blocked ? { blockedReason: blockedWhy } : task.blockedReason ? { blockedReason: '' } : {}
-    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false, ...completionFields(task, statusId, statuses), ...blockedFields })
+    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false, history: historyUnion(student.fullName, `Moved to ${name}`), ...completionFields(task, statusId, statuses), ...blockedFields })
     logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
     const finished = becameDone(task, statusId, statuses)
     if (finished) afterDone(task)
@@ -263,7 +264,7 @@ export default function MyTasks() {
   }
 
   function handleAssign(task, assigneeId, skipUndo = false) {
-    writeTask(communityDb, verified.teamId, task.id, { assigneeId }, studentId)
+    writeTask(communityDb, verified.teamId, task.id, { assigneeId, history: historyUnion(student.fullName, 'Assignee: ' + (verified.students.find((s) => s.id === task.assigneeId)?.fullName || 'nobody') + ' → ' + (verified.students.find((s) => s.id === assigneeId)?.fullName || 'nobody')) }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Unassigned task "${task.title}"`, student.fullName)
     if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
@@ -276,7 +277,7 @@ export default function MyTasks() {
       return
     }
     setNotice('')
-    writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate }, studentId)
+    writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate, history: historyUnion(student.fullName, 'Rescheduled') }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Rescheduled task "${task.title}"`, student.fullName)
     if (!skipUndo) offerUndo(`Rescheduled "${task.title}"`, () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
   }
@@ -444,6 +445,7 @@ export default function MyTasks() {
           projects={projectList}
           comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
           onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
+          history={allTasks.find((t) => t.id === editing?.id)?.history || []}
           editing={!!editing}
           onDuplicate={editing ? handleDuplicate : undefined}
         />

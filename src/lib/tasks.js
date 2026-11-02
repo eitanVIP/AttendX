@@ -11,7 +11,7 @@ import { computeToBuy, normalizeProduct, todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, project (a free-text group name, e.g. "Drivetrain v2"), links [{ id, url, label }] (http/https only), partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, history [{ at, by, text }] (what changed, newest last), project (a free-text group name, e.g. "Drivetrain v2"), links [{ id, url, label }] (http/https only), partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -532,6 +532,32 @@ export function taskStats(tasks, statuses, now = Date.now(), weeks = 8) {
 export function isOverdue(task, statuses, today) {
   if (!task.dueDate || task.dueDate >= today) return false
   return !statusOf(task, statuses)?.done
+}
+
+// History: a line per change, kept on the task. `historyUnion` goes straight
+// into an update (arrayUnion); describeChange writes the text for an edit.
+export const historyUnion = (by, text) => arrayUnion({ at: new Date().toISOString(), by, text })
+
+// What an edit changed, e.g. "Status: To do → Doing; Assignee: nobody → Sam".
+// Only fields present in `next` are compared (updates are often partial).
+export function describeChange(previous, next, { statuses, students }) {
+  const parts = []
+  const has = (k) => k in next
+  const name = (id) => students.find((s) => s.id === id)?.fullName || (id ? '(removed student)' : 'nobody')
+  if (has('title') && next.title !== previous.title) parts.push(`Title: "${previous.title}" → "${next.title}"`)
+  if (has('statusId') && next.statusId !== statusOf(previous, statuses).id) {
+    parts.push(`Status: ${statusOf(previous, statuses).name} → ${statuses.find((s) => s.id === next.statusId)?.name || next.statusId}`)
+  }
+  if (has('assigneeId') && (next.assigneeId || '') !== (previous.assigneeId || '')) parts.push(`Assignee: ${name(previous.assigneeId)} → ${name(next.assigneeId)}`)
+  if ((has('startDate') && (next.startDate || '') !== (previous.startDate || '')) || (has('dueDate') && (next.dueDate || '') !== (previous.dueDate || ''))) {
+    const after = { startDate: has('startDate') ? next.startDate : previous.startDate, dueDate: has('dueDate') ? next.dueDate : previous.dueDate }
+    parts.push(`Dates: ${taskDateLabel(previous) || 'none'} → ${taskDateLabel(after) || 'none'}`)
+  }
+  for (const [key, label] of [['priority', 'Priority'], ['division', 'Division'], ['project', 'Project']]) {
+    if (has(key) && (next[key] || '') !== (previous[key] || '')) parts.push(`${label}: ${previous[key] || 'none'} → ${next[key] || 'none'}`)
+  }
+  if (has('description') && (next.description || '') !== (previous.description || '')) parts.push('Description edited')
+  return parts.join('; ')
 }
 
 export function writeTask(database, teamId, taskId, data, actorId) {

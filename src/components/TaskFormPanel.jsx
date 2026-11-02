@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
+import TaskHistory from './TaskHistory'
 import DateField from './DateField'
 import { REPEATS, TASK_PRIORITIES, isWebLink } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [], projects = [], onDuplicate }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [], products = [], systems = [], projects = [], onDuplicate, history = [] }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
   const [partSearch, setPartSearch] = useState('')
@@ -298,6 +299,7 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
           </div>
         </div>
       )}
+      {editing && <TaskHistory history={history} />}
       {error && <p className="form-error">{error}</p>}
       <div className="form-actions">
         {editing && onDuplicate && (

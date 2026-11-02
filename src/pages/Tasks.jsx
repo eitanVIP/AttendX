@@ -140,7 +140,7 @@ export default function Tasks() {
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
     Object.assign(task, completionFields(editing, task.statusId, statuses))
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
-    if (editing) updateTask(team.id, editing, task, assigneeName)
+    if (editing) updateTask(team.id, editing, task, assigneeName, { statuses, students })
     else createTask(team.id, task, assigneeName)
     if (!editing && acceptingRequest) {
       decideTaskRequest(team.id, acceptingRequest, 'accepted')
@@ -208,7 +208,7 @@ export default function Tasks() {
   }
 
   function sendBack(task, note) {
-    updateTask(team.id, task, { title: task.title, doneRequested: false }, students.find((s) => s.id === task.assigneeId)?.fullName || '')
+    updateTask(team.id, task, { title: task.title, doneRequested: false }, students.find((s) => s.id === task.assigneeId)?.fullName || '', { statuses, students })
     if (note) commentOnTask(team.id, task.id, `Sent back: ${note}`)
     setSendBackTask(null)
   }
@@ -249,7 +249,7 @@ export default function Tasks() {
   }
 
   function handleAssign(task, assigneeId, skipUndo = false) {
-    updateTask(team.id, task, { title: task.title, assigneeId }, students.find((s) => s.id === assigneeId)?.fullName || '')
+    updateTask(team.id, task, { title: task.title, assigneeId }, students.find((s) => s.id === assigneeId)?.fullName || '', { statuses, students })
     if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
 
@@ -263,7 +263,7 @@ export default function Tasks() {
     }
     setNotice('')
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
-    updateTask(team.id, task, { title: task.title, startDate, dueDate }, assigneeName)
+    updateTask(team.id, task, { title: task.title, startDate, dueDate }, assigneeName, { statuses, students })
     if (!skipUndo) offerUndo(`Rescheduled "${task.title}"`, () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
   }
 
@@ -432,6 +432,7 @@ export default function Tasks() {
         projects={projectList}
         comments={tasks.find((t) => t.id === editing?.id)?.comments || []}
         onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
+        history={tasks.find((t) => t.id === editing?.id)?.history || []}
         editing={!!editing}
         onDelete={editing ? handleDelete : undefined}
         onDuplicate={editing ? handleDuplicate : undefined}
