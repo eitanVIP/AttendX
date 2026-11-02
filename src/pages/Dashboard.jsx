@@ -7,7 +7,8 @@ import DataTable from '../components/DataTable'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
 import { db } from '../firebase'
-import { taskStreaksByStudent, useTaskData } from '../lib/tasks'
+import { taskStreaksByStudent, useTaskData, useTaskRequests } from '../lib/tasks'
+import TaskAttention from '../components/TaskAttention'
 import {
   useAllAttendance,
   useCommunityLogs,
@@ -282,8 +283,9 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spending, categories])
 
-  // Tasks are only read once the Tasks streak tab is opened.
-  const { tasks: streakTasks, statuses: streakStatuses } = useTaskData(db, streakKind === 'tasks' ? team?.id : null, null)
+  // Tasks feed the Needs attention panel and the Tasks streak tab.
+  const { tasks: streakTasks, statuses: streakStatuses } = useTaskData(db, team?.id, null)
+  const taskRequests = useTaskRequests(db, team?.id, null)
   const taskStreaks = useMemo(
     () => taskStreaksByStudent(streakTasks, streakStatuses, team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS),
     [streakTasks, streakStatuses, team?.streakResetDays]
@@ -306,6 +308,7 @@ export default function Dashboard() {
       </div>
 
       <NoDivisionsNotice team={team} />
+      <TaskAttention tasks={streakTasks} statuses={streakStatuses} requests={taskRequests} />
 
       <EventCountdowns events={events} />
 

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Outlet } from 'react-router-dom'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import Logo from './Logo'
+import { communityDb } from '../firebase'
+import { dueSoon, useTaskData } from '../lib/tasks'
+import { todayISO } from '../lib/calc'
 
 const links = [
   { to: '/log-hours', label: 'Community Hours' },
@@ -23,6 +26,18 @@ export default function StudentLayout() {
   const { verified, studentId, student, changeStudent, logout } = useStudentAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const headerRef = useRef(null)
+
+  // A badge on the Tasks tab: this student's own unfinished tasks that are
+  // overdue or due within 3 days. Only their own tasks are read.
+  const { tasks: ownTasks, statuses: taskStatuses } = useTaskData(communityDb, studentId ? verified?.teamId : null, studentId)
+  const dueTasks = studentId ? dueSoon(ownTasks, taskStatuses, studentId, todayISO(), 3) : []
+  const anyOverdue = dueTasks.some((t) => (t.dueDate || t.startDate) < todayISO())
+  const badge = (to) =>
+    to === '/my-tasks' && dueTasks.length > 0 ? (
+      <span className={`nav-badge ${anyOverdue ? 'nav-badge-late' : ''}`} title="Overdue or due in the next 3 days">
+        {dueTasks.length}
+      </span>
+    ) : null
 
   // My Profile's tables (see StudentProfileView) use DataTable just like
   // the admin pages do, and that reads --sticky-top off
@@ -71,6 +86,7 @@ export default function StudentLayout() {
           {links.map((l) => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'active' : '')}>
               {l.label}
+              {badge(l.to)}
             </NavLink>
           ))}
         </nav>
@@ -101,6 +117,7 @@ export default function StudentLayout() {
               onClick={() => setDrawerOpen(false)}
             >
               {l.label}
+              {badge(l.to)}
             </NavLink>
           ))}
         </nav>
