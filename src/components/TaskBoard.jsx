@@ -9,17 +9,18 @@ const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.nam
 function TaskExtras({ task }) {
   const { done, total } = checklistProgress(task)
   const comments = (task.comments || []).length
-  if (!total && !task.repeat && !comments) return null
+  if (!total && !task.repeat && !comments && !task.doneRequested) return null
   return (
     <span style={{ display: 'inline-flex', gap: 8 }}>
       {total > 0 && <span title="Checklist">☑ {done}/{total}</span>}
       {task.repeat && <span title={repeatLabel(task)}>🔁</span>}
       {comments > 0 && <span title="Comments">💬 {comments}</span>}
+      {task.doneRequested && <span style={{ color: 'var(--warn-text)' }}>✋ Awaiting approval</span>}
     </span>
   )
 }
 
-function TaskCard({ task, students, statuses, divisions, allTasks, canMove, onMove, onOpen, today }) {
+function TaskCard({ task, students, statuses, divisions, allTasks, canMove, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
   const overdue = isOverdue(task, statuses, today)
   const waiting = waitingOn(task, allTasks, statuses)
@@ -62,12 +63,32 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, onMo
           aria-label={`Status of ${task.title}`}
           style={{ marginTop: 6, fontSize: 12, padding: '3px 6px' }}
         >
-          {statuses.map((s) => (
+          {moveOptions.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
             </option>
           ))}
         </select>
+      )}
+      {task.doneRequested && onApprove && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button type="button" onClick={() => onApprove(task)} style={{ fontSize: 12, padding: '3px 8px' }}>
+            Approve done
+          </button>
+          <button type="button" className="secondary" onClick={() => onReject(task)} style={{ fontSize: 12, padding: '3px 8px' }}>
+            Send back
+          </button>
+        </div>
+      )}
+      {ownId && task.assigneeId === ownId && !onApprove && !statusOf(task, statuses).done && (
+        <button
+          type="button"
+          className={task.doneRequested ? 'secondary' : ''}
+          onClick={() => onRequestDone(task, !task.doneRequested)}
+          style={{ marginTop: 6, fontSize: 12, padding: '3px 8px' }}
+        >
+          {task.doneRequested ? 'Cancel finish request' : 'Request done'}
+        </button>
       )}
     </div>
   )
@@ -76,11 +97,16 @@ function TaskCard({ task, students, statuses, divisions, allTasks, canMove, onMo
 // One column per status (drag a card to another to change its status, or use
 // the select on it) or a plain list. `canMove` is who may change a status;
 // `onOpen` is set only for people who may edit the task's details.
-export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign }) {
+export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject }) {
   const [overStatus, setOverStatus] = useState(null)
   const [overUnassign, setOverUnassign] = useState(false)
   const today = todayISO()
   const sorted = sortTasks(tasks)
+  // Admins and task leads move any task anywhere. An assignee (ownId) moves
+  // only their own unfinished tasks, and never into a finished status here -
+  // they ask for approval instead.
+  const canMoveTask = (t) => canMove || (!!ownId && t.assigneeId === ownId && !statusOf(t, statuses).done)
+  const moveOptions = canMove ? statuses : statuses.filter((s) => !s.done)
 
   const legend = divisions.length > 0 && (
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10, fontSize: 13 }}>
@@ -177,14 +203,14 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                   </td>
                   <td>{assignee ? assignee.fullName : t.assigneeId ? '(removed student)' : '—'}</td>
                   <td>
-                    {canMove ? (
+                    {canMoveTask(t) ? (
                       <select
                         value={statusOf(t, statuses).id}
                         onChange={(e) => onMove(t, e.target.value)}
                         aria-label={`Status of ${t.title}`}
                         style={{ fontSize: 13, padding: '3px 6px' }}
                       >
-                        {statuses.map((s) => (
+                        {moveOptions.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}
                           </option>
@@ -224,15 +250,15 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
         return (
           <div
             key={status.id}
-            onDragOver={canMove ? (e) => { e.preventDefault(); setOverStatus(status.id) } : undefined}
-            onDragLeave={canMove ? () => setOverStatus(null) : undefined}
+            onDragOver={canMove || ownId ? (e) => { e.preventDefault(); setOverStatus(status.id) } : undefined}
+            onDragLeave={canMove || ownId ? () => setOverStatus(null) : undefined}
             onDrop={
-              canMove
+              canMove || ownId
                 ? (e) => {
                     e.preventDefault()
                     setOverStatus(null)
                     const task = tasks.find((t) => t.id === e.dataTransfer.getData('text/plain'))
-                    if (task && statusOf(task, statuses).id !== status.id) onMove(task, status.id)
+                    if (task && canMoveTask(task) && statusOf(task, statuses).id !== status.id) onMove(task, status.id)
                   }
                 : undefined
             }
@@ -248,7 +274,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
               {status.name} <span className="muted">{column.length}</span>
             </div>
             {column.map((t) => (
-              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} canMove={canMove} onMove={onMove} onOpen={onOpen} today={today} />
+              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
             ))}
             {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>Nothing here</div>}
           </div>

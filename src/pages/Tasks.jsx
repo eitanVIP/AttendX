@@ -6,7 +6,7 @@ import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { useStudents } from '../lib/firestore-hooks'
 import { commentOnTask, createTask, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
-import { EMPTY_TASK, becameDone, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, firstDoneStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, waitingOn } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -104,6 +104,7 @@ export default function Tasks() {
       setNotice(`"${task.title}" is waiting on ${waiting.map((t) => `"${t.title}"`).join(', ')}, so it was moved back to ${statuses[0].name}.`)
       setTimeout(() => setNotice(''), 8000)
     }
+    if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
     const assigneeName = students.find((s) => s.id === task.assigneeId)?.fullName || ''
     if (editing) updateTask(team.id, editing, task, assigneeName)
     else createTask(team.id, task, assigneeName)
@@ -115,6 +116,20 @@ export default function Tasks() {
     if (!confirm(`Delete "${editing.title}"?`)) return
     await deleteTask(team.id, editing)
     setShowForm(false)
+  }
+
+  // Approving a finish request moves the task to the first finished status.
+  function approveDone(task) {
+    const done = firstDoneStatus(statuses)
+    if (!done) {
+      setNotice('Mark one of the statuses as Finished first.')
+      return
+    }
+    handleMove(task, done.id)
+  }
+
+  function rejectDone(task) {
+    updateTask(team.id, task, { title: task.title, doneRequested: false }, students.find((s) => s.id === task.assigneeId)?.fullName || '')
   }
 
   // A finished repeating task makes its next copy.
@@ -252,8 +267,11 @@ export default function Tasks() {
 
       {notice && <p className="form-error">{notice}</p>}
       {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
+      {tasks.some((t) => t.doneRequested && !statusOf(t, statuses).done) && (
+        <p style={{ color: 'var(--warn-text)' }}>✋ {tasks.filter((t) => t.doneRequested && !statusOf(t, statuses).done).length} task(s) waiting for your approval</p>
+      )}
 
-      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} />
+      <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} />
 
       <TaskFormPanel
         open={showForm}

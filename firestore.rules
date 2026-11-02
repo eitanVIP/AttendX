@@ -186,6 +186,18 @@ service cloud.firestore {
         && request.resource.data.updatedBy.size() > 0
         && exists(/databases/$(database)/documents/teams/$(teamId)/students/$(request.resource.data.updatedBy))
         && get(/databases/$(database)/documents/teams/$(teamId)/students/$(request.resource.data.updatedBy)).data.taskLead == true;
+
+      // A task's own assignee (the claimed `updatedBy` is the assignee) may
+      // move it between statuses, tick its checklist, comment and ask for
+      // approval - nothing else. Finishing it (a "done" status) is for a task
+      // lead or admin; the app enforces that, the rules can't look inside the
+      // status list.
+      allow update: if hasStudentAccess(teamId)
+        && request.resource.data.updatedBy is string
+        && request.resource.data.updatedBy.size() > 0
+        && request.resource.data.updatedBy == resource.data.assigneeId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['statusId', 'doneRequested', 'checklist', 'comments', 'history', 'updatedBy', 'updatedAt']);
     }
 
     // The system log (see logChange in actions.js): admins write to it
