@@ -9,7 +9,7 @@ import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
 import SendBackPrompt from '../components/SendBackPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -42,6 +42,7 @@ export default function MyTasks() {
   const [form, setForm] = useState(EMPTY_TASK)
   const [system, setSystem] = useState('all')
   const [showOld, setShowOld] = useState(false)
+  const [project, setProject] = useState('all')
   const systems = useSystemList(communityDb, verified.teamId)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = allTasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -58,9 +59,11 @@ export default function MyTasks() {
         .filter((t) => !(isLead && mineOnly) || t.assigneeId === studentId)
         .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
         .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system))
+        .filter((t) => project === 'all' || (project === 'none' ? !t.project : t.project === project))
         .filter((t) => view === 'stats' || showOld || !isOldDone(t, statuses)),
-    [tasks, isLead, mineOnly, studentId, division, system, view, showOld, statuses]
+    [tasks, isLead, mineOnly, studentId, division, system, project, view, showOld, statuses]
   )
+  const projectList = projectNames(tasks)
   const hiddenOld = tasks.filter((t) => isOldDone(t, statuses)).length
 
   function startNew() {
@@ -89,6 +92,7 @@ export default function MyTasks() {
       partIds: task.partIds || [],
       systemId: task.systemId || '',
       links: task.links || [],
+      project: task.project || '',
     })
     setShowForm(true)
   }
@@ -332,6 +336,17 @@ export default function MyTasks() {
             ))}
           </select>
         )}
+        {projectList.length > 0 && (
+          <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Filter by project">
+            <option value="all">All projects</option>
+            <option value="none">No project</option>
+            {projectList.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
         {(hiddenOld > 0 || showOld) && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
             <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
@@ -357,6 +372,9 @@ export default function MyTasks() {
             Workload
           </button>
         )}
+        <button type="button" className={view === 'projects' ? '' : 'secondary'} onClick={() => setView('projects')}>
+          Projects
+        </button>
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
@@ -423,6 +441,7 @@ export default function MyTasks() {
           blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
           products={products}
           systems={systems}
+          projects={projectList}
           comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
           onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
           editing={!!editing}

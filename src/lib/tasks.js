@@ -11,7 +11,7 @@ import { computeToBuy, normalizeProduct, todayISO } from './calc'
 // startDate and dueDate ('YYYY-MM-DD' or '' - together a range), division
 // (a team division name or ''), blockedBy (ids of tasks that must be
 // finished before this one can leave the first status), priority, statusId, createdAt, updatedAt,
-// updatedBy, links [{ id, url, label }] (http/https only), partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
+// updatedBy, project (a free-text group name, e.g. "Drivetrain v2"), links [{ id, url, label }] (http/https only), partIds (products it needs bought first), systemId (a robot system it belongs to), blockedReason (why it sits in a status marked `blocked`), completedAt (when it was moved into a finished status), doneRequested (the assignee asked for it to be marked done; a lead or admin approves), checklist [{ id, text, done }], comments [{ id, authorName, text, at }],
 // repeat ('' | 'daily' | 'weekly' | 'biweekly' | 'monthly'), repeatSpawned }. The status list is team-wide and editable, kept at
 // teams/{teamId}/settings/tasks as { statuses: [{ id, name, done? }] } (done = counts as finished) - students can
 // already read every settings doc.
@@ -28,7 +28,7 @@ export const TASK_PRIORITIES = [
   { id: 'low', name: 'Low' },
 ]
 
-export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '', partIds: [], systemId: '', links: [] }
+export const EMPTY_TASK = { title: '', description: '', assigneeId: '', startDate: '', dueDate: '', priority: 'normal', statusId: '', division: '', blockedBy: [], checklist: [], repeat: '', blockedReason: '', partIds: [], systemId: '', links: [], project: '' }
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
 
@@ -416,6 +416,7 @@ export function duplicateOf(task, firstStatusId) {
     partIds: task.partIds || [],
     systemId: task.systemId || '',
     links: task.links || [],
+    project: task.project || '',
   }
 }
 
@@ -426,6 +427,28 @@ export function isOldDone(task, statuses, now = Date.now(), days = ARCHIVE_DAYS)
   if (!statusOf(task, statuses).done) return false
   const at = Date.parse(task.completedAt || task.updatedAt)
   return Number.isFinite(at) && now - at > days * 86400000
+}
+
+// Projects are just a name on tasks. The distinct names, A to Z.
+export function projectNames(tasks) {
+  return [...new Set(tasks.map((t) => (t.project || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+}
+
+// Per project: how many tasks, how many finished, and the span of their dates.
+export function projectSummaries(tasks, statuses) {
+  return projectNames(tasks).map((name) => {
+    const own = tasks.filter((t) => (t.project || '').trim() === name)
+    const starts = own.map((t) => t.startDate || t.dueDate).filter(Boolean).sort()
+    const ends = own.map((t) => t.dueDate || t.startDate).filter(Boolean).sort()
+    return {
+      name,
+      tasks: own,
+      total: own.length,
+      done: own.filter((t) => statusOf(t, statuses).done).length,
+      start: starts[0] || '',
+      end: ends[ends.length - 1] || '',
+    }
+  })
 }
 
 // Workload: for each student their open and overdue tasks and, for each of

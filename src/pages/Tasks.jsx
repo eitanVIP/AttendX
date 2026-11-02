@@ -11,7 +11,7 @@ import UndoBar from '../components/UndoBar'
 import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
 import SendBackPrompt from '../components/SendBackPrompt'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone, duplicateOf } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -38,6 +38,7 @@ export default function Tasks() {
   const [sendBackTask, setSendBackTask] = useState(null)
   const [system, setSystem] = useState('all')
   const [showOld, setShowOld] = useState(false)
+  const [project, setProject] = useState('all')
   const { data: systems } = useSystems(team?.id)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = tasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -67,9 +68,11 @@ export default function Tasks() {
       .filter((t) => assignee === 'all' || (assignee === 'none' ? !t.assigneeId : t.assigneeId === assignee))
       .filter((t) => division === 'all' || (division === 'none' ? !t.division : t.division === division))
       .filter((t) => system === 'all' || (system === 'none' ? !t.systemId : t.systemId === system))
+      .filter((t) => project === 'all' || (project === 'none' ? !t.project : t.project === project))
       .filter((t) => !q || `${t.title} ${t.description || ''}`.toLowerCase().includes(q))
       .filter((t) => view === 'stats' || showOld || !isOldDone(t, statuses))
-  }, [tasks, assignee, division, system, search, view, showOld, statuses])
+  }, [tasks, assignee, division, system, project, search, view, showOld, statuses])
+  const projectList = projectNames(tasks)
   const hiddenOld = tasks.filter((t) => isOldDone(t, statuses)).length
 
   function startNew() {
@@ -98,6 +101,7 @@ export default function Tasks() {
       partIds: task.partIds || [],
       systemId: task.systemId || '',
       links: task.links || [],
+      project: task.project || '',
     })
     setShowForm(true)
   }
@@ -357,6 +361,17 @@ export default function Tasks() {
             ))}
           </select>
         )}
+        {projectList.length > 0 && (
+          <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Filter by project">
+            <option value="all">All projects</option>
+            <option value="none">No project</option>
+            {projectList.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
         {(hiddenOld > 0 || showOld) && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
             <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
@@ -377,6 +392,9 @@ export default function Tasks() {
         </button>
         <button type="button" className={view === 'workload' ? '' : 'secondary'} onClick={() => setView('workload')}>
           Workload
+        </button>
+        <button type="button" className={view === 'projects' ? '' : 'secondary'} onClick={() => setView('projects')}>
+          Projects
         </button>
       </div>
 
@@ -411,6 +429,7 @@ export default function Tasks() {
         blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
         products={products}
         systems={systems}
+        projects={projectList}
         comments={tasks.find((t) => t.id === editing?.id)?.comments || []}
         onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
         editing={!!editing}

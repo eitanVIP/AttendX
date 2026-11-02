@@ -2,6 +2,7 @@ import { useState } from 'react'
 import TaskCalendar from './TaskCalendar'
 import TaskStats from './TaskStats'
 import TaskWorkload from './TaskWorkload'
+import TaskProjects from './TaskProjects'
 import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
@@ -91,6 +92,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
         {taskDateLabel(task) && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(task)}</span>}
         {task.division && <span>{task.division}</span>}
         {systemName && <span>⚙ {systemName}</span>}
+        {task.project && <span>📁 {task.project}</span>}
         {task.priority === 'low' && <span>Low</span>}
         <TaskExtras task={task} />
       </div>
@@ -191,6 +193,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
       Unassigned - drop a task here to take its assignee off
     </div>
   )
+
+  if (view === 'projects') return <TaskProjects tasks={tasks} statuses={statuses} />
 
   if (view === 'workload') return <TaskWorkload tasks={tasks} statuses={statuses} students={students} />
 
