@@ -8,7 +8,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -149,6 +149,14 @@ export default function MyTasks() {
     }
     writeTask(communityDb, verified.teamId, null, task, studentId)
     logStudentChange(verified.teamId, 'task', 'create', `Added task "${title}"`, student.fullName)
+  }
+
+  function handleDuplicate() {
+    writeTask(communityDb, verified.teamId, null, duplicateOf(editing, statuses[0].id), studentId)
+    logStudentChange(verified.teamId, 'task', 'create', `Duplicated task "${editing.title}"`, student.fullName)
+    setShowForm(false)
+    setInfo(`Duplicated "${editing.title}".`)
+    setTimeout(() => setInfo(''), 6000)
   }
 
   function sendRequest(request) {
@@ -402,6 +410,7 @@ export default function MyTasks() {
           comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
           onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
           editing={!!editing}
+          onDuplicate={editing ? handleDuplicate : undefined}
         />
       )}
     </div>

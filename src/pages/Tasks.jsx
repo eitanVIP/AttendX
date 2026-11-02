@@ -10,7 +10,7 @@ import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
 import { TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
-import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone } from '../lib/tasks'
+import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone, duplicateOf } from '../lib/tasks'
 
 // Admin task management: a board (a column per status) or a list over the
 // same tasks. Students see their own on My Tasks; students flagged as task
@@ -141,6 +141,13 @@ export default function Tasks() {
     }
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
+  }
+
+  function handleDuplicate() {
+    createTask(team.id, duplicateOf(editing, statuses[0].id), students.find((s) => s.id === editing.assigneeId)?.fullName || '')
+    setShowForm(false)
+    setInfo(`Duplicated "${editing.title}".`)
+    setTimeout(() => setInfo(''), 6000)
   }
 
   async function handleDelete() {
@@ -394,6 +401,7 @@ export default function Tasks() {
         onAddComment={(text) => commentOnTask(team.id, editing.id, text)}
         editing={!!editing}
         onDelete={editing ? handleDelete : undefined}
+        onDuplicate={editing ? handleDuplicate : undefined}
       />
 
       <FormPanel open={showStatuses} onClose={() => setShowStatuses(false)} onSubmit={handleSaveStatuses}>
