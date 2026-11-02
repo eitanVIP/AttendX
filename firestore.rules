@@ -197,7 +197,7 @@ service cloud.firestore {
         && request.resource.data.updatedBy.size() > 0
         && request.resource.data.updatedBy == resource.data.assigneeId
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['statusId', 'doneRequested', 'checklist', 'comments', 'history', 'updatedBy', 'updatedAt']);
+          .hasOnly(['statusId', 'doneRequested', 'checklist', 'comments', 'history', 'blockedReason', 'updatedBy', 'updatedAt']);
     }
 
     // The system log (see logChange in actions.js): admins write to it

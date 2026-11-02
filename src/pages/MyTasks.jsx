@@ -5,7 +5,9 @@ import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
 import CompletionCelebration from '../components/CompletionCelebration'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, firstDoneStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
+import UndoBar from '../components/UndoBar'
+import BlockedPrompt from '../components/BlockedPrompt'
+import { EMPTY_TASK, addTaskComment, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, waitingOn, writeTask } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -24,6 +26,8 @@ export default function MyTasks() {
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
   const [info, setInfo] = useState('')
+  const [undo, setUndo] = useState(null)
+  const [blockedAsk, setBlockedAsk] = useState(null)
   const [division, setDivision] = useState('all')
   const divisions = verified.divisions || []
   const [showForm, setShowForm] = useState(false)
@@ -65,6 +69,7 @@ export default function MyTasks() {
       blockedBy: task.blockedBy || [],
       checklist: task.checklist || [],
       repeat: task.repeat || '',
+      blockedReason: task.blockedReason || '',
     })
     setShowForm(true)
   }
@@ -73,6 +78,11 @@ export default function MyTasks() {
     e.preventDefault()
     const task = { ...form, title: form.title.trim(), statusId: form.statusId || statuses[0].id }
     if (!task.title) return
+    task.blockedReason = isBlockedStatus(statuses, task.statusId) ? (task.blockedReason || '').trim() : ''
+    if (isBlockedStatus(statuses, task.statusId) && !task.blockedReason) {
+      setFormError('Say why it is blocked.')
+      return
+    }
     const scheduleReason = scheduleBlockedReason({ ...task, id: editing?.id }, task.startDate, task.dueDate, allTasks, statuses)
     if (scheduleReason) {
       setFormError(scheduleReason)
@@ -97,6 +107,27 @@ export default function MyTasks() {
     logStudentChange(verified.teamId, 'task', editing ? 'update' : 'create', `${editing ? 'Updated' : 'Added'} task "${task.title}"`, student.fullName)
     if (editing && becameDone(editing, task.statusId, statuses)) afterDone({ ...editing, ...task })
     setShowForm(false)
+  }
+
+  // Offers to take back the last drag or move for a few seconds.
+  function offerUndo(message, run) {
+    const stamp = Date.now()
+    setUndo({ message, run, stamp })
+    setTimeout(() => setUndo((u) => (u && u.stamp === stamp ? null : u)), 8000)
+  }
+
+  // "+ Add task" at the bottom of a column (task leads).
+  function quickAdd(title, statusId) {
+    const task = {
+      ...EMPTY_TASK,
+      title,
+      statusId,
+      division: division !== 'all' && division !== 'none' ? division : '',
+      assigneeId: mineOnly ? studentId : '',
+      ...completionFields(null, statusId, statuses),
+    }
+    writeTask(communityDb, verified.teamId, null, task, studentId)
+    logStudentChange(verified.teamId, 'task', 'create', `Added task "${title}"`, student.fullName)
   }
 
   // The assignee asks for a task to be marked done; a lead or admin approves.
@@ -134,7 +165,8 @@ export default function MyTasks() {
     }
   }
 
-  function handleMove(task, statusId) {
+  // `reason` is the answer to "why is it blocked?" for a blocked status.
+  function handleMove(task, statusId, { reason: blockedWhy, skipUndo = false } = {}) {
     if (!isLead) {
       if (task.assigneeId !== studentId) return
       if (statuses.find((s) => s.id === statusId)?.done) {
@@ -149,19 +181,31 @@ export default function MyTasks() {
       setTimeout(() => setNotice(''), 6000)
       return
     }
+    const blocked = isBlockedStatus(statuses, statusId)
+    if (blocked && blockedWhy === undefined) {
+      setBlockedAsk({ task, statusId })
+      return
+    }
     setNotice('')
     const name = statuses.find((s) => s.id === statusId)?.name || statusId
-    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false, ...completionFields(task, statusId, statuses) })
+    const blockedFields = blocked ? { blockedReason: blockedWhy } : task.blockedReason ? { blockedReason: '' } : {}
+    moveTask(communityDb, verified.teamId, task.id, statusId, studentId, { doneRequested: false, ...completionFields(task, statusId, statuses), ...blockedFields })
     logStudentChange(verified.teamId, 'task', 'update', `Moved task "${task.title}" to ${name}`, student.fullName)
-    if (becameDone(task, statusId, statuses)) afterDone(task)
+    const finished = becameDone(task, statusId, statuses)
+    if (finished) afterDone(task)
+    if (!skipUndo && !(finished && task.repeat)) {
+      const before = statusOf(task, statuses).id
+      offerUndo(`Moved "${task.title}" to ${name}`, () => handleMove({ ...task, statusId }, before, { reason: task.blockedReason || '', skipUndo: true }))
+    }
   }
 
-  function handleAssign(task, assigneeId) {
+  function handleAssign(task, assigneeId, skipUndo = false) {
     writeTask(communityDb, verified.teamId, task.id, { assigneeId }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Unassigned task "${task.title}"`, student.fullName)
+    if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
 
-  function handleSchedule(task, startDate, dueDate) {
+  function handleSchedule(task, startDate, dueDate, skipUndo = false) {
     const reason = scheduleBlockedReason(task, startDate, dueDate, allTasks, statuses)
     if (reason) {
       setNotice(reason)
@@ -171,6 +215,7 @@ export default function MyTasks() {
     setNotice('')
     writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Rescheduled task "${task.title}"`, student.fullName)
+    if (!skipUndo) offerUndo(`Rescheduled "${task.title}"`, () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
   }
 
   if (loading) return <div className="page-loading">Loading tasks…</div>
@@ -189,6 +234,8 @@ export default function MyTasks() {
       </div>
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
+      <UndoBar undo={undo} onClose={() => setUndo(null)} />
+      <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
       <DueSoon tasks={allTasks} statuses={statuses} studentId={studentId} />
 
@@ -243,6 +290,7 @@ export default function MyTasks() {
           onRequestDone={requestDone}
           onApprove={isLead ? approveDone : undefined}
           onReject={isLead ? rejectDone : undefined}
+          onQuickAdd={isLead ? quickAdd : undefined}
           onMove={handleMove}
           onOpen={isLead ? startEdit : (t) => setDetailId(t.id)}
           onSchedule={isLead ? handleSchedule : undefined}
@@ -276,6 +324,7 @@ export default function MyTasks() {
           divisions={divisions}
           candidates={prerequisiteCandidates(editing?.id, allTasks)}
           error={formError}
+          blockedIds={statuses.filter((s) => s.blocked).map((s) => s.id)}
           comments={allTasks.find((t) => t.id === editing?.id)?.comments || []}
           onAddComment={(text) => addTaskComment(communityDb, verified.teamId, editing.id, text, student.fullName, studentId)}
           editing={!!editing}

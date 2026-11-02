@@ -5,7 +5,7 @@ import { REPEATS, TASK_PRIORITIES } from '../lib/tasks'
 
 // Create / edit a task - used by the admin Tasks page and by task leads on
 // My Tasks. `onDelete` is passed only where deleting is allowed (admins).
-export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment }) {
+export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, students, statuses, divisions = [], candidates = [], error, editing, onDelete, comments = [], onAddComment, blockedIds = [] }) {
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value })
   const [newItem, setNewItem] = useState('')
   const [newComment, setNewComment] = useState('')
@@ -87,6 +87,12 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             ))}
           </select>
         </label>
+        {blockedIds.includes(form.statusId || statuses[0].id) && (
+          <label className="span-2">
+            Why is it blocked?
+            <input value={form.blockedReason || ''} onChange={set('blockedReason')} required />
+          </label>
+        )}
         <label>
           Repeats
           <select value={form.repeat || ''} onChange={set('repeat')}>
