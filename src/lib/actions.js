@@ -31,7 +31,7 @@ import {
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
-import { addTaskComment, decideTaskRequest as writeTaskRequestDecision, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
+import { addTaskComment, decideTaskRequest as writeTaskRequestDecision, describeChange, historyUnion, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -1262,9 +1262,14 @@ export async function createTask(teamId, task, assigneeName) {
 }
 
 // `previous` is the task as it was (it carries the linked calendar event).
-export async function updateTask(teamId, previous, task, assigneeName) {
+const adminName = () => auth.currentUser?.displayName || auth.currentUser?.email || 'Admin'
+
+// `ctx` ({ statuses, students }) lets the change be written into the task's
+// history ("Status: To do → Doing").
+export async function updateTask(teamId, previous, task, assigneeName, ctx) {
+  const change = ctx ? describeChange(previous, task, ctx) : ''
   await Promise.all([
-    writeTask(db, teamId, previous.id, task, auth.currentUser?.uid || ''),
+    writeTask(db, teamId, previous.id, change ? { ...task, history: historyUnion(adminName(), change) } : task, auth.currentUser?.uid || ''),
     logChange(teamId, 'task', 'update', `Updated task "${task.title}"`),
   ])
   await syncTaskCalendar(teamId, { ...previous, ...task }, assigneeName)
@@ -1293,7 +1298,7 @@ export function commentOnTask(teamId, taskId, text) {
 
 export function setTaskStatus(teamId, task, statusName, statusId, extra = {}) {
   return Promise.all([
-    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false, ...extra }),
+    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false, history: historyUnion(adminName(), `Moved to ${statusName}`), ...extra }),
     logChange(teamId, 'task', 'update', `Moved task "${task.title}" to ${statusName}`),
   ])
 }

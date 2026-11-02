@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
+import TaskHistory from './TaskHistory'
 import { linkLabel, taskDateLabel, taskLinks } from '../lib/tasks'
 
 // What an assignee who isn't a task lead sees when they open their own task:
@@ -79,6 +80,7 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
           </button>
         </div>
       </div>
+      <TaskHistory history={task.history || []} />
       <div className="form-actions">
         {!finished &&
           (task.doneRequested ? (
