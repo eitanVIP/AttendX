@@ -4,6 +4,50 @@
 // { src, alt, caption } shown under the text (files live in public/guide, and
 // show a made-up demo team, never real students).
 
+import { useState } from 'react'
+
+// The guide is written in Hebrew (guide.he.js) and English (below). The choice
+// is remembered per browser; Hebrew is the default.
+const LANG_KEY = 'attendx.guideLang'
+export function useGuideLang() {
+  const [lang, setLang] = useState(() => {
+    try {
+      return localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'he'
+    } catch {
+      return 'he'
+    }
+  })
+  const choose = (next) => {
+    setLang(next)
+    try {
+      localStorage.setItem(LANG_KEY, next)
+    } catch {
+      // storage unavailable - the choice just won't be remembered
+    }
+  }
+  return [lang, choose]
+}
+
+// The words around the guide's content, per language.
+export const GUIDE_TEXT = {
+  en: {
+    title: 'Guide',
+    adminIntro: 'How AttendX works, page by page. Search, or jump to a section.',
+    studentIntro: 'How to use AttendX as a student.',
+    search: 'Search the guide (try: approve, optional, spool...)',
+    none: (q) => `Nothing matches "${q}". Try a different word.`,
+    tip: 'Tip:',
+  },
+  he: {
+    title: 'מדריך',
+    adminIntro: 'איך AttendX עובד, דף אחרי דף. חפשו, או קפצו לפרק.',
+    studentIntro: 'איך משתמשים ב-AttendX כתלמיד.',
+    search: 'חיפוש במדריך (למשל: אישור, מפגש רשות, גליל...)',
+    none: (q) => `לא נמצא כלום עבור “${q}”. נסו מילה אחרת.`,
+    tip: 'טיפ:',
+  },
+}
+
 export const ADMIN_GUIDE = [
   {
     id: 'start',
