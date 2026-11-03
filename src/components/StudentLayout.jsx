@@ -13,6 +13,7 @@ const links = [
   { to: '/my-tasks', label: 'Tasks' },
   { to: '/my-profile', label: 'My Profile' },
   { to: '/streaks', label: 'Streaks' },
+  { to: '/help', label: 'Guide' },
 ]
 
 // The student equivalent of Layout.jsx (the admin shell) - same header/
