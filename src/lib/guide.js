@@ -1,6 +1,8 @@
 // The in-app guide. Each section has topics; a topic is a heading plus any of
 // `body` (paragraphs), `steps` (a numbered list) and `tips` (short extra
-// notes). `keywords` only help the search box find a topic.
+// notes). `keywords` only help the search box find a topic. `images` is a list of
+// { src, alt, caption } shown under the text (files live in public/guide, and
+// show a made-up demo team, never real students).
 
 export const ADMIN_GUIDE = [
   {
@@ -80,6 +82,7 @@ export const ADMIN_GUIDE = [
           'Some meetings are optional. Edit the session and tick "Optional meeting". The row turns purple with an "Optional" badge.',
           'Everyone counts as excused automatically, so staying home never hurts. Mark a student Present (or Late) only if they came: that counts as +1 and raises their percentage.',
         ],
+        images: [{ src: 'guide/attendance.jpg', alt: 'Attendance table with an optional meeting', caption: 'The purple row is an optional meeting: blank cells show as Excused.' }],
         keywords: 'optional voluntary excused bonus',
       },
       {
@@ -109,6 +112,7 @@ export const ADMIN_GUIDE = [
           'Full: press "+ New task" for the form: title, description, assignee, division, start and due dates, status, priority and more.',
         ],
         tips: ['Duplicate (in the task form) makes a copy back in the first status with the checklist unticked.'],
+        images: [{ src: 'guide/task-form.jpg', alt: 'The task form', caption: 'The task form: assignee, division, dates, status, project and more.' }],
         keywords: 'new add create quick add duplicate copy',
       },
       {
@@ -165,11 +169,13 @@ export const ADMIN_GUIDE = [
           'An assignee who is not a lead can move their own task between the unfinished statuses, tick the checklist, comment, and press "Request done". They cannot move it to Done themselves.',
           'You see a banner and the card shows "Awaiting approval". Approve done moves it to the first Finished status; Send back clears the request and lets you leave a note, which goes into the task comments.',
         ],
+        images: [{ src: 'guide/tasks-board.jpg', alt: 'Tasks board with an approval banner', caption: 'The board with a finish request waiting (✋ banner) and a student task request above the columns.' }],
         keywords: 'approve request done send back assignee',
       },
       {
         heading: 'Task requests from students',
         body: ['Any student can ask for a task. Requests appear above the board for you and the task leads. Accept opens the new-task form already filled in; Decline takes an optional reason that the student sees.'],
+        images: [{ src: 'guide/tasks-board.jpg', alt: 'Task requests panel', caption: 'Requests sit above the board with Accept and Decline.' }],
         keywords: 'request propose suggest',
       },
       {
@@ -177,6 +183,11 @@ export const ADMIN_GUIDE = [
         body: [
           'Board: a column per status, drag cards between them. List: ordered by date. Calendar: drag a task onto a day, move it, stretch it from either end, drop it on "No date" to clear its dates, or drop it on "Unassigned" to take its assignee off.',
           'Stats: open, overdue, finished per week, by division and student. Workload: who is busy over the next two weeks. Projects: progress per project. Timeline: a Gantt-style view with arrows for dependencies.',
+        ],
+        images: [
+          { src: 'guide/tasks-calendar.jpg', alt: 'Calendar view', caption: 'Calendar: drag tasks onto days and stretch them. A lock marks a task that is waiting on another.' },
+          { src: 'guide/tasks-timeline.jpg', alt: 'Timeline view', caption: 'Timeline: bars per task with arrows for dependencies.' },
+          { src: 'guide/tasks-workload.jpg', alt: 'Workload view', caption: 'Workload: how many open tasks each student has over the next two weeks.' },
         ],
         keywords: 'board list calendar stats workload projects timeline gantt drag',
       },
@@ -285,6 +296,7 @@ export const ADMIN_GUIDE = [
           'The Dashboard shows attendance, training completion, certification coverage, budget breakdowns, events, top streaks and the Needs attention card.',
           'Streaks: Training, Community, Attendance and Tasks. Training and community streaks add one per completion and reset after the "streak reset days" in Settings. Attendance resets on an absence. The Tasks streak adds one per finished task.',
         ],
+        images: [{ src: 'guide/dashboard.jpg', alt: 'The dashboard', caption: 'The dashboard with the Needs attention card on top.' }],
         keywords: 'dashboard streak leaderboard reset days',
       },
       {
@@ -364,6 +376,7 @@ export const STUDENT_GUIDE = [
           'The Tasks tab shows the tasks assigned to you. The "Due this week" box lists what is overdue or due in the next 7 days, and a badge on the tab counts your tasks that are overdue (red) or due within 3 days.',
           'Switch between Board, List and Calendar at the top. Click a task to open it.',
         ],
+        images: [{ src: 'guide/student-tasks.jpg', alt: 'A student\'s My Tasks page', caption: 'My Tasks: the Due this week box, the badge on the tab, and your board.' }],
         keywords: 'my tasks due week badge board list calendar',
       },
       {
@@ -374,6 +387,7 @@ export const STUDENT_GUIDE = [
           'When it is finished, press "Request done". A lead or mentor approves it - you cannot move it to Done yourself. You will see a confetti burst when it is approved.',
         ],
         tips: ['A lock means the task is waiting on another task or on a part being bought, so it cannot be started yet.'],
+        images: [{ src: 'guide/student-task.jpg', alt: 'A task opened by a student', caption: 'Open a task to change its status, tick the checklist, comment, or press Request done.' }],
         keywords: 'status move blocked checklist comment request done approve',
       },
       {
