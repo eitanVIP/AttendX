@@ -70,6 +70,21 @@ export default function GuideView({ title, intro, sections }) {
                     ))}
                   </ol>
                 )}
+                {(t.images || []).map((img) => (
+                  <figure key={img.src} style={{ margin: '0 0 12px' }}>
+                    <img
+                      src={`${import.meta.env.BASE_URL}${img.src}`}
+                      alt={img.alt}
+                      loading="lazy"
+                      style={{ maxWidth: '100%', borderRadius: 8, border: '1px solid var(--border)' }}
+                    />
+                    {img.caption && (
+                      <figcaption className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                        {img.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                ))}
                 {t.tips &&
                   t.tips.map((tip, i) => (
                     <p key={i} className="muted" style={{ margin: '0 0 6px', fontSize: 13 }}>
