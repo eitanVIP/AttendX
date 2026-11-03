@@ -30,6 +30,7 @@ const links = [
     ],
   },
   { to: '/settings', label: 'Settings' },
+  { to: '/guide', label: 'Guide' },
 ]
 
 const pageMatches = (page, pathname) => (page.end ? pathname === page.to : pathname.startsWith(page.to))
