@@ -9,7 +9,7 @@ import UndoBar from '../components/UndoBar'
 import { MyTaskRequests, RequestTaskPanel, TaskRequestList } from '../components/TaskRequests'
 import BlockedPrompt from '../components/BlockedPrompt'
 import SendBackPrompt from '../components/SendBackPrompt'
-import { EMPTY_TASK, addTaskComment, becameDone, completionFields, decideTaskRequest, submitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, historyUnion, describeChange, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
+import { EMPTY_TASK, addTaskComment as rawAddTaskComment, becameDone, completionFields, decideTaskRequest as rawDecideTaskRequest, submitTaskRequest as rawSubmitTaskRequest, firstDoneStatus, isBlockedStatus, moveBlockedReason, moveTask as rawMoveTask, prerequisiteCandidates, scheduleBlockedReason, spawnNextOccurrence, statusOf, taskDateLabel, useTaskData, historyUnion, describeChange, useProductList, useSystemList, useTaskRequests, waitingOn, waitingParts, writeTask as rawWriteTask, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
 import DueSoon from '../components/DueSoon'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 
@@ -27,6 +27,17 @@ export default function MyTasks() {
   const [mineOnly, setMineOnly] = useState(false)
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
+  // A write the database refuses (say a lead who was just made a plain
+  // student) fails silently otherwise - tell the student it did not save.
+  const notSaved = () => {
+    setNotice('That change was not saved. If you were just removed as a task lead, sign out and back in.')
+    setTimeout(() => setNotice(''), 8000)
+  }
+  const addTaskComment = (...args) => rawAddTaskComment(...args).catch(notSaved)
+  const decideTaskRequest = (...args) => rawDecideTaskRequest(...args).catch(notSaved)
+  const submitTaskRequest = (...args) => rawSubmitTaskRequest(...args).catch(notSaved)
+  const moveTask = (...args) => rawMoveTask(...args).catch(notSaved)
+  const writeTask = (...args) => rawWriteTask(...args).catch(notSaved)
   const [info, setInfo] = useState('')
   const [undo, setUndo] = useState(null)
   const [sendBackTask, setSendBackTask] = useState(null)
