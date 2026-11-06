@@ -11,6 +11,7 @@ const links = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/students', label: 'Students' },
   { to: '/sessions', label: 'Attendance' },
+  { to: '/tasks', label: 'Tasks' },
   {
     label: 'Parts',
     children: [
@@ -29,6 +30,7 @@ const links = [
     ],
   },
   { to: '/settings', label: 'Settings' },
+  { to: '/guide', label: 'Guide' },
 ]
 
 const pageMatches = (page, pathname) => (page.end ? pathname === page.to : pathname.startsWith(page.to))

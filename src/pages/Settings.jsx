@@ -266,10 +266,8 @@ export default function Settings() {
                 />
               </label>
               <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
-                Students whose attendance falls under this are treated as inactive everywhere, even if
-                marked active by hand, and come back on their own once it recovers. 0 turns this off.
-                Marking someone inactive by hand always sticks.
-              </p>
+        Students below this attendance count as inactive until it recovers. 0 turns this off.
+      </p>
               <label>
                 Training streak resets after (days)
                 <input
@@ -281,9 +279,8 @@ export default function Settings() {
                 />
               </label>
               <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
-                A student's training streak (see their profile) resets to 0 once this many days pass
-                without them completing a training.
-              </p>
+        A training streak resets to 0 after this many days without a training.
+      </p>
               <label>
                 System log retention (days)
                 <input
@@ -295,20 +292,15 @@ export default function Settings() {
                 />
               </label>
               <p className="muted span-2" style={{ margin: '-6px 0 0' }}>
-                Every change made in this dashboard is logged with who made it and when - see the{' '}
-                <Link to="/settings/log">system log</Link>. Entries older than this are cleared automatically.
-              </p>
+        Every change is logged - see the{' '}
+          <Link to="/settings/log">system log</Link>. Older entries are cleared automatically.
+      </p>
             </div>
 
             <h2 style={{ marginTop: 20 }}>Divisions</h2>
             <p className="muted" style={{ marginBottom: 12 }}>
-              Divisions split your team into its major groups (e.g. Mechanical, Controls) - a student
-              can belong to one or several. Subdivisions are optional, smaller groups within a division
-              (e.g. Design vs. Manufacturing) for more precise training and attendance targeting - most
-              teams can skip them. Edit any name in place; changes save when you click Save below.
-              Renaming one renames it for every student in it, and removing one removes those students
-              from it.
-            </p>
+        Divisions group your students; subdivisions are optional. Changes save when you click Save.
+      </p>
 
             {/* One list, not a nested pair of columns: a division row
                 (arrows + name + Remove, plus indented subdivisions) needs
@@ -354,9 +346,8 @@ export default function Settings() {
         <div className="settings-section">
           <h2>Team number</h2>
           <p className="muted">
-            <code>{team?.id}</code> - what people enter to join the team or log hours, together with
-            the matching code. It can't be changed.
-          </p>
+        <code>{team?.id}</code> - what people enter to join the team or log hours. It can't be changed.
+      </p>
         </div>
 
         <AttendancePlansSection team={team} />
@@ -408,15 +399,7 @@ function OfflineExportSection() {
         Offline export <span className="badge badge-warn">Beta</span>
       </h2>
       <p className="muted">
-        Beta - this only partially works so far; treat it as a rough backup, not something to rely on.
-        Saves every page in the main menu (Dashboard, Students, Attendance, Trainings, Certifications,
-        Inventory, Orders, Bought items, Systems, Settings, System log) as plain HTML files you can open
-        with no internet - handy at a competition with no wifi. The links between them work offline too,
-        as long as the files stay together in whatever folder you pick. Individual student profiles
-        aren't included. Each file freezes whatever's on screen the moment you click; nothing on it stays
-        live, and nothing you do on an exported page changes the real database. In Chrome/Edge this asks
-        you to pick a folder first; other browsers download each page instead, into an "attendx-offline"
-        folder under your regular Downloads.
+        Beta - a rough offline backup. Saves the main pages as HTML files you can open without internet; nothing on them stays live. Chrome/Edge asks for a folder, other browsers download them instead.
       </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button type="button" className="secondary" onClick={handleExport} disabled={status === 'running'}>
@@ -454,8 +437,7 @@ function AccountSection() {
     <div className="settings-section">
       <h2>Your account</h2>
       <p className="muted">
-        Signed in as <code>{user?.email}</code>. Changing your password happens over email - we'll send a
-        reset link to that address.
+        Signed in as <code>{user?.email}</code>. Password changes go through an emailed reset link.
       </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button type="button" className="secondary" onClick={handleReset} disabled={status === 'sending'}>
@@ -527,8 +509,7 @@ function EventsSection({ teamId }) {
     <div className="settings-section">
       <h2>Events</h2>
       <p className="muted">
-        Upcoming events count down on the dashboard, nearest first. Past ones drop off the dashboard
-        but stay here until you delete them.
+        Upcoming events count down on the dashboard; past ones stay here until deleted.
       </p>
       <DataTable
         columns={columns}
@@ -698,21 +679,12 @@ function CategoriesSection({ team }) {
     <div className="settings-section">
       <h2>Product categories</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        The categories offered when adding a product in Inventory or Orders. Edit a name in place,
-        or remove it with Remove - changes save when you click Save below, and reach every product
-        already using that category. Each category can optionally have subcategories (one level) -
-        they show up as an extra dropdown in the product form and as filter chips once that category
-        is picked. Categories don't get budgets of their own - the dashboard shows how the total
-        budget (set just above) is being split between them, from the Orders tab. Whether
-        a product is consumable - actually used up once a system claims it, rather than merely
-        reserved - is set per product now, in Inventory/Orders' own product form, not here.
+        Categories offered when adding a product. Changes save when you click Save and apply to existing products. Subcategories are optional.
       </p>
       {legacyConsumableCategories.length > 0 && (
         <p className="card form-card" style={{ maxWidth: 520, marginBottom: 12, fontSize: 13 }}>
-          Consumable used to be set per category here - {legacyConsumableCategories.join(', ')} still{' '}
-          {legacyConsumableCategories.length === 1 ? 'is' : 'are'} flagged the old way. Run this once to
-          carry that onto every product already in {legacyConsumableCategories.length === 1 ? 'it' : 'them'}, so
-          nothing needs to be re-ticked by hand.
+          Consumable was set per category: {legacyConsumableCategories.join(', ')} still{' '}
+          {legacyConsumableCategories.length === 1 ? 'is' : 'are'} flagged. Migrate once to copy it onto each product.
           <span className="form-actions" style={{ marginTop: 8 }}>
             <button type="button" className="secondary" onClick={handleMigrateConsumable} disabled={migrating}>
               {migrating ? 'Migrating…' : 'Migrate to per-product Consumable'}
@@ -752,7 +724,7 @@ function CategoriesSection({ team }) {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '4px 0 4px 32px' }}>
                 {r.subs.map((s) => (
-                  <div key={s.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div key={s.key} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span className="muted" aria-hidden="true">↳</span>
                     <input
                       value={s.name}
@@ -850,9 +822,7 @@ function BudgetSection({ team }) {
     <div className="settings-section">
       <h2>Budget</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        The most the team plans to spend in total, in {preferred}. The dashboard compares it with
-        what's been bought plus everything still on the Orders list, and warns when that goes over.
-        You don't split it between categories - that comes from Orders.
+        The most the team plans to spend, in {preferred}. The dashboard warns when what's bought plus what's still to buy goes over it.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <label>
@@ -884,6 +854,9 @@ function teamToSupplierRows(team) {
     name: s.name,
     multiplier: String(s.multiplier ?? 1),
     shipping: s.shipping ? String(s.shipping) : '',
+    orderMin: s.orderMin ? String(s.orderMin) : '',
+    orderMax: s.orderMax ? String(s.orderMax) : '',
+    orderCurrency: s.orderCurrency || 'USD',
   }))
 }
 
@@ -896,9 +869,11 @@ function teamToSupplierRows(team) {
 function SuppliersSection({ team }) {
   const [rows, setRows] = useState(teamToSupplierRows(team))
   const [input, setInput] = useState('')
+  const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const { data: products } = useProducts(team?.id)
+  const currencyCodes = Object.keys(team?.currencyRates || DEFAULT_CURRENCY_RATES)
 
   // Suppliers typed onto products before this became a list, that the list
   // doesn't have yet in any spelling - each under its most common spelling.
@@ -919,7 +894,7 @@ function SuppliersSection({ team }) {
   function addUnlistedSuppliers() {
     setRows([
       ...rows,
-      ...unlistedSuppliers.map((name, i) => ({ key: `new-${Date.now()}-${i}`, original: null, name, multiplier: '1', shipping: '' })),
+      ...unlistedSuppliers.map((name, i) => ({ key: `new-${Date.now()}-${i}`, original: null, name, multiplier: '1', shipping: '', orderMin: '', orderMax: '', orderCurrency: 'USD' })),
     ])
   }
 
@@ -931,7 +906,7 @@ function SuppliersSection({ team }) {
   function addSupplier() {
     const trimmed = input.trim()
     if (!trimmed || rows.some((r) => r.name === trimmed)) return
-    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1', shipping: '' }])
+    setRows([...rows, { key: `new-${Date.now()}`, original: null, name: trimmed, multiplier: '1', shipping: '', orderMin: '', orderMax: '', orderCurrency: 'USD' }])
     setInput('')
   }
 
@@ -941,6 +916,12 @@ function SuppliersSection({ team }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    const backwards = rows.find((r) => Number(r.orderMin) > 0 && Number(r.orderMax) > 0 && Number(r.orderMin) > Number(r.orderMax))
+    if (backwards) {
+      setError(`${backwards.name}: the order range minimum is above its maximum.`)
+      return
+    }
+    setError('')
     setSaving(true)
     setSaved(false)
     const cleanRows = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name)
@@ -950,6 +931,9 @@ function SuppliersSection({ team }) {
       name: r.name,
       multiplier: Number(r.multiplier) > 0 ? Number(r.multiplier) : 1,
       ...(Number(r.shipping) > 0 ? { shipping: Number(r.shipping) } : {}),
+      ...(Number(r.orderMin) > 0 ? { orderMin: Number(r.orderMin) } : {}),
+      ...(Number(r.orderMax) > 0 ? { orderMax: Number(r.orderMax) } : {}),
+      ...(Number(r.orderMin) > 0 || Number(r.orderMax) > 0 ? { orderCurrency: r.orderCurrency || 'USD' } : {}),
     }))
     const renames = {}
     for (const r of cleanRows) {
@@ -963,6 +947,9 @@ function SuppliersSection({ team }) {
         name: s.name,
         multiplier: String(s.multiplier),
         shipping: s.shipping ? String(s.shipping) : '',
+        orderMin: s.orderMin ? String(s.orderMin) : '',
+        orderMax: s.orderMax ? String(s.orderMax) : '',
+        orderCurrency: s.orderCurrency || 'USD',
       }))
     )
     setSaving(false)
@@ -973,21 +960,14 @@ function SuppliersSection({ team }) {
     <div className="settings-section">
       <h2>Suppliers</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        The suppliers offered when adding a product. Multiplier is what that supplier charges relative
-        to the listed price - for a reseller who sells you WCP, VEX or CTRE parts at 1.6x, enter 1.6
-        and keep each product's price as the manufacturer's listed one. Every total, the orders export
-        and logged purchases then include the markup automatically. Leave it at 1 for no markup.
-        Renaming a supplier updates its products; removing one leaves them with the old name as
-        plain text. Saving also fixes products that spell a listed supplier differently (e.g.
-        "saad robot" becomes "Saad robot"). Shipping is optional - what one order from that
-        supplier usually costs to ship, in {team?.preferredCurrency || 'NIS'}; the dashboard adds it to
-        the projection once for every supplier you still have something to buy from.
+        Multiplier is what a supplier charges relative to the listed price (e.g. 1.6 for a reseller) - leave it at 1 for none. Shipping (in {team?.preferredCurrency || 'NIS'}) is added to the dashboard projection. Order range is the items-only total that suits the supplier, in any currency.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.length === 0 && <span className="muted">None yet</span>}
           {rows.map((r) => (
-            <div key={r.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div key={r.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 value={r.name}
                 onChange={(e) => updateRow(r.key, { name: e.target.value })}
@@ -1025,6 +1005,54 @@ function SuppliersSection({ team }) {
                 Remove
               </button>
             </div>
+            <button
+              type="button"
+              className="link-btn"
+              style={{ fontSize: 13, alignSelf: 'flex-start', paddingLeft: 4 }}
+              aria-expanded={!!r.showRange}
+              onClick={() => updateRow(r.key, { showRange: !r.showRange })}
+            >
+              {r.showRange ? '▾' : '▸'} Order range
+              {!r.showRange && (r.orderMin || r.orderMax) ? ` · ${r.orderMin || 0}-${r.orderMax || '∞'} ${r.orderCurrency}` : ''}
+            </button>
+            {r.showRange && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingLeft: 4 }}>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.orderMin}
+                onChange={(e) => updateRow(r.key, { orderMin: e.target.value })}
+                placeholder="Min"
+                aria-label={`Order minimum for ${r.name}`}
+                style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              />
+              <span className="muted">-</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={r.orderMax}
+                onChange={(e) => updateRow(r.key, { orderMax: e.target.value })}
+                placeholder="Max"
+                aria-label={`Order maximum for ${r.name}`}
+                style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              />
+              <select
+                value={r.orderCurrency}
+                onChange={(e) => updateRow(r.key, { orderCurrency: e.target.value })}
+                aria-label={`Order range currency for ${r.name}`}
+                style={{ fontSize: 13, padding: '5px 8px', width: 80 }}
+              >
+                {currencyCodes.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            )}
+            </div>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -1053,6 +1081,7 @@ function SuppliersSection({ team }) {
           </p>
         )}
         <div className="form-actions" style={{ marginTop: 10 }}>
+          {error && <span className="form-error">{error}</span>}
           {saved && <span className="muted">Saved.</span>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
@@ -1248,14 +1277,10 @@ function ProductTypesSection({ team }) {
     <div className="settings-section">
       <h2>Product types</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Optional templates for products that need more than the usual fields - e.g. an "Aluminum
-        sheet" type with Thickness, Width, and Length. Pick one when adding a product in Inventory or
-        Orders to fill those in; a regular product doesn't need a type at all.
+        Optional templates for products with extra fields, e.g. an "Aluminum sheet" type with Thickness and Width.
       </p>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Students can request products (using these same types) from the "Request Order" tab of the
-        student sign-in - see Codes below for that link. Accept or decline what they submit from the
-        "Student requests" table on Orders.
+        Students can request products of these types from the Request Order tab. Accept or decline them on Orders.
       </p>
       {oldPackFixes.length > 0 && (
         <div className="card form-card" style={{ maxWidth: 520, marginBottom: 12, fontSize: 13 }}>
@@ -1378,11 +1403,8 @@ function ProductTypesSection({ team }) {
           </select>
         </label>
         <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-          For things bought in packs (e.g. screws in bags of 50): pick the field holding how many come
-          in one pack. Logging a purchase on Orders then counts in packs - the price is per pack, and
-          stock goes up by packs × that number. Your to-buy formula should count packs too, e.g.{' '}
-          <code>ceil(max(wanted - stock, 0) / int(custom.PackSize))</code>.
-        </p>
+        For things bought in packs (e.g. bags of 50): pick the field holding the pack size. Purchases then count in packs, priced per pack.
+      </p>
 
         <label style={{ marginTop: 10 }}>
           To buy formula (optional)
@@ -1395,9 +1417,8 @@ function ProductTypesSection({ team }) {
         </label>
         <div className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
           <p style={{ margin: '0 0 6px' }}>
-            Replaces the "to buy" column in Orders for this type's products - leave it blank to keep
-            the usual wanted-minus-in-stock. A formula can use:
-          </p>
+        Replaces the "to buy" column for this type; blank keeps wanted minus in stock. Available:
+      </p>
           <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
             <li>
               <code>sku</code>, <code>price</code> - this product's own SKU and price, as entered
@@ -1415,9 +1436,8 @@ function ProductTypesSection({ team }) {
             </li>
           </ul>
           <p style={{ margin: 0 }}>
-            Examples: <code>max(wanted - stock, 0)</code> is the default, spelled out.{' '}
-            <code>ceil(wanted / int(custom.PackSize))</code> would round up to whole packs.
-          </p>
+        Example: <code>ceil(wanted / int(custom.PackSize))</code> rounds up to whole packs.
+      </p>
         </div>
 
         <label style={{ marginTop: 10 }}>
@@ -1431,9 +1451,8 @@ function ProductTypesSection({ team }) {
         </label>
         <div className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
           <p style={{ margin: '0 0 6px' }}>
-            Replaces the "total" column in Orders - leave it blank to keep the usual price × to buy.
-            Everything above is available here too, plus:
-          </p>
+        Replaces the "total" column; blank keeps price × to buy. Everything above is available, plus:
+      </p>
           <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
             <li>
               <code>toBuy</code> - this product's to-buy result, from the formula above (or the
@@ -1445,9 +1464,8 @@ function ProductTypesSection({ team }) {
             </li>
           </ul>
           <p style={{ margin: 0 }}>
-            Examples: <code>convertedPrice * toBuy</code> is the default, spelled out.{' '}
-            <code>double(custom.PackPrice) * toBuy</code> would price it per pack instead.
-          </p>
+        Example: <code>double(custom.PackPrice) * toBuy</code> prices per pack.
+      </p>
         </div>
 
         {error && <p className="form-error">{error}</p>}
@@ -1517,9 +1535,7 @@ function CurrenciesSection({ team }) {
     <div className="settings-section">
       <h2>Currencies</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Products can be priced in any currency below; every table shows the converted total in your
-        preferred one. Rates come from a public exchange-rate service as of whenever they were added
-        or last refreshed - not live.
+        Products can be priced in any currency; tables show totals in your preferred one. Rates come from a public service when added or refreshed - not live.
       </p>
       <div className="card" style={{ padding: 12, maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <label>
@@ -1669,12 +1685,7 @@ function AttendancePlansSection({ team }) {
     <div className="settings-section">
       <h2>Attendance plans</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        How many meetings a week each kind of student has committed to (e.g. Plan A 3 a week, Plan B 1 a week).
-        Give each student their plan on the Students page - the first plan here is the default. With plans, a
-        student's attendance is judged per week against their own plan: a Plan B student who came once that week
-        has met it, however many meetings there were. Weeks with no meetings (like build season) don't count, and
-        meetings a student was excused from don't count as ones they could have come to. Leave this empty to keep
-        counting every meeting the way it works now.
+        How many meetings a week each kind of student commits to (e.g. Plan A 3, Plan B 1). Give each student a plan on the Students page; the first is the default. Attendance is judged per week against the plan. Leave empty to count every meeting.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1737,16 +1748,13 @@ function AttendancePlansSection({ team }) {
             <input type="number" min="1" step="1" value={flagWeeks} onChange={(e) => setFlagWeeks(e.target.value)} />
           </label>
           <p className="muted span-2" style={{ margin: 0, fontSize: 13 }}>
-            A student is flagged on the dashboard when they miss their plan, or go past it, this many weeks in a
-            row: "talk to them" for missing it, "move to the next plan" for going past it.
-          </p>
+        A student is flagged when they miss their plan, or exceed it, this many weeks in a row.
+      </p>
         </div>
         <h3 style={{ marginBottom: 4 }}>Skipped weeks</h3>
         <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>
-          For holidays or any week the team doesn't meet. Every meeting in a skipped week is left out of
-          attendance - the percentage, the flags and the streak - as if it never happened. Pick any day in the
-          week.
-        </p>
+        For weeks the team doesn't meet. Meetings in a skipped week don't count toward attendance. Pick any day in the week.
+      </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {skipped.length === 0 && <span className="muted">None</span>}
           {[...skipped]
@@ -1859,8 +1867,7 @@ function CodesSection({ team }) {
     <div className="settings-section">
       <h2>Codes</h2>
       <p className="muted">
-        The <strong>admin code</strong> opens the full dashboard. The <strong>student code</strong> unlocks
-        student sign-in, which has Community Hours, Request Order, and My Systems tabs.
+        The <strong>admin code</strong> opens the full dashboard; the <strong>student code</strong> unlocks student sign-in.
       </p>
       <p className="muted" style={{ marginBottom: 12 }}>
         Students sign in at{' '}
@@ -1985,12 +1992,10 @@ function CommunityHoursSection({ teamId }) {
     <div className="settings-section">
       <h2>Community hours</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Set how many hours each student needs, and the types of community work students can log from
-        the public hour-logging page. Edit a type's name in place, or remove it with ×.
+        Hours each student needs, and the types of community work they can log. Edit a type in place or remove it with ×.
       </p>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Students log their hours from the "Community Hours" tab of the student sign-in - see Codes
-        above for that link and the code they'll need.
+        Students log hours from the Community Hours tab of student sign-in.
       </p>
       <form className="card form-card" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
         <label>
@@ -2123,20 +2128,12 @@ function GoogleCalendarSection({ teamId }) {
     <div className="settings-section">
       <h2>Google Calendar</h2>
       <p className="muted" style={{ marginBottom: 12 }}>
-        Once connected, every event, training due date, and certification target date automatically
-        gets an all-day entry on the connected Google account's calendar as it's created or edited -
-        and comes off it again if it's deleted or its date is cleared. Connect using the team's own
-        shared Google account, not a personal one, so everything lands in one place.
+        Events, training due dates and certification dates get an all-day entry on the connected Google calendar, and are removed when deleted. Use the team's shared Google account.
       </p>
       {!configured ? (
         <p className="card form-card" style={{ maxWidth: 520, fontSize: 13 }}>
-          This deployment doesn't have a Google Calendar client ID set up yet
-          (<code>VITE_GOOGLE_CLIENT_ID</code>). In Google Cloud Console, for this same project: enable the
-          Google Calendar API, configure the OAuth consent screen (add the team's Google account as a test
-          user if it stays in Testing), then create an OAuth 2.0 Client ID (Web application) with this
-          site's URL under Authorized JavaScript origins. Put the resulting client ID in the deploy's{' '}
-          <code>.env.local</code> as <code>VITE_GOOGLE_CLIENT_ID</code> and rebuild.
-        </p>
+        No Google Calendar client ID is set up (<code>VITE_GOOGLE_CLIENT_ID</code>). Create an OAuth 2.0 Web client for this project in Google Cloud Console (Calendar API enabled, this site's URL as an authorized origin), put its ID in <code>.env.local</code> and rebuild.
+      </p>
       ) : (
         <div className="card form-card" style={{ maxWidth: 520 }}>
           <p style={{ margin: 0 }}>
@@ -2144,8 +2141,7 @@ function GoogleCalendarSection({ teamId }) {
               <>
                 Connected{calendarState.email ? ` as ${calendarState.email}` : ''}.{' '}
                 <span className="muted">
-                  Google's token lasts about an hour; after a reload or once it runs out it renews itself on
-                  your next click.
+                  The token renews itself on your next click.
                 </span>
               </>
             ) : remembered ? (
@@ -2153,8 +2149,7 @@ function GoogleCalendarSection({ teamId }) {
                 {calendarState.reconnecting ? 'Reconnecting…' : 'Waiting to reconnect.'}{' '}
                 <span className="muted">
                   {remembered.email ? `${remembered.email} was connected. ` : ''}
-                  Syncing is paused until Google hands back a fresh token - that happens on your next click
-                  anywhere in the app, and any save renews it first. If it doesn't, use Connect below.
+                  Syncing resumes on your next click; if not, use Connect below.
                 </span>
               </>
             ) : (

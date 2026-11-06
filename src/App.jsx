@@ -18,13 +18,17 @@ import Borrowing from './pages/Borrowing'
 import Orders from './pages/Orders'
 import PurchaseLog from './pages/PurchaseLog'
 import Systems from './pages/Systems'
+import Tasks from './pages/Tasks'
 import Settings from './pages/Settings'
 import SystemLog from './pages/SystemLog'
 import StudentLogin from './pages/StudentLogin'
 import CommunityHours from './pages/CommunityHours'
 import RequestOrder from './pages/RequestOrder'
 import MySystems from './pages/MySystems'
+import Guide from './pages/Guide'
+import Help from './pages/Help'
 import MyProfile from './pages/MyProfile'
+import MyTasks from './pages/MyTasks'
 import Streaks from './pages/Streaks'
 import QuotaExceeded from './pages/QuotaExceeded'
 import { useQuotaExceeded } from './lib/quotaStatus'
@@ -59,6 +63,8 @@ export default function App() {
                 <Route path="/log-hours" element={<CommunityHours />} />
                 <Route path="/request-order" element={<RequestOrder />} />
                 <Route path="/my-systems" element={<MySystems />} />
+                <Route path="/my-tasks" element={<MyTasks />} />
+                <Route path="/help" element={<Help />} />
                 <Route path="/my-profile" element={<MyProfile />} />
                 <Route path="/streaks" element={<Streaks />} />
               </Route>
@@ -76,11 +82,13 @@ export default function App() {
                 <Route path="/certifications" element={<Certifications />} />
                 <Route path="/community" element={<Community />} />
                 <Route path="/sessions" element={<Sessions />} />
+                <Route path="/tasks" element={<Tasks />} />
                 <Route path="/inventory" element={<Inventory />} />
                 <Route path="/borrowing" element={<Borrowing />} />
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/orders/purchases" element={<PurchaseLog />} />
                 <Route path="/systems" element={<Systems />} />
+                <Route path="/guide" element={<Guide />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/settings/log" element={<SystemLog />} />
               </Route>

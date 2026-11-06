@@ -1,9 +1,10 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth'
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { communityAuth, communityDb } from '../firebase'
 import { DEFAULT_CURRENCY_RATES } from '../lib/currency'
 import { DEFAULT_STREAK_RESET_DAYS } from '../lib/calc'
+import { clearRememberedStudent, loadRememberedStudent, loadSavedLogHoursCode } from '../lib/logHoursCode'
 
 const StudentAuthContext = createContext(null)
 
@@ -18,8 +19,14 @@ const StudentAuthContext = createContext(null)
 export function StudentAuthProvider({ children }) {
   const [verified, setVerified] = useState(null)
   const [studentId, setStudentId] = useState(null)
+  // True while a remembered student is being signed back in on load, so the
+  // pages wait instead of bouncing to the sign-in screen.
+  const [restoring, setRestoring] = useState(() => !!(loadSavedLogHoursCode() && loadRememberedStudent()))
 
   async function verify(teamId, code) {
+    // A reload starts with no current user until Firebase has read the saved
+    // one - wait for it so we reuse it instead of making a new anonymous user.
+    await communityAuth.authStateReady?.()
     // Read the uid off the resolved credential rather than
     // communityAuth.currentUser - more robust against any timing gap
     // between sign-in resolving and the auth instance's own state update.
@@ -71,26 +78,45 @@ export function StudentAuthProvider({ children }) {
       minAttendancePercent: productSettings.minAttendancePercent || 0,
       streakResetDays: productSettings.streakResetDays || DEFAULT_STREAK_RESET_DAYS,
     })
+    return students
   }
 
   // Drops back to picking a name without re-verifying the team/code (that
   // stays valid) - what clicking your own name in StudentLayout's header
   // does.
   function changeStudent() {
+    clearRememberedStudent()
     setStudentId(null)
   }
 
   async function logout() {
+    clearRememberedStudent()
     setVerified(null)
     setStudentId(null)
     await firebaseSignOut(communityAuth)
   }
 
+  // Sign back in as the remembered student (once, on load). If the code no
+  // longer works or the student is gone, forget them and show the sign-in.
+  useEffect(() => {
+    if (!restoring) return
+    const saved = loadSavedLogHoursCode()
+    const rememberedId = loadRememberedStudent()
+    verify(saved.teamId, saved.code)
+      .then((students) => {
+        if (students.some((s) => s.id === rememberedId)) setStudentId(rememberedId)
+        else clearRememberedStudent()
+      })
+      .catch(() => clearRememberedStudent())
+      .finally(() => setRestoring(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const student = verified?.students.find((s) => s.id === studentId) || null
 
   return (
     <StudentAuthContext.Provider
-      value={{ verified, studentId, student, verify, selectStudent: setStudentId, changeStudent, logout }}
+      value={{ verified, studentId, student, restoring, verify, selectStudent: setStudentId, changeStudent, logout }}
     >
       {children}
     </StudentAuthContext.Provider>

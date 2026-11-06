@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { loadSavedLogHoursCode, saveLogHoursCode } from '../lib/logHoursCode'
+import { clearRememberedStudent, loadSavedLogHoursCode, saveLogHoursCode, saveRememberedStudent } from '../lib/logHoursCode'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import PasswordInput from '../components/PasswordInput'
 import TeamNumberInput from '../components/TeamNumberInput'
@@ -24,11 +24,13 @@ function friendlyError(err) {
 // header comes back here to re-run just the second step (the team stays
 // verified).
 export default function StudentLogin() {
-  const { verified, studentId } = useStudentAuth()
+  const { verified, studentId, restoring } = useStudentAuth()
 
   useEffect(() => {
     document.title = 'AttendX | Student sign in'
   }, [])
+
+  if (restoring) return <div className="page-loading">Signing in…</div>
 
   if (verified && studentId) return <Navigate to="/log-hours" replace />
 
@@ -90,9 +92,12 @@ function StudentPickStep() {
   const { verified, selectStudent } = useStudentAuth()
   const navigate = useNavigate()
   const [studentId, setStudentId] = useState('')
+  const [remember, setRemember] = useState(true)
 
   function handleSubmit(e) {
     e.preventDefault()
+    if (remember) saveRememberedStudent(studentId)
+    else clearRememberedStudent()
     selectStudent(studentId)
     navigate('/log-hours')
   }
@@ -114,6 +119,10 @@ function StudentPickStep() {
             </option>
           ))}
         </select>
+      </label>
+      <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        Remember me on this phone
       </label>
       <button type="submit" disabled={!studentId}>
         Continue

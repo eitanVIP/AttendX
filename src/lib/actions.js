@@ -19,7 +19,6 @@ import {
 import { auth, db } from '../firebase'
 import {
   DEFAULT_STREAK_RESET_DAYS,
-  effectivePrice,
   effectiveStreak,
   findStreakContribution,
   normalizeStudent,
@@ -32,6 +31,7 @@ import {
 } from './calc'
 import { DEFAULT_CURRENCY_RATES } from './currency'
 import { deleteCalendarEvent, ensureGoogleCalendarToken, upsertCalendarEvent } from './googleCalendar'
+import { addTaskComment, decideTaskRequest as writeTaskRequestDecision, describeChange, historyUnion, moveTask, removeTask, saveTaskStatuses, spawnNextOccurrence, writeTask } from './tasks'
 
 // --- System log ---------------------------------------------------------
 // Every meaningful write below ends with one of these, so Settings' System
@@ -60,11 +60,11 @@ function logEntry(entity, action, summary) {
 // googleCalendarEventId back onto once an event is created or replaced.
 // Resolves true unless the Calendar call actually failed (so the bulk sync
 // can count failures).
-async function syncDocCalendarEvent(ref, { title, date, description, previousEventId }) {
+async function syncDocCalendarEvent(ref, { title, date, endDate, description, previousEventId }) {
   if (!(await ensureGoogleCalendarToken())) return true
   try {
     if (date) {
-      const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, description })
+      const id = await upsertCalendarEvent({ eventId: previousEventId, title, date, endDate, description })
       if (id && id !== previousEventId) await updateDoc(ref, { googleCalendarEventId: id })
     } else if (previousEventId) {
       await deleteCalendarEvent(previousEventId)
@@ -611,6 +611,12 @@ export async function deleteTraining(teamId, training, subTrainings = []) {
       })
     )
   }
+  // Certifications that required this training (or its sub-trainings) stop
+  // listing it, so a cert is never left waiting on something that's gone.
+  for (const gone of [training, ...subTrainings]) {
+    const certs = await getDocs(query(collection(db, 'teams', teamId, 'trainings'), where('requiredTrainingIds', 'array-contains', gone.id)))
+    for (const c of certs.docs) writes.push((batch) => batch.update(c.ref, { requiredTrainingIds: arrayRemove(gone.id) }))
+  }
   const kind = training.category === 'professional' ? 'certification' : training.parentTrainingId ? 'sub-training' : 'training'
   const withSubs = subTrainings.length > 0 ? ` and its ${subTrainings.length} sub-training${subTrainings.length === 1 ? '' : 's'}` : ''
   writes.push((batch) =>
@@ -965,41 +971,75 @@ export function fixOldPackPurchases(teamId, fixes) {
   return commitAll(writes)
 }
 
-// Logging a purchase (the "+ Log a purchase" button on Orders) restocks the
-// product by however many were bought and drops a dated record of it - the
-// record snapshots the product's current name/category/price/currency
-// rather than pointing at the product live (see DEFAULT_PURCHASE in
-// calc.js), so it stays an accurate historical fact - and what the
-// dashboard's budget section sums up as "spent" - even if the product is
-// later renamed, recategorized, repriced, or deleted.
+// Logging a purchase (the "+ Log a purchase" button on Orders) takes a whole
+// cart - everything bought in one order - in one go: each line restocks its
+// product and gets its own dated purchase record (so spend per
+// category/supplier stays right and any one can still be reverted), and the
+// order as a whole is one entry in the change log. A record snapshots the
+// product's name/category/price/currency rather than pointing at the product
+// live (see DEFAULT_PURCHASE in calc.js), so it stays an accurate historical
+// fact even if the product is later renamed, repriced, or deleted.
 //
-// `unitPrice` snapshots what was actually paid per unit: the product's listed
-// price times its supplier's multiplier (see effectivePrice in calc.js), so
-// the dashboard's "spent" reflects reseller markups too.
-//
-// `quantity` is in whatever unit Orders' to-buy counts (packs, for a product
-// type with a pack size - see unitsPerPurchase in calc.js): stock goes up by
-// quantity × unitsPer, the cost stays quantity × the pack's price.
-export function logPurchase(teamId, product, quantity, suppliers, unitsPer = 1) {
-  const batch = writeBatch(db)
-  batch.update(doc(db, 'teams', teamId, 'products', product.id), {
-    countInInventory: (product.countInInventory || 0) + quantity * unitsPer,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
-    productId: product.id,
-    productName: product.name,
-    category: product.category || '',
-    subcategory: product.subcategory || '',
-    supplier: product.supplier || '',
-    quantity,
-    unitsPerPurchase: unitsPer,
-    unitPrice: effectivePrice(product, suppliers),
-    currency: product.currency || 'NIS',
-    date: todayISO(),
-    dismissed: false,
-  })
-  batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('purchase', 'create', `Logged buying ${quantity} × "${product.name}"`))
-  return batch.commit()
+// `lines` are [{ product, quantity, unitsPer, unitPrice, currency, supplier }].
+// `unitPrice` is what was paid per unit: the product's listed price times its
+// supplier's multiplier (see effectivePrice in calc.js). `quantity` is in
+// whatever unit Orders' to-buy counts (packs, for a product type with a pack
+// size - see unitsPerPurchase in calc.js; meters, for spools): stock goes up
+// by quantity x unitsPer, the cost stays quantity x unitPrice. `discrepancy` is what the order really cost minus the
+// lines added up ({ amount, currency, category, supplier }, or null): it is
+// logged as one extra line named "Cart discrepancy", a discount when negative
+// (see logFakePurchase) so it comes off the spend.
+export function logCart(teamId, lines, discrepancy) {
+  const date = todayISO()
+  const writes = []
+  for (const line of lines) {
+    const { product } = line
+    writes.push((batch) =>
+      batch.update(doc(db, 'teams', teamId, 'products', product.id), {
+        countInInventory: increment(Math.round(line.quantity * line.unitsPer * 100) / 100),
+      })
+    )
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: product.id,
+        productName: product.name,
+        category: product.category || '',
+        subcategory: product.subcategory || '',
+        supplier: line.supplier || product.supplier || '',
+        quantity: line.quantity,
+        unitsPerPurchase: line.unitsPer,
+        unitPrice: Number.isFinite(line.unitPrice) ? line.unitPrice : 0,
+        currency: line.currency || 'NIS',
+        date,
+        dismissed: false,
+      })
+    )
+  }
+  const hasDiscrepancy = discrepancy && Math.abs(discrepancy.amount) > 0.005
+  if (hasDiscrepancy) {
+    writes.push((batch) =>
+      batch.set(doc(collection(db, 'teams', teamId, 'purchases')), {
+        productId: '',
+        productName: 'Cart discrepancy',
+        category: discrepancy.category || '',
+        quantity: 1,
+        unitPrice: discrepancy.amount,
+        currency: discrepancy.currency,
+        date,
+        dismissed: false,
+        supplier: discrepancy.supplier || '',
+        ...(discrepancy.amount < 0 ? { discount: true } : {}),
+      })
+    )
+  }
+  const extra = hasDiscrepancy ? `, ${discrepancy.amount > 0 ? '+' : ''}${discrepancy.amount.toFixed(2)} ${discrepancy.currency} off the listed prices` : ''
+  writes.push((batch) =>
+    batch.set(
+      doc(collection(db, 'teams', teamId, 'log')),
+      logEntry('purchase', 'create', `Logged a cart of ${lines.length} item${lines.length === 1 ? '' : 's'} (${lines.map((l) => l.product.name).join(', ')})${extra}`)
+    )
+  )
+  return commitAll(writes)
 }
 
 // Hides one purchase from Orders' Bought table without touching anything
@@ -1178,4 +1218,113 @@ export function deleteLoan(teamId, loan, inventoryDeltas = []) {
     (batch) => batch.set(doc(collection(db, 'teams', teamId, 'log')), logEntry('loan', 'delete', `Deleted loan of ${loanLabel(loan)}`)),
     ...loanInventoryWrites(teamId, inventoryDeltas),
   ])
+}
+
+// Tasks (see tasks.js): admin-side writes, each with a change-log entry.
+// Task leads do the same through communityDb (see MyTasks.jsx).
+//
+// A task with a date lands on the team's Google Calendar like events do (all
+// day; a start-to-due range is one multi-day entry). That sync only happens
+// here, in an admin's browser, so `calendarSynced` remembers which version of
+// the task the calendar last got - syncStaleTaskCalendars catches up whatever
+// a task lead changed since.
+const taskCalendarKey = (task) => [task.title, task.startDate || '', task.dueDate || '', task.assigneeId || '', task.division || ''].join('|')
+
+function taskCalendarArgs(task, assigneeName) {
+  const date = task.startDate || task.dueDate || ''
+  const endDate = task.dueDate && task.dueDate >= date ? task.dueDate : date
+  return {
+    title: `Task: ${task.title}`,
+    date,
+    endDate,
+    description: [assigneeName && `Assigned to ${assigneeName}`, task.division && `Division: ${task.division}`].filter(Boolean).join('\n'),
+    previousEventId: task.googleCalendarEventId,
+  }
+}
+
+// false when nobody has connected Google Calendar in this session (nothing
+// was synced, so the task stays marked as stale), true otherwise.
+async function syncTaskCalendar(teamId, task, assigneeName) {
+  if (!(await ensureGoogleCalendarToken())) return false
+  const ref = doc(db, 'teams', teamId, 'tasks', task.id)
+  const ok = await syncDocCalendarEvent(ref, taskCalendarArgs(task, assigneeName))
+  const key = taskCalendarKey(task)
+  if (ok && key !== task.calendarSynced) await updateDoc(ref, { calendarSynced: key })
+  return ok
+}
+
+export async function createTask(teamId, task, assigneeName) {
+  const [ref] = await Promise.all([
+    writeTask(db, teamId, null, task, auth.currentUser?.uid || ''),
+    logChange(teamId, 'task', 'create', `Added task "${task.title}"`),
+  ])
+  await syncTaskCalendar(teamId, { ...task, id: ref.id }, assigneeName)
+}
+
+// `previous` is the task as it was (it carries the linked calendar event).
+const adminName = () => auth.currentUser?.displayName || auth.currentUser?.email || 'Admin'
+
+// `ctx` ({ statuses, students }) lets the change be written into the task's
+// history ("Status: To do → Doing").
+export async function updateTask(teamId, previous, task, assigneeName, ctx) {
+  const change = ctx ? describeChange(previous, task, ctx) : ''
+  await Promise.all([
+    writeTask(db, teamId, previous.id, change ? { ...task, history: historyUnion(adminName(), change) } : task, auth.currentUser?.uid || ''),
+    logChange(teamId, 'task', 'update', `Updated task "${task.title}"`),
+  ])
+  await syncTaskCalendar(teamId, { ...previous, ...task }, assigneeName)
+}
+
+// A finished repeating task: create its next copy (see spawnNextOccurrence).
+export async function spawnRecurringTask(teamId, task, firstStatusId, students) {
+  const created = await spawnNextOccurrence(db, teamId, task, firstStatusId, auth.currentUser?.uid || '')
+  if (!created) return null
+  await logChange(teamId, 'task', 'create', `Added next "${task.title}" (repeating task)`)
+  await syncTaskCalendar(teamId, created, students.find((s) => s.id === created.assigneeId)?.fullName || '')
+  return created
+}
+
+export function decideTaskRequest(teamId, request, decision, reason = '') {
+  return Promise.all([
+    writeTaskRequestDecision(db, teamId, request.id, decision, auth.currentUser?.uid || '', reason),
+    logChange(teamId, 'task', 'update', `${decision === 'accepted' ? 'Accepted' : 'Declined'} task request "${request.title}"`),
+  ])
+}
+
+export function commentOnTask(teamId, taskId, text) {
+  const user = auth.currentUser
+  return addTaskComment(db, teamId, taskId, text, user?.displayName || user?.email || 'Admin', user?.uid || '')
+}
+
+export function setTaskStatus(teamId, task, statusName, statusId, extra = {}) {
+  return Promise.all([
+    moveTask(db, teamId, task.id, statusId, auth.currentUser?.uid || '', { doneRequested: false, history: historyUnion(adminName(), `Moved to ${statusName}`), ...extra }),
+    logChange(teamId, 'task', 'update', `Moved task "${task.title}" to ${statusName}`),
+  ])
+}
+
+export function deleteTask(teamId, task) {
+  return Promise.all([
+    removeTask(db, teamId, task.id),
+    logChange(teamId, 'task', 'delete', `Deleted task "${task.title}"`),
+    deleteCalendarEvent(task.googleCalendarEventId),
+  ])
+}
+
+export function updateTaskStatuses(teamId, statuses) {
+  return Promise.all([saveTaskStatuses(db, teamId, statuses), logChange(teamId, 'task', 'update', 'Updated task statuses')])
+}
+
+// Tasks whose calendar entry is out of date (changed by a task lead, or made
+// while nobody was connected) - what the Tasks page asks to catch up on.
+export function staleCalendarTasks(tasks) {
+  return tasks.filter((t) => (t.startDate || t.dueDate || t.googleCalendarEventId) && taskCalendarKey(t) !== t.calendarSynced)
+}
+
+// One at a time, like syncAllDatesToCalendar (Google rate-limits bursts).
+export async function syncStaleTaskCalendars(teamId, tasks, students) {
+  for (const task of staleCalendarTasks(tasks)) {
+    const name = students.find((s) => s.id === task.assigneeId)?.fullName || ''
+    if (!(await syncTaskCalendar(teamId, task, name))) return
+  }
 }

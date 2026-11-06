@@ -6,6 +6,9 @@ import PieChart from '../components/PieChart'
 import DataTable from '../components/DataTable'
 import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
+import { db } from '../firebase'
+import { taskStreaksByStudent, useTaskData, useTaskRequests } from '../lib/tasks'
+import TaskAttention from '../components/TaskAttention'
 import {
   useAllAttendance,
   useCommunityLogs,
@@ -27,8 +30,12 @@ import {
   isCountableTraining,
   plannedSpendByCategory,
   spentByCategory,
+  orderRangeStatus,
+  orderRangeText,
   supplierBudgetRows,
   streakBoard,
+  DEFAULT_STREAK_RESET_DAYS,
+  LEADERBOARD_STREAK_KINDS,
   studentCommunityHours,
   countedRecords,
   skippedWeekStarts,
@@ -276,11 +283,19 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spending, categories])
 
+  // Tasks feed the Needs attention panel and the Tasks streak tab.
+  const { tasks: streakTasks, statuses: streakStatuses } = useTaskData(db, team?.id, null)
+  const taskRequests = useTaskRequests(db, team?.id, null)
+  const taskStreaks = useMemo(
+    () => taskStreaksByStudent(streakTasks, streakStatuses, team?.streakResetDays || DEFAULT_STREAK_RESET_DAYS),
+    [streakTasks, streakStatuses, team?.streakResetDays]
+  )
+
   const topStreaks = useMemo(() => {
-    return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById)
+    return streakBoard(students, streakKind, team?.streakResetDays, recordsByStudent, sessionById, taskStreaks)
       .filter((r) => r.streak > 0)
       .slice(0, TOP_STREAKS_LIMIT)
-  }, [students, streakKind, team?.streakResetDays, recordsByStudent, sessionById])
+  }, [students, streakKind, team?.streakResetDays, recordsByStudent, sessionById, taskStreaks])
 
   const loading =
     studentsLoading || trainingsLoading || attLoading || logsLoading || settingsLoading || productsLoading || purchasesLoading
@@ -293,6 +308,7 @@ export default function Dashboard() {
       </div>
 
       <NoDivisionsNotice team={team} />
+      <TaskAttention tasks={streakTasks} statuses={streakStatuses} requests={taskRequests} />
 
       <EventCountdowns events={events} />
 
@@ -502,7 +518,7 @@ export default function Dashboard() {
       )}
 
       <h2>Top streaks</h2>
-      <StreakTabs kind={streakKind} onChange={setStreakKind} />
+      <StreakTabs kind={streakKind} onChange={setStreakKind} kinds={LEADERBOARD_STREAK_KINDS} />
       {topStreaks.length === 0 ? (
         <p className="muted">No active streaks yet.</p>
       ) : (
@@ -631,6 +647,24 @@ export default function Dashboard() {
             cell: (r) => `${r.projected.toFixed(0)} ${preferred}`,
             footerCell: () => <strong>{projectedSpent.toFixed(0)} {preferred}</strong>,
           },
+          ...(suppliers.some((s) => s.orderMin || s.orderMax) ? [{
+            key: 'range',
+            header: 'Order range',
+            cell: (r) => {
+              const status = orderRangeStatus(r.supplier, r.toBuy, suppliers, rates, preferred)
+              if (!status) return '—'
+              const word = {
+                below: `${status.gap.toFixed(0)} short`,
+                above: `${status.gap.toFixed(0)} over`,
+                in: status.orders > 1 ? `${status.orders} shipments` : 'OK',
+              }[status.state]
+              return (
+                <span title={orderRangeText(status, r.toBuy, preferred)} style={{ color: status.state === 'in' ? undefined : 'var(--danger)' }}>
+                  {word}
+                </span>
+              )
+            },
+          }] : []),
         ]}
         rows={supplierRows}
         getRowId={(r) => r.supplier || 'no-supplier'}

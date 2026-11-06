@@ -9,7 +9,7 @@ import { ATTENDANCE_STATUSES, formatDate, isSessionRelevantToStudent, movedWithi
 import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
 
-const emptyForm = { date: todayISO(), name: '', targetDivision: 'all', notes: '' }
+const emptyForm = { date: todayISO(), name: '', targetDivision: 'all', notes: '', optional: false }
 
 const STATUS_LABELS = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' }
 
@@ -80,6 +80,7 @@ export default function Sessions() {
       name: session.name || '',
       targetDivision: session.targetDivision || 'all',
       notes: session.notes || '',
+      optional: !!session.optional,
     })
     setEditingId(session.id)
     setShowForm(true)
@@ -178,6 +179,15 @@ export default function Sessions() {
               ))}
             </select>
           </label>
+          <label className="span-2" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={form.optional}
+              onChange={(e) => setForm({ ...form, optional: e.target.checked })}
+            />
+            Optional meeting (everyone counts as excused unless marked present)
+          </label>
           <label className="span-2">
             Notes
             <input
@@ -238,6 +248,7 @@ function SessionGroupTable({
         cell: (session) => (
           <>
             <strong>{session.name}</strong>
+            {session.optional && <span className="optional-badge">Optional</span>}
             <div className="muted">{formatDate(session.date)}</div>
             {session.notes && (
               <div className="muted session-notes" title={session.notes}>
@@ -260,14 +271,17 @@ function SessionGroupTable({
         cell: (session) => {
           if (!isSessionRelevantToStudent(session, s)) return <span className="muted">–</span>
           const status = statusBySessionAndStudent[`${session.id}_${s.id}`]
+          // Optional meeting: nobody is marked absent, a blank cell is an
+          // automatic excuse (it never counts against anyone).
+          const options = session.optional ? ATTENDANCE_STATUSES.filter((st) => st === 'present' || st === 'late' || (st === 'absent' && status === 'absent')) : ATTENDANCE_STATUSES
           return (
             <select
-              className={`status-cell-select ${status ? `status-badge-${status}` : ''}`}
+              className={`status-cell-select ${status ? `status-badge-${status}` : session.optional ? 'status-badge-excused' : ''}`}
               value={status || ''}
               onChange={(e) => onStatusChange(session, s, e.target.value || null)}
             >
-              <option value="">–</option>
-              {ATTENDANCE_STATUSES.map((st) => (
+              <option value="">{session.optional ? 'Excused' : '–'}</option>
+              {options.map((st) => (
                 <option key={st} value={st}>
                   {STATUS_LABELS[st]}
                 </option>
@@ -309,7 +323,7 @@ function SessionGroupTable({
   return (
     <>
       <h2>{title}</h2>
-      <DataTable columns={columns} rows={sessions} />
+      <DataTable columns={columns} rows={sessions} rowClassName={(session) => (session.optional ? 'row-optional' : '')} />
     </>
   )
 }

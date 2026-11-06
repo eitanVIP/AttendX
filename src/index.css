@@ -1933,6 +1933,101 @@ th.col-inactive {
   color: var(--muted);
 }
 
+/* Optional meetings: a purple tint so they stand out from required ones. */
+.data-table tbody tr.row-optional {
+  --dt-row-bg: color-mix(in srgb, #8b5cf6 12%, var(--dt-bg));
+}
+
+.optional-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, #8b5cf6 25%, transparent);
+  color: #7c3aed;
+}
+
+.nav-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.nav-badge-late {
+  background: var(--danger);
+  color: white;
+}
+
+.undo-bar {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--card-bg, #1f2937);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Task completion celebration (see CompletionCelebration.jsx). */
+.celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(105vh) rotate(var(--spin));
+  }
+}
+
+.celebration-note {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--ok-bg);
+  color: var(--ok-text);
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
 .status-cell-select {
   display: inline-block;
   width: 88px;
@@ -2373,5 +2468,98 @@ th.col-inactive {
   .bar-row {
     grid-template-columns: 84px 1fr 34px;
     gap: 6px;
+  }
+}
+
+/* ---- Phone polish ------------------------------------------------------
+   Everything below sits inside the narrow-screen query (or is neutral on a
+   computer), so the desktop layout is untouched. */
+.task-views {
+  display: contents;
+}
+
+@media (max-width: 640px) {
+  /* Forms: one column that can actually shrink (grid items default to their
+     content width, which pushed fields past the right edge). */
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .form-grid > * {
+    min-width: 0;
+  }
+
+  /* Add/edit panels become a full-screen sheet with the buttons pinned to the
+     bottom, and inputs are 16px so iPhones don't zoom in when one is tapped. */
+  dialog.modal[open] {
+    height: 100dvh;
+    padding: 0;
+    align-items: stretch;
+  }
+  .modal-card {
+    max-width: none;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    padding: 16px;
+  }
+  /* Fields inside side-by-side rows (link, checklist, comment boxes) may
+     shrink instead of pushing the Add button off the screen. */
+  .modal-card input,
+  .modal-card select,
+  .modal-card textarea {
+    min-width: 0;
+  }
+  .modal-card .form-actions {
+    position: sticky;
+    bottom: -16px;
+    margin: 0 -16px -16px;
+    padding: 10px 16px;
+    background: var(--card-bg);
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='color']),
+  textarea,
+  .modal-card select,
+  .form-grid select {
+    font-size: 16px;
+  }
+
+  /* Tasks: the view buttons scroll in one row instead of wrapping onto three. */
+  .task-views {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .task-views > button {
+    flex: 0 0 auto;
+  }
+
+  /* Board columns are most of the screen wide and snap into place. */
+  .task-columns {
+    scroll-snap-type: x mandatory;
+  }
+  .task-column {
+    flex: 0 0 84vw !important;
+    min-width: 0 !important;
+    scroll-snap-align: start;
+  }
+
+  /* Calendar days keep a readable width and the month scrolls sideways. */
+  .task-calendar-grid {
+    grid-template-columns: repeat(7, minmax(88px, 1fr)) !important;
+  }
+
+  .undo-bar {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    justify-content: space-between;
+  }
+  .celebration-note {
+    max-width: 90vw;
+    text-align: center;
   }
 }
