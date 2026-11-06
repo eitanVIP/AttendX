@@ -24,7 +24,7 @@ const links = [
 // missing sends back to /student-login, which shows whichever of its two
 // steps is still needed.
 export default function StudentLayout() {
-  const { verified, studentId, student, changeStudent, logout } = useStudentAuth()
+  const { verified, studentId, student, restoring, changeStudent, logout } = useStudentAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const headerRef = useRef(null)
 
@@ -63,6 +63,8 @@ export default function StudentLayout() {
     measure()
     return () => observer.disconnect()
   }, [])
+
+  if (restoring) return <div className="page-loading">Signing in…</div>
 
   if (!verified || !studentId) return <Navigate to="/student-login" replace />
 

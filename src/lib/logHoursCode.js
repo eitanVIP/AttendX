@@ -17,6 +17,35 @@ export function loadSavedLogHoursCode() {
   }
 }
 
+// Which student this device was last signed in as ("Remember me on this
+// phone"). Together with the saved team + code it lets the site sign the
+// student straight back in after a reload or when an installed app is opened.
+const STUDENT_KEY = 'attendx.rememberedStudent'
+
+export function loadRememberedStudent() {
+  try {
+    return localStorage.getItem(STUDENT_KEY) || null
+  } catch {
+    return null
+  }
+}
+
+export function saveRememberedStudent(studentId) {
+  try {
+    localStorage.setItem(STUDENT_KEY, studentId)
+  } catch {
+    // ignore - just means it won't be remembered next time
+  }
+}
+
+export function clearRememberedStudent() {
+  try {
+    localStorage.removeItem(STUDENT_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 export function saveLogHoursCode(teamId, code) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ teamId, code }))
