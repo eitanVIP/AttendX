@@ -296,12 +296,13 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
     <>
     {legend}
     {unassignZone}
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8 }}>
+    <div className="task-columns" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8 }}>
       {statuses.map((status) => {
         const column = sorted.filter((t) => statusOf(t, statuses).id === status.id)
         return (
           <div
             key={status.id}
+            className="task-column"
             onDragOver={canMove || ownId ? (e) => { e.preventDefault(); setOverStatus(status.id) } : undefined}
             onDragLeave={canMove || ownId ? () => setOverStatus(null) : undefined}
             onDrop={

@@ -151,7 +151,7 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
           Today
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2, overflowX: 'auto' }}>
+      <div className="task-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2, overflowX: 'auto' }}>
         {Array.from({ length: 7 }, (_, i) => (
           <div key={i} className="muted" style={{ fontSize: 12, textAlign: 'center', padding: 2 }}>
             {WEEKDAYS[(weekStartsOn + i) % 7]}
