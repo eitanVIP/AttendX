@@ -378,6 +378,7 @@ export default function Tasks() {
             Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
           </label>
         )}
+        <div className="task-views">
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
         </button>
@@ -399,6 +400,7 @@ export default function Tasks() {
         <button type="button" className={view === 'timeline' ? '' : 'secondary'} onClick={() => setView('timeline')}>
           Timeline
         </button>
+        </div>
       </div>
 
       {notice && <p className="form-error">{notice}</p>}
