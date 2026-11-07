@@ -11,6 +11,26 @@ import {
   supplierMultiplier,
 } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
+import usePhone from '../lib/usePhone'
+
+// The SKU rides in the name cell on a phone (see the Name column), so it has
+// no column of its own there - but it is still something you can sort by.
+const PHONE_COLUMNS = ['name', 'inStock', 'wanted', 'actions']
+const PHONE_SORTS = ['name', 'sku', 'inStock', 'wanted']
+
+const SORT_LABELS = {
+  name: 'Name',
+  sku: 'SKU',
+  category: 'Category',
+  price: 'Price',
+  currency: 'Currency',
+  supplier: 'Supplier',
+  inStock: 'In stock',
+  wanted: 'Wanted',
+  toBuy: 'To buy',
+  total: 'Total',
+  requestedBy: 'Requested by',
+}
 
 // Shared by Inventory and Orders, but the two show different columns:
 // Inventory is about what's on the shelf (in stock, wanted), Orders is
@@ -36,6 +56,7 @@ export default function ProductTable({
   showRequestedBy,
   emptyMessage = 'No products yet.',
 }) {
+  const phone = usePhone()
   const [viewingNotes, setViewingNotes] = useState(null)
   const [viewingData, setViewingData] = useState(null)
   // Click a column header to sort by it: ascending, then descending, then
@@ -137,14 +158,23 @@ export default function ProductTable({
         minWidth: 240,
         maxWidth: 340,
         footerCell: () => (showTotal ? <strong>Total</strong> : null),
-        cell: (p) =>
-          p.link ? (
+        cell: (p) => {
+          const name = p.link ? (
             <a href={p.link} target="_blank" rel="noreferrer">
               {p.name}
             </a>
           ) : (
             p.name
-          ),
+          )
+          if (!phone) return name
+          // Phone: name on the left, SKU on the same line at the right.
+          return (
+            <span className="card-title-row">
+              <span>{name}</span>
+              {p.sku && <span className="card-sku">{p.sku}</span>}
+            </span>
+          )
+        },
       },
       { key: 'sku', header: 'SKU', cell: (p) => p.sku },
       { key: 'category', header: 'Category', cell: (p) => p.category },
@@ -168,7 +198,7 @@ export default function ProductTable({
     ]
     if (showCurrency) cols.push({ key: 'currency', header: 'Currency', cell: (p) => p.currency })
     cols.push({ key: 'supplier', header: 'Supplier', cell: (p) => p.supplier })
-    if (showInStock)
+    if (showInStock || phone)
       cols.push({
         key: 'inStock',
         header: 'In stock',
@@ -184,7 +214,7 @@ export default function ProductTable({
           </>
         ),
       })
-    if (showWanted) cols.push({ key: 'wanted', header: 'Wanted', cell: (p) => p.wantedCount })
+    if (showWanted || phone) cols.push({ key: 'wanted', header: 'Wanted', cell: (p) => p.wantedCount })
     if (showToBuy)
       cols.push({
         key: 'toBuy',
@@ -274,10 +304,11 @@ export default function ProductTable({
         </div>
       ),
     })
-    return cols.map((col) =>
+    return (phone ? cols.filter((col) => PHONE_COLUMNS.includes(col.key)) : cols).map((col) =>
       sortValues[col.key]
         ? {
             ...col,
+            label: col.header,
             header: () => (
               <button
                 type="button"
@@ -295,6 +326,7 @@ export default function ProductTable({
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    phone,
     sort,
     sortValues,
     showCurrency,
@@ -315,7 +347,29 @@ export default function ProductTable({
 
   return (
     <>
-      <DataTable columns={columns} rows={sortedProducts} emptyMessage={emptyMessage} footer={showTotal} />
+      {/* Phones show cards, which have no column headers to click - so the
+          same sort is offered as a dropdown (hidden on a wider screen). */}
+      <label className="sort-picker">
+        Sort by
+        <select
+          value={sort ? `${sort.key}:${sort.dir}` : ''}
+          onChange={(e) => {
+            const [key, dir] = e.target.value.split(':')
+            setSort(key ? { key, dir: Number(dir) } : null)
+          }}
+        >
+          <option value="">Default order</option>
+          {Object.keys(sortValues)
+            .filter((key) => !phone || PHONE_SORTS.includes(key))
+            .map((key) => (
+            <optgroup key={key} label={SORT_LABELS[key] || key}>
+              <option value={`${key}:1`}>{SORT_LABELS[key] || key} (low to high)</option>
+              <option value={`${key}:-1`}>{SORT_LABELS[key] || key} (high to low)</option>
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <DataTable cards columns={columns} rows={sortedProducts} emptyMessage={emptyMessage} footer={showTotal && !phone} />
 
       <FormPanel
         open={!!viewingNotes}

@@ -49,6 +49,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 //                  footerData
 //   footerData     whatever footerCell(footerData, columns) wants (totals,
 //                  grand sums, ...) - opaque to DataTable itself
+//   cards          on a phone (index.css, max-width 640px) show each row as a
+//                  card - the first column as its title, every other cell as
+//                  "label: value" (the label is the column's `label`, else its
+//                  header when that is plain text) - instead of a table that
+//                  scrolls sideways. Wide matrices (a column per student)
+//                  should NOT set this; they keep scrolling. Desktop is
+//                  unchanged either way.
+//                  `phoneWide: true` gives a cell the card's full width.
+//                  A column with `phoneHide: true` is left out of the card (header,
+//                  cells and totals) - desktop still shows it.
 //   dense, hover, indent, rowClassName, onRowClick, emptyMessage, className, style
 //   anything else (aria-label, id, ...) goes to the <table>.
 //
@@ -75,6 +85,8 @@ const cx = (...parts) => parts.filter(Boolean).join(' ')
 const cssLength = (v) => (typeof v === 'number' ? `${v}px` : v)
 const alignClass = (align) => (align === 'center' || align === 'right' ? `dt-align-${align}` : null)
 const defaultSubRows = (row) => row?.children
+// The label a cell gets in card mode: an explicit `label`, else a plain-text header.
+const cardLabel = (col) => col.label ?? (typeof col.header === 'string' ? col.header : '')
 const colKey = (col, i) => col.key ?? col.id ?? String(i)
 
 function ChevronIcon() {
@@ -195,6 +207,7 @@ export default function DataTable({
   autoScroll = true,
   scrollLookahead = 2,
   footer = false,
+  cards = false,
   footerData,
   dense = false,
   hover = true,
@@ -655,7 +668,7 @@ export default function DataTable({
           <th
             key={colKey(col, i)}
             scope="col"
-            className={cx(plan.cls[i], alignClass(col.headerAlign ?? col.align), col.nowrap === false && 'dt-wrap', col.className)}
+            className={cx(plan.cls[i], alignClass(col.headerAlign ?? col.align), col.nowrap === false && 'dt-wrap', col.className, col.phoneHide && 'dt-phone-hide')}
             style={cellStyle}
           >
             {typeof col.header === 'function' ? col.header() : col.header}
@@ -711,8 +724,9 @@ export default function DataTable({
           return (
             <td
               key={colKey(col, i)}
-              className={cx(plan.cls[i], alignClass(col.align), col.nowrap && 'dt-nowrap', col.className, cellCls)}
+              className={cx(plan.cls[i], alignClass(col.align), col.nowrap && 'dt-nowrap', col.className, cellCls, col.phoneHide && 'dt-phone-hide', col.phoneWide && 'dt-card-wide')}
               style={{ ...plan.style[i], ...columnSize[i] }}
+              data-label={cards ? cardLabel(col) : undefined}
             >
               {content}
             </td>
@@ -733,6 +747,7 @@ export default function DataTable({
         box && 'dt-box',
         stickyHeader && 'dt-sticky-head',
         dense && 'dt-dense',
+        cards && 'dt-cards',
         hover && 'dt-hover',
         stickyEdge !== 'none' && `dt-edge-${stickyEdge}`,
         measure?.overflow && 'dt-overflow',
@@ -780,7 +795,7 @@ export default function DataTable({
             <tfoot>
               <tr>
                 {columns.map((col, i) => (
-                  <td key={colKey(col, i)} className={cx(alignClass(col.align), col.className)}>
+                  <td key={colKey(col, i)} className={cx(alignClass(col.align), col.className, col.phoneHide && 'dt-phone-hide')} data-label={cards ? cardLabel(col) : undefined}>
                     {col.footerCell?.(footerData, columns) ?? null}
                   </td>
                 ))}

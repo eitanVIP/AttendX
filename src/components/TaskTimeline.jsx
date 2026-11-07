@@ -1,5 +1,6 @@
 import { addDays, daysBetween, divisionColor, formatDMY, isOverdue, sortTasksByDate, statusOf, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
+import usePhone from '../lib/usePhone'
 
 const DAY_W = 28
 const ROW_H = 30
@@ -16,6 +17,7 @@ function span(task) {
 // for today, and an arrow from each prerequisite's end to the task waiting on it.
 export default function TaskTimeline({ tasks, allTasks = tasks, statuses, students, divisions, onOpen }) {
   const today = todayISO()
+  const labelW = usePhone() ? 110 : LABEL_W
   const dated = sortTasksByDate(tasks.filter((t) => span(t)))
   const undated = tasks.filter((t) => !span(t))
   if (dated.length === 0) return <p className="muted">No dated tasks to show. Give tasks a start or due date.</p>
@@ -49,7 +51,7 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
   return (
     <>
     <div className="card" style={{ display: 'flex', overflow: 'hidden' }}>
-      <div style={{ width: LABEL_W, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+      <div style={{ width: labelW, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
         <div style={{ height: 24 }} />
         {dated.map((t) => (
           <div key={t.id} style={{ height: ROW_H, display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }} title={t.title}>

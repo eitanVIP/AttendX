@@ -73,8 +73,8 @@ export default function TaskStats({ tasks, statuses, students, divisions }) {
       </div>
 
       <h3>By student</h3>
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="card phone-cards-wrap" style={{ overflowX: 'auto' }}>
+        <table className="phone-cards" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left' }}>
               <th>Student</th>
@@ -88,10 +88,10 @@ export default function TaskStats({ tasks, statuses, students, divisions }) {
             {studentRows.map((r) => (
               <tr key={r.id}>
                 <td>{r.name}</td>
-                <td>{r.open}</td>
-                <td style={r.overdue ? { color: 'var(--danger)' } : undefined}>{r.overdue}</td>
-                <td>{r.recent}</td>
-                <td>{r.done}</td>
+                <td data-label="Open">{r.open}</td>
+                <td data-label="Overdue" style={r.overdue ? { color: 'var(--danger)' } : undefined}>{r.overdue}</td>
+                <td data-label="Finished (30 days)">{r.recent}</td>
+                <td data-label="Finished (all)">{r.done}</td>
               </tr>
             ))}
             {studentRows.length === 0 && (
