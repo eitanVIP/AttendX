@@ -154,7 +154,7 @@ export default function Systems() {
         </div>
       </FormPanel>
 
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'name', header: 'System', sticky: 'left', nowrap: true, cell: (system) => system.name },
           { key: 'student', header: 'Student', spread: true, align: 'center', cell: (system) => studentName(system.studentId) },

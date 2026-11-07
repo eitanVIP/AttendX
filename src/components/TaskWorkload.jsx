@@ -1,4 +1,5 @@
 import { workloadRows } from '../lib/tasks'
+import usePhone from '../lib/usePhone'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
@@ -6,7 +7,40 @@ const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 // overdue tasks and, per day, how many of their open tasks are running that
 // day. Darker = more at once.
 export default function TaskWorkload({ tasks, statuses, students }) {
+  const phone = usePhone()
   const { days, rows } = workloadRows(tasks, statuses, students)
+  const heat = (n) => (n ? `color-mix(in srgb, var(--accent) ${Math.min(80, 20 + n * 20)}%, transparent)` : 'transparent')
+
+  if (phone) {
+    // A card per student: their open / overdue count and the two-week strip.
+    return (
+      <div className="wl-cards">
+        {rows.map((r) => (
+          <div key={r.student.id} className="card wl-card">
+            <div className="wl-head">
+              <strong>{r.student.fullName}</strong>
+              <span className="muted">
+                {r.open} open
+                {r.overdue > 0 && <span className="wl-late">, {r.overdue} overdue</span>}
+              </span>
+            </div>
+            {r.cells.some((n) => n > 0) && (
+              <div className="wl-strip">
+                {r.cells.map((n, i) => (
+                  <span key={days[i].iso} className="wl-cell" title={`${days[i].label}: ${n} task${n === 1 ? '' : 's'}`} style={{ background: heat(n) }}>
+                    <span className="wl-day">{WEEKDAYS[days[i].weekday]}</span>
+                    <span className="wl-n">{n || ''}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {rows.length === 0 && <p className="muted">No students.</p>}
+      </div>
+    )
+  }
+
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>

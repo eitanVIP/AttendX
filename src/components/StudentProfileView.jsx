@@ -296,7 +296,7 @@ export default function StudentProfileView({
       {attendanceLoading ? (
         <p className="muted">Loading history…</p>
       ) : (
-        <DataTable
+        <DataTable cards
           columns={[
             { key: 'date', header: 'Date', nowrap: true, cell: (r) => formatDate(r.session.date) },
             { key: 'session', header: 'Session', spread: true, cell: (r) => r.session.name },
@@ -315,7 +315,7 @@ export default function StudentProfileView({
       {communitySettings.hoursTarget > 0 && (
         <>
           <h2>Community hours log</h2>
-          <DataTable
+          <DataTable cards
             columns={[
               { key: 'date', header: 'Date', nowrap: true, cell: (l) => formatDate(l.date) },
               { key: 'type', header: 'Type', spread: true, cell: (l) => l.type },
@@ -446,7 +446,7 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
         {badge}
       </div>
       {open && (
-        <DataTable
+        <DataTable cards
           columns={[
             { key: 'name', header: 'Training', spread: true, cell: (t) => t.name },
             { key: 'category', header: 'Category', cellClassName: 'muted', cell: (t) => t.category },

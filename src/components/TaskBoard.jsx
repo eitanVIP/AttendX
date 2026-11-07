@@ -4,6 +4,7 @@ import TaskStats from './TaskStats'
 import TaskWorkload from './TaskWorkload'
 import TaskProjects from './TaskProjects'
 import TaskTimeline from './TaskTimeline'
+import usePhone from '../lib/usePhone'
 import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
@@ -27,20 +28,27 @@ function TaskExtras({ task }) {
 // The "+ Add task" box at the bottom of a column: type a title, press Enter.
 function QuickAdd({ onAdd }) {
   const [title, setTitle] = useState('')
+  function add() {
+    if (!title.trim()) return
+    onAdd(title.trim())
+    setTitle('')
+  }
   return (
-    <input
-      value={title}
-      onChange={(e) => setTitle(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && title.trim()) {
-          onAdd(title.trim())
-          setTitle('')
-        }
-      }}
-      placeholder="+ Add task"
-      aria-label="Add a task here"
-      style={{ width: '100%', marginTop: 4, fontSize: 13, padding: '5px 8px' }}
-    />
+    <div className="quick-add">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') add()
+        }}
+        placeholder="+ Add task"
+        aria-label="Add a task here"
+        style={{ width: '100%', marginTop: 4, fontSize: 13, padding: '5px 8px' }}
+      />
+      <button type="button" className="quick-add-btn" onClick={add}>
+        Add
+      </button>
+    </div>
   )
 }
 
@@ -50,7 +58,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
   const waiting = waitingOn(task, allTasks, statuses)
   return (
     <div
-      className="card"
+      className="card task-card"
       draggable={canMove}
       onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
       style={{ padding: 10, marginBottom: 8, cursor: canMove ? 'grab' : 'default', borderLeft: `4px solid ${divisionColor(task.division, divisions)}` }}
@@ -102,6 +110,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
           value={statusOf(task, statuses).id}
           onChange={(e) => onMove(task, e.target.value)}
           aria-label={`Status of ${task.title}`}
+          className="task-status-select"
           style={{ marginTop: 6, fontSize: 12, padding: '3px 6px' }}
         >
           {moveOptions.map((s) => (
@@ -141,6 +150,8 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
 export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd, partsFor = () => [], systems = [] }) {
   const [overStatus, setOverStatus] = useState(null)
   const [overUnassign, setOverUnassign] = useState(false)
+  const phone = usePhone()
+  const [phoneStatus, setPhoneStatus] = useState(null)
   const today = todayISO()
   const sorted = sortTasks(tasks)
   // Admins and task leads move any task anywhere. An assignee (ownId) moves
@@ -163,7 +174,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
   // Drop a task here to take its assignee off (cards and calendar chips both work).
   const unassignZone = onAssign && (
     <div
-      className="muted"
+      className="muted task-dnd-hint"
       onDragOver={(e) => {
         e.preventDefault()
         setOverUnassign(true)
@@ -217,8 +228,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
     return (
       <>
       {legend}
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="card phone-cards-wrap" style={{ overflowX: 'auto' }}>
+        <table className="phone-cards" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left' }}>
               <th>Task</th>
@@ -253,8 +264,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                       <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsFor(t).map((p) => p.name).join(', ')}</div>
                     )}
                   </td>
-                  <td>{assignee ? assignee.fullName : t.assigneeId ? '(removed student)' : '—'}</td>
-                  <td>
+                  <td data-label="Assignee">{assignee ? assignee.fullName : t.assigneeId ? '(removed student)' : '—'}</td>
+                  <td data-label="Status">
                     {canMoveTask(t) ? (
                       <select
                         value={statusOf(t, statuses).id}
@@ -272,9 +283,9 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                       statusOf(t, statuses).name
                     )}
                   </td>
-                  <td>{t.division || '—'}</td>
-                  <td>{PRIORITY_NAME[t.priority] || 'Normal'}</td>
-                  <td style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(t) || '—'}</td>
+                  <td data-label="Division">{t.division || '—'}</td>
+                  <td data-label="Priority">{PRIORITY_NAME[t.priority] || 'Normal'}</td>
+                  <td data-label="Dates" style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(t) || '—'}</td>
                 </tr>
               )
             })}
@@ -288,6 +299,34 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
           </tbody>
         </table>
       </div>
+      </>
+    )
+  }
+
+  if (phone) {
+    // A phone gets a tab per status (with its count) and just that status's
+    // cards, instead of columns to swipe through. Change a card's status with
+    // the select on it.
+    const active = statuses.find((s) => s.id === phoneStatus) || statuses[0]
+    const inStatus = (s) => sorted.filter((t) => statusOf(t, statuses).id === s.id)
+    const column = inStatus(active)
+    return (
+      <>
+        {legend}
+        <div className="task-status-tabs" role="tablist" aria-label="Status">
+          {statuses.map((s) => (
+            <button key={s.id} type="button" role="tab" aria-selected={s.id === active.id} className={s.id === active.id ? 'chip active' : 'chip'} onClick={() => setPhoneStatus(s.id)}>
+              {s.name} <span className="task-status-count">{inStatus(s).length}</span>
+            </button>
+          ))}
+        </div>
+        <div className="task-phone-column">
+          {column.map((t) => (
+            <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} systemName={systems.find((s) => s.id === t.systemId)?.name} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
+          ))}
+          {column.length === 0 && <div className="muted task-phone-empty">Nothing in {active.name}.</div>}
+          {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, active.id)} />}
+        </div>
       </>
     )
   }

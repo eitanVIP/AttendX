@@ -72,7 +72,7 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
       {/* stickyTop 0, not the page's own --sticky-top: this table lives
           inside a FormPanel modal (its own scroll container, not the
           page), which has no admin header to duck under. */}
-      <DataTable
+      <DataTable cards
         columns={columns}
         rows={visible}
         stickyTop={0}
