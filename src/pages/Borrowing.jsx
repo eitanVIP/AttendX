@@ -30,7 +30,7 @@ export default function Borrowing() {
   const { data: loans, loading } = useLoans(team?.id)
   const { data: products } = useProducts(team?.id)
   const { data: systems } = useSystems(team?.id)
-  const { data: students } = useStudents(team)
+  const { data: students } = useStudents(team, { withPlans: false })
   const { data: events } = useEvents(team?.id)
   const [showForm, setShowForm] = useState(false)
   const [editingLoan, setEditingLoan] = useState(null)
@@ -212,7 +212,10 @@ export default function Borrowing() {
       formatDate(l.dueDate)
     )
 
-  const openColumns = [
+  // Frozen columns keep their width; the rest share the leftover equally.
+  const evenly = (cols) => cols.map((c) => (c.sticky ? c : { align: 'center', ...c, spread: true }))
+
+  const openColumns = evenly([
     { key: 'item', header: 'Item', sticky: 'left', minWidth: 160, cell: (l) => l.itemName },
     { key: 'qty', header: 'Qty', align: 'center', cell: (l) => l.quantity },
     { key: 'team', header: 'Team', nowrap: true, cell: teamCell },
@@ -247,9 +250,9 @@ export default function Borrowing() {
         </div>
       ),
     },
-  ]
+  ])
 
-  const historyColumns = [
+  const historyColumns = evenly([
     { key: 'item', header: 'Item', sticky: 'left', minWidth: 160, cell: (l) => l.itemName },
     { key: 'direction', header: '', nowrap: true, cell: (l) => (l.direction === 'lent' ? 'Lent to' : 'Borrowed from') },
     { key: 'qty', header: 'Qty', align: 'center', cell: (l) => l.quantity },
@@ -277,7 +280,7 @@ export default function Borrowing() {
         </div>
       ),
     },
-  ]
+  ])
 
   if (loading) return <div className="page-loading">Loading loans…</div>
 

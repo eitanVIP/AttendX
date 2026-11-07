@@ -52,7 +52,7 @@ function groupTarget(group) {
 }
 
 export default function Layout() {
-  const { team, memberships, logout } = useAuth()
+  const { team, memberships } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const location = useLocation()
   const headerRef = useRef(null)
@@ -156,9 +156,6 @@ export default function Layout() {
             )
           )}
         </nav>
-        <button className="logout-btn" onClick={logout}>
-          Log out
-        </button>
         {currentGroup && (
           <nav className="sub-nav" aria-label={`${currentGroup.label} pages`}>
             {currentGroup.children.map((c) => (

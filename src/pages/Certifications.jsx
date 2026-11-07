@@ -42,7 +42,7 @@ const emptyForm = {
 
 export default function Certifications() {
   const { team } = useAuth()
-  const { data: students } = useStudents(team)
+  const { data: students } = useStudents(team, { withPlans: false })
   const { data: allTrainings, loading } = useTrainings(team?.id)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)

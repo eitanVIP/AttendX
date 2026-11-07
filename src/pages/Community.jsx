@@ -34,7 +34,7 @@ const formatHours = (h) => String(Math.round(h * 100) / 100)
 // the filters.
 export default function Community() {
   const { team } = useAuth()
-  const { data: students, loading: studentsLoading } = useStudents(team)
+  const { data: students, loading: studentsLoading } = useStudents(team, { withPlans: false })
   const { data: logs, loading: logsLoading } = useCommunityLogs(team?.id)
   const { settings, loading: settingsLoading } = useCommunitySettings(team?.id)
   const [period, setPeriod] = useState('all')
