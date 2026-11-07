@@ -553,6 +553,8 @@ function TrainingGroupTable({
           onEdit={onEdit}
           onDelete={onDelete}
           onAddSub={onAddSub}
+          onMove={onMove}
+          onMoveTo={onMoveTo}
         />
       ) : (
         <DataTable

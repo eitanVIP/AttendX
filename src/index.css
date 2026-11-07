@@ -1882,7 +1882,7 @@ body:has(dialog.modal[open]) {
   gap: 8px;
   margin-top: 12px;
 }
-.tcard-actions button.link-btn {
+.tcard-actions button.link-btn:not(.move-btn) {
   flex: 1 1 0;
   padding: 9px 8px;
   font-size: 14px;
@@ -1893,7 +1893,7 @@ body:has(dialog.modal[open]) {
   border-radius: 6px;
   background: transparent;
 }
-.tcard-actions button.link-btn.danger {
+.tcard-actions button.link-btn.danger:not(.move-btn) {
   border-color: var(--danger);
 }
 
@@ -1954,6 +1954,20 @@ body:has(dialog.modal[open]) {
 .tcard button.scard-btn.status-badge-excused {
   background: var(--border);
   color: var(--text);
+}
+
+/* Reorder arrows on a training card: the buttons share the space between them. */
+.tcard-actions .move-buttons-spread {
+  gap: 8px;
+}
+.tcard-actions .move-buttons-spread .row-actions {
+  flex: 1 1 0;
+  display: flex;
+  gap: 8px;
+}
+.tcard-actions .link-btn.move-btn {
+  padding: 6px 10px;
+  font-size: 22px;
 }
 
 /* On a wider screen the cards sit in columns. */

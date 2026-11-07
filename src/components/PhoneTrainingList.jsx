@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import MoveButtons from './MoveButtons'
 import { formatDate, trainingAppliesToStudent } from '../lib/calc'
 import { setTrainingCompletion } from '../lib/actions'
 
@@ -19,6 +20,8 @@ export default function PhoneTrainingList({
   onEdit,
   onDelete,
   onAddSub,
+  onMove,
+  onMoveTo,
 }) {
   const [open, setOpen] = useState(() => new Set())
 
@@ -37,8 +40,16 @@ export default function PhoneTrainingList({
 
   return (
     <div className="tcards">
-      {rows.map((row) => (
-        <TrainingCard key={row.training.id} row={row} {...shared} onEdit={onEdit} onDelete={onDelete} onAddSub={onAddSub} />
+      {rows.map((row, index) => (
+        <TrainingCard
+          key={row.training.id}
+          row={row}
+          {...shared}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onAddSub={onAddSub}
+          reorder={onMove ? { index, count: rows.length, onMove, onMoveTo } : null}
+        />
       ))}
     </div>
   )
@@ -58,9 +69,22 @@ function Progress({ progress }) {
   )
 }
 
-function TrainingCard({ row, students, teamId, allTrainings, streakResetDays, open, toggle, onEdit, onDelete, onAddSub }) {
+function TrainingCard({ row, students, teamId, allTrainings, streakResetDays, open, toggle, onEdit, onDelete, onAddSub, reorder }) {
   const { training, progress, overdue, children } = row
   const isOpen = open.has(training.id)
+  const actionButtons = (
+    <>
+      <button type="button" className="link-btn" onClick={() => onAddSub(training)}>
+        + Sub-training
+      </button>
+      <button type="button" className="link-btn" onClick={() => onEdit(training)}>
+        Edit
+      </button>
+      <button type="button" className="link-btn danger" onClick={() => onDelete(training)}>
+        Delete
+      </button>
+    </>
+  )
 
   return (
     <section className={overdue ? 'tcard tcard-overdue' : 'tcard'}>
@@ -127,15 +151,25 @@ function TrainingCard({ row, students, teamId, allTrainings, streakResetDays, op
           })}
 
           <div className="tcard-actions">
-            <button type="button" className="link-btn" onClick={() => onAddSub(training)}>
-              + Sub-training
-            </button>
-            <button type="button" className="link-btn" onClick={() => onEdit(training)}>
-              Edit
-            </button>
-            <button type="button" className="link-btn danger" onClick={() => onDelete(training)}>
-              Delete
-            </button>
+            {reorder ? (
+              // Arrows pinned to the edges (hold one to jump to a position),
+              // the buttons between them.
+              <MoveButtons
+                spread
+                onUp={() => reorder.onMove(reorder.index, -1)}
+                onDown={() => reorder.onMove(reorder.index, 1)}
+                canUp={reorder.index > 0}
+                canDown={reorder.index < reorder.count - 1}
+                index={reorder.index}
+                count={reorder.count}
+                onMoveTo={(toIndex) => reorder.onMoveTo(reorder.index, toIndex)}
+                label="training"
+              >
+                {actionButtons}
+              </MoveButtons>
+            ) : (
+              actionButtons
+            )}
           </div>
         </div>
       )}
