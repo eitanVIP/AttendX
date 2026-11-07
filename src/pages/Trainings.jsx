@@ -74,7 +74,7 @@ export default function Trainings() {
       // not remembered - fine
     }
   }
-  const { data: students } = useStudents(team)
+  const { data: students } = useStudents(team, { withPlans: false })
   const { data: allTrainings, loading } = useTrainings(team?.id)
   const [divisionFilter, setDivisionFilter] = useState('')
   const [showForm, setShowForm] = useState(false)

@@ -420,7 +420,7 @@ function OfflineExportSection() {
 }
 
 function AccountSection() {
-  const { user, resetPassword } = useAuth()
+  const { user, resetPassword, logout } = useAuth()
   const [status, setStatus] = useState('') // '' | 'sending' | 'sent' | 'error'
 
   async function handleReset() {
@@ -445,6 +445,9 @@ function AccountSection() {
         </button>
         {status === 'sent' && <span className="muted">Sent - check your inbox.</span>}
         {status === 'error' && <span className="form-error">Couldn't send the email - try again.</span>}
+        <button type="button" className="secondary" onClick={logout}>
+          Log out
+        </button>
       </div>
     </div>
   )
@@ -1609,6 +1612,7 @@ function AttendancePlansSection({ team }) {
   const [flagWeeks, setFlagWeeks] = useState(String(team?.attendanceFlagWeeks ?? 4))
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [skipped, setSkipped] = useState(team?.skippedWeeks || [])
   const [skipDate, setSkipDate] = useState('')
   const [skipLabel, setSkipLabel] = useState('')
@@ -1638,8 +1642,6 @@ function AttendancePlansSection({ team }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setSaving(true)
-    setSaved(false)
     const clean = rows
       .map((r) => ({ ...r, name: r.name.trim() }))
       .filter((r) => r.name)
@@ -1649,16 +1651,34 @@ function AttendancePlansSection({ team }) {
     for (const r of clean) {
       if (r.original && r.original !== r.name) renames[r.original] = r.name
     }
+    // A plan that's gone (not just renamed) sends its students to the first plan.
+    const removed = rows
+      .map((r) => r.original)
+      .filter(Boolean)
+      .concat((team?.attendancePlans || []).map((p) => p.name))
+      .filter((name, i, all) => all.indexOf(name) === i)
+      .filter((name) => !plans.some((p) => p.name === name) && !(name in renames))
+    if (removed.length > 0 && plans.length > 0) {
+      const ok = confirm(`Removing ${removed.join(', ')}: students on it will move to ${plans[0].name}. Save anyway?`)
+      if (!ok) return
+    }
+    setSaving(true)
+    setSaved(false)
+    setError('')
     const settings = {
       attendancePlans: plans,
       weekStartsOn: Number(weekStartsOn) || 0,
       attendanceFlagWeeks: Math.max(1, Math.round(Number(flagWeeks) || 4)),
       skippedWeeks: skipped,
     }
-    await updateAttendancePlans(team.id, settings, renames)
-    setRows(plans.map((p, i) => ({ key: `${p.name}-${i}`, original: p.name, name: p.name, perWeek: String(p.perWeek) })))
+    try {
+      await updateAttendancePlans(team.id, settings, renames)
+      setRows(plans.map((p, i) => ({ key: `${p.name}-${i}`, original: p.name, name: p.name, perWeek: String(p.perWeek) })))
+      setSaved(true)
+    } catch {
+      setError("Couldn't save - try again.")
+    }
     setSaving(false)
-    setSaved(true)
   }
 
   return (
@@ -1792,6 +1812,7 @@ function AttendancePlansSection({ team }) {
         </div>
         <div className="form-actions" style={{ marginTop: 10 }}>
           {saved && <span className="muted">Saved.</span>}
+          {error && <span className="form-error">{error}</span>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
