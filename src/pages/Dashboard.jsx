@@ -340,7 +340,7 @@ export default function Dashboard() {
       </div>
 
       <h3>By division</h3>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'division', header: 'Division', cell: (d) => d.division },
           { key: 'count', header: 'Students', cell: (d) => d.count },
@@ -484,7 +484,7 @@ export default function Dashboard() {
               {/* Capped height with its own scrollbar (maxHeight - box
                   mode): these sit two-up in a grid row, so one division
                   with a long list would otherwise stretch that whole row. */}
-              <DataTable
+              <DataTable cards
                 columns={[
                   { key: 'name', header: 'Certification', cell: ({ cert }) => cert.name },
                   {
@@ -590,7 +590,7 @@ export default function Dashboard() {
       </div>
 
       <h3>Budget by category</h3>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'category', header: 'Category', cell: (r) => r.category || 'Uncategorized', footerCell: () => <strong>Total</strong> },
           { key: 'spent', header: 'Spent', cell: (r) => `${r.spent.toFixed(0)} ${preferred}`, footerCell: () => `${spent.toFixed(0)} ${preferred}` },
@@ -620,7 +620,7 @@ export default function Dashboard() {
       />
 
       <h3>Spending by supplier</h3>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'supplier', header: 'Supplier', cell: (r) => r.supplier || 'No supplier', footerCell: () => <strong>Total</strong> },
           {

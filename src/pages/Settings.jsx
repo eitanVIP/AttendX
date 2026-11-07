@@ -508,7 +508,7 @@ function EventsSection({ teamId }) {
       <p className="muted">
         Upcoming events count down on the dashboard; past ones stay here until deleted.
       </p>
-      <DataTable
+      <DataTable cards
         columns={columns}
         rows={events}
         rowClassName={(event) => (event.date < today ? 'row-inactive' : '')}
@@ -1300,7 +1300,7 @@ function ProductTypesSection({ team }) {
           </span>
         </div>
       )}
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'name', header: 'Type', cell: (t) => t.name },
           { key: 'fields', header: 'Fields', spread: true, cellClassName: 'muted', cell: (t) => t.fields.join(', ') || '—' },

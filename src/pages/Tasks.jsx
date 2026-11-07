@@ -39,6 +39,9 @@ export default function Tasks() {
   const [system, setSystem] = useState('all')
   const [showOld, setShowOld] = useState(false)
   const [project, setProject] = useState('all')
+  // On a phone the filters fold away behind one button (see .task-toolbar in index.css).
+  const [showFilters, setShowFilters] = useState(false)
+  const activeFilters = [assignee, division, system, project].filter((v) => v !== 'all').length + (showOld ? 1 : 0)
   const { data: systems } = useSystems(team?.id)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = tasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -318,7 +321,7 @@ export default function Tasks() {
     <div className="page">
       <div className="page-header">
         <h2>Tasks</h2>
-        <div className="page-header-actions">
+        <div className="page-header-actions tasks-header-actions">
           <button type="button" className="secondary" onClick={openStatuses}>
             Statuses
           </button>
@@ -328,8 +331,12 @@ export default function Tasks() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ maxWidth: 220 }} />
+      <div className="task-toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <input className="task-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ maxWidth: 220 }} />
+        <button type="button" className="secondary task-filter-toggle" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
+          Filters{activeFilters > 0 ? ` (${activeFilters})` : ''}
+        </button>
+        <div className={showFilters ? 'task-filters task-filters-open' : 'task-filters'}>
         <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="Filter by assignee">
           <option value="all">Everyone</option>
           <option value="none">Unassigned</option>
@@ -378,6 +385,7 @@ export default function Tasks() {
             Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
           </label>
         )}
+        </div>
         <div className="task-views">
         <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
           Board
@@ -447,7 +455,7 @@ export default function Tasks() {
         <h3>Task statuses</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {statusRows.map((row, i) => (
-            <div key={row.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div key={row.id} className="status-row" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input value={row.name} onChange={(e) => updateStatusRow(row.id, { name: e.target.value })} aria-label="Status name" style={{ flex: 1 }} />
               <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Tasks in a finished status are never shown as overdue">
                 <input type="checkbox" checked={!!row.done} onChange={(e) => updateStatusRow(row.id, { done: e.target.checked })} style={{ width: 'auto' }} />
