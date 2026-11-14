@@ -4,6 +4,8 @@ import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
 import DataTable from '../components/DataTable'
+import PhoneSessionList from '../components/PhoneSessionList'
+import usePhone from '../lib/usePhone'
 import { useAllAttendance, useSessions, useStudents } from '../lib/firestore-hooks'
 import { ATTENDANCE_STATUSES, formatDate, isSessionRelevantToStudent, movedWithinGroup, swappedRows, todayISO } from '../lib/calc'
 import { addSession, clearAttendance, deleteSession, reorderDocs, setAttendance, updateSession } from '../lib/actions'
@@ -235,6 +237,7 @@ function SessionGroupTable({
   onMoveTo,
   onStatusChange,
 }) {
+  const phone = usePhone()
   const columns = useMemo(
     () => [
       {
@@ -323,7 +326,20 @@ function SessionGroupTable({
   return (
     <>
       <h2>{title}</h2>
-      <DataTable columns={columns} rows={sessions} rowClassName={(session) => (session.optional ? 'row-optional' : '')} />
+      {phone ? (
+        // A phone gets one card per session (tap to mark each student) instead
+        // of the grid with a column per student. Computers keep the grid.
+        <PhoneSessionList
+          sessions={sessions}
+          students={students}
+          statusBySessionAndStudent={statusBySessionAndStudent}
+          onStatusChange={onStatusChange}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      ) : (
+        <DataTable columns={columns} rows={sessions} rowClassName={(session) => (session.optional ? 'row-optional' : '')} />
+      )}
     </>
   )
 }

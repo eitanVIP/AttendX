@@ -36,7 +36,7 @@ export default function SystemLog() {
         Every change made in this dashboard, who made it, and when. Entries older than{' '}
         {team?.logRetentionDays || DEFAULT_LOG_RETENTION_DAYS} days are cleared automatically.
       </p>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'when', header: 'When', nowrap: true, cellClassName: 'muted', cell: (e) => formatLocalDateTime(e.at) },
           { key: 'who', header: 'Who', nowrap: true, cell: (e) => e.email || e.uid || 'Unknown' },

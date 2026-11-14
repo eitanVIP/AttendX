@@ -222,7 +222,7 @@ export default function PurchaseLog() {
         </div>
       </FormPanel>
 
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date) },
           {

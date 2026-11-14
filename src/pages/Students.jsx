@@ -233,7 +233,7 @@ export default function Students() {
         </div>
       </FormPanel>
 
-      <DataTable
+      <DataTable cards
         columns={[
           {
             key: 'name',

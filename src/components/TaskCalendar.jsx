@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { addDays, daysBetween, divisionColor, sortTasks, statusOf, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
+import usePhone from '../lib/usePhone'
+import TaskAgenda from './TaskAgenda'
 
 const pad = (n) => String(n).padStart(2, '0')
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -24,6 +26,7 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
     return new Date(d.getFullYear(), d.getMonth(), 1)
   })
   const [overDay, setOverDay] = useState(null)
+  const phone = usePhone()
   const today = todayISO()
   const lead = (cursor.getDay() - weekStartsOn + 7) % 7
   const gridStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1 - lead)
@@ -151,6 +154,11 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
           Today
         </button>
       </div>
+      {phone ? (
+        // The month grid is too small to read on a phone: list the month's tasks by day instead.
+        <TaskAgenda tasks={sorted} cursor={cursor} today={today} allTasks={allTasks} statuses={statuses} students={students} divisions={divisions} onOpen={onOpen} />
+      ) : (
+      <>
       <div className="task-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2, overflowX: 'auto' }}>
         {Array.from({ length: 7 }, (_, i) => (
           <div key={i} className="muted" style={{ fontSize: 12, textAlign: 'center', padding: 2 }}>
@@ -230,6 +238,8 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
           ))}
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }

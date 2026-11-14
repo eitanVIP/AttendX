@@ -327,13 +327,13 @@ export default function Borrowing() {
       <p className="muted" style={{ marginTop: -8 }}>
         Our parts out with other teams.
       </p>
-      <DataTable columns={openColumns} rows={theyOweUs} emptyMessage="Nothing lent out right now." />
+      <DataTable cards columns={openColumns} rows={theyOweUs} emptyMessage="Nothing lent out right now." />
 
       <h2 style={{ marginTop: 32 }}>We owe them</h2>
       <p className="muted" style={{ marginTop: -8 }}>
         Other teams' parts we still have to give back.
       </p>
-      <DataTable columns={openColumns} rows={weOweThem} emptyMessage="Nothing borrowed right now." />
+      <DataTable cards columns={openColumns} rows={weOweThem} emptyMessage="Nothing borrowed right now." />
 
       <div className="page-header" style={{ marginTop: 32 }}>
         <h2 style={{ margin: 0 }}>History</h2>
@@ -345,7 +345,7 @@ export default function Borrowing() {
           style={{ maxWidth: 280 }}
         />
       </div>
-      <DataTable columns={historyColumns} rows={history} emptyMessage="No returned loans yet." />
+      <DataTable cards columns={historyColumns} rows={history} emptyMessage="No returned loans yet." />
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>{editingLoan ? 'Edit loan' : lending ? 'Lend to another team' : 'Borrow from another team'}</h2>

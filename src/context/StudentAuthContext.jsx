@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth'
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { communityAuth, communityDb } from '../firebase'
@@ -98,8 +98,13 @@ export function StudentAuthProvider({ children }) {
 
   // Sign back in as the remembered student (once, on load). If the code no
   // longer works or the student is gone, forget them and show the sign-in.
+  // Runs once: React's dev double-run would otherwise start two sign-ins at
+  // the same moment, which race (two anonymous users) and fail with
+  // permission-denied - wiping the remembered student.
+  const restoreStarted = useRef(false)
   useEffect(() => {
-    if (!restoring) return
+    if (!restoring || restoreStarted.current) return
+    restoreStarted.current = true
     const saved = loadSavedLogHoursCode()
     const rememberedId = loadRememberedStudent()
     verify(saved.teamId, saved.code)
@@ -107,7 +112,11 @@ export function StudentAuthProvider({ children }) {
         if (students.some((s) => s.id === rememberedId)) setStudentId(rememberedId)
         else clearRememberedStudent()
       })
-      .catch(() => clearRememberedStudent())
+      .catch((err) => {
+        // Only a rejected code means "forget them"; a network blip should
+        // leave them remembered so the next load signs them straight in.
+        if (err?.code === 'permission-denied') clearRememberedStudent()
+      })
       .finally(() => setRestoring(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

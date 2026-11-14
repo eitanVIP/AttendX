@@ -4,6 +4,8 @@ import FormPanel from '../components/FormPanel'
 import NoDivisionsNotice from '../components/NoDivisionsNotice'
 import MoveButtons from '../components/MoveButtons'
 import DataTable from '../components/DataTable'
+import PhoneTrainingList from '../components/PhoneTrainingList'
+import usePhone from '../lib/usePhone'
 import { useStudents, useTrainings } from '../lib/firestore-hooks'
 import {
   formatDate,
@@ -50,8 +52,28 @@ const emptyForm = {
 // itself already sorted into.
 const emptySubForm = { name: '', targetDate: '' }
 
+// Cards (one per training, tap to tick students) is the default everywhere; a
+// computer can switch to the older grid with a column per student.
+const VIEW_KEY = 'attendx.trainingsView'
+function loadView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'cards'
+  } catch {
+    return 'cards'
+  }
+}
+
 export default function Trainings() {
   const { team } = useAuth()
+  const [view, setViewState] = useState(loadView)
+  function setView(next) {
+    setViewState(next)
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      // not remembered - fine
+    }
+  }
   const { data: students } = useStudents(team, { withPlans: false })
   const { data: allTrainings, loading } = useTrainings(team?.id)
   const [divisionFilter, setDivisionFilter] = useState('')
@@ -231,6 +253,15 @@ export default function Trainings() {
         </div>
       </div>
 
+      <div className="tview-switch">
+        <button type="button" className={view === 'cards' ? 'chip active' : 'chip'} onClick={() => setView('cards')}>
+          Cards
+        </button>
+        <button type="button" className={view === 'grid' ? 'chip active' : 'chip'} onClick={() => setView('grid')}>
+          Grid
+        </button>
+      </div>
+
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
         <h2>{editingId ? 'Edit training' : 'New training'}</h2>
         <div className="form-grid">
@@ -325,6 +356,7 @@ export default function Trainings() {
           subTrainingsByParent={group.subTrainingsByParent}
           students={group.columnStudents}
           teamId={team.id}
+          view={view}
           allStudents={students}
           allTrainings={allTrainings}
           streakResetDays={team.streakResetDays}
@@ -346,6 +378,7 @@ function TrainingGroupTable({
   subTrainingsByParent,
   students,
   teamId,
+  view,
   allStudents,
   allTrainings,
   streakResetDays,
@@ -357,6 +390,7 @@ function TrainingGroupTable({
 }) {
   const today = todayISO()
   const isMobile = useIsMobile()
+  const phone = usePhone()
 
   // Wraps a training doc (top-level or sub) with its own progress/overdue,
   // and recurses into its children (if it's a top-level one with
@@ -507,13 +541,30 @@ function TrainingGroupTable({
   return (
     <>
       <h2>{title}</h2>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        expanderColumn="name"
-        getRowId={({ training }) => training.id}
-        rowClassName={({ overdue }) => (overdue ? 'row-overdue' : '')}
-      />
+      {phone || view === 'cards' ? (
+        // One card per training (tap to see and tick students) instead of the
+        // grid with a column per student. A phone always gets the cards.
+        <PhoneTrainingList
+          rows={rows}
+          students={students}
+          teamId={teamId}
+          allTrainings={allTrainings}
+          streakResetDays={streakResetDays}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onAddSub={onAddSub}
+          onMove={onMove}
+          onMoveTo={onMoveTo}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          expanderColumn="name"
+          getRowId={({ training }) => training.id}
+          rowClassName={({ overdue }) => (overdue ? 'row-overdue' : '')}
+        />
+      )}
     </>
   )
 }

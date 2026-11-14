@@ -252,7 +252,7 @@ export default function Community() {
       </div>
 
       <h3>Who did what</h3>
-      <DataTable
+      <DataTable cards
         columns={[
           {
             key: 'student',
@@ -263,6 +263,7 @@ export default function Community() {
           ...shownTypes.map((t) => ({
             key: `type-${t}`,
             header: t,
+            phoneHide: true,
             align: 'center',
             cell: (r) => (r.byType[t] ? formatHours(r.byType[t]) : <span className="muted">—</span>),
             footerCell: (data) => formatHours(data.byType[t] || 0),
@@ -279,6 +280,7 @@ export default function Community() {
                 {
                   key: 'target',
                   header: 'All-time vs target',
+                  phoneHide: true,
                   nowrap: true,
                   cell: (r) => {
                     const done = allTimeByStudent[r.id] || 0
@@ -295,6 +297,7 @@ export default function Community() {
           {
             key: 'last',
             header: 'Last logged',
+            phoneHide: true,
             nowrap: true,
             cellClassName: 'muted',
             cell: (r) => (r.lastDate ? formatDate(r.lastDate) : '—'),
@@ -310,7 +313,7 @@ export default function Community() {
       />
 
       <h3>All entries</h3>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'date', header: 'Date', nowrap: true, cell: (l) => formatDate(l.date) },
           {

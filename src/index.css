@@ -1749,6 +1749,444 @@ body:has(dialog.modal[open]) {
   --dt-edge-shadow: -6px 0 10px -4px var(--dt-shadow);
 }
 
+/* ---- Trainings: a card per training (PhoneTrainingList) - phone and desktop ---- */
+.tcards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.tcard {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  overflow: hidden;
+}
+.tcard-overdue {
+  border-color: var(--danger);
+}
+.tcard button.tcard-head {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.tcard-title {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.tcard-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tcard-due {
+  color: var(--muted);
+}
+.tcard-due-late {
+  color: var(--danger);
+  font-weight: 600;
+}
+.tcard-bar {
+  flex: 1;
+  min-width: 40px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.tcard-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.tcard-chevron {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tcard-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+}
+.tcard-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.tcard-tools input[type='search'] {
+  width: 100%;
+}
+.tcard label.tcard-missing {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.tcard label.tcard-missing input,
+.tcard label.tcard-student input {
+  width: auto;
+  margin: 0;
+}
+.tcard label.tcard-student {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+}
+.tcard label.tcard-student input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.tcard-student-inactive {
+  opacity: 0.55;
+}
+.tcard-inactive-tag {
+  margin-left: auto;
+  font-size: 12px;
+}
+.tcard-empty {
+  margin: 10px 0 0;
+  font-size: 14px;
+}
+.tcard-sub {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.tcard-sub button.tcard-head {
+  padding: 10px;
+  font-size: 14px;
+}
+.tcard-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tcard-actions button.link-btn:not(.move-btn) {
+  flex: 1 1 0;
+  padding: 9px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+}
+.tcard-actions button.link-btn.danger:not(.move-btn) {
+  border-color: var(--danger);
+}
+
+/* Attendance cards (PhoneSessionList - phone only): optional meetings are
+   purple like their row on a computer, and each student gets a row of big
+   status buttons. */
+.tcard-optional {
+  border-color: color-mix(in srgb, #8b5cf6 55%, var(--border));
+  background: color-mix(in srgb, #8b5cf6 10%, var(--card-bg));
+}
+.tcard-notes {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.scard-student {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.scard-name {
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+.scard-status {
+  display: flex;
+  gap: 6px;
+}
+.tcard button.scard-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.tcard button.scard-btn-on {
+  border-color: currentColor;
+}
+.tcard button.scard-btn.status-badge-present {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+.tcard button.scard-btn.status-badge-late {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.tcard button.scard-btn.status-badge-absent {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--danger);
+}
+.tcard button.scard-btn.status-badge-excused {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Reorder arrows on a training card: the buttons share the space between them. */
+.tcard-actions .move-buttons-spread {
+  gap: 8px;
+}
+.tcard-actions .move-buttons-spread .row-actions {
+  flex: 1 1 0;
+  display: flex;
+  gap: 8px;
+}
+.tcard-actions .link-btn.move-btn {
+  padding: 6px 10px;
+  font-size: 22px;
+}
+
+/* On a wider screen the cards sit in columns. */
+@media (min-width: 641px) {
+  .tcards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    align-items: start;
+  }
+}
+
+/* The Cards / Grid switch above the trainings (computer only). */
+.tview-switch {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+@media (max-width: 640px) {
+  .tview-switch {
+    display: none;
+  }
+}
+
+/* ---- Phone: list tables as cards (DataTable's `cards` prop) ---- */
+.sort-picker {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .sort-picker {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sort-picker select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .phone-cards-wrap {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  input[type='search'] {
+    max-width: none !important;
+    width: 100%;
+  }
+
+  .dt.dt-cards {
+    display: block;
+    border: 0;
+    background: transparent;
+    overflow: visible;
+  }
+  .dt-cards .dt-clone {
+    display: none;
+  }
+  .dt-cards .dt-scroller {
+    overflow: visible;
+  }
+  :is(.dt-cards .data-table, table.phone-cards),
+  :is(.dt-cards .data-table, table.phone-cards) tbody,
+  :is(.dt-cards .data-table, table.phone-cards) tfoot,
+  :is(.dt-cards .data-table, table.phone-cards) tr,
+  :is(.dt-cards .data-table, table.phone-cards) td {
+    display: block;
+    width: auto;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) thead {
+    display: none;
+  }
+  .dt-cards .data-table .dt-phone-hide {
+    display: none !important;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--dt-border, var(--border));
+    border-radius: var(--dt-radius, 10px);
+    background: var(--dt-bg, var(--card-bg));
+  }
+  :is(.dt-cards .data-table, table.phone-cards) td {
+    position: static !important;
+    display: block;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    background: transparent;
+    box-shadow: none;
+    border: 0;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) td:empty,
+  :is(.dt-cards .data-table, table.phone-cards) td:has(> .row-actions:empty) {
+    display: none;
+  }
+  /* The label sits above its value, taken from the cell's data-label. */
+  :is(.dt-cards .data-table, table.phone-cards) td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 1px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--dt-muted, var(--muted));
+  }
+  /* First cell = the card's title; action buttons (no label) take a full row. */
+  :is(.dt-cards .data-table, table.phone-cards) td:first-child,
+  :is(.dt-cards .data-table, table.phone-cards) td[data-label=""],
+  :is(.dt-cards .data-table, table.phone-cards) td.dt-card-wide {
+    grid-column: 1 / -1;
+  }
+  /* The reorder arrows (Students etc.) are a desktop thing - not on a card. */
+  .dt-cards .data-table .move-btn {
+    display: none;
+  }
+  .dt-cards .data-table .move-buttons-spread {
+    width: 100%;
+    gap: 8px;
+  }
+  /* Edit / Delete etc. inside a card: proper rectangular buttons. */
+  .dt-cards .data-table td .row-actions {
+    width: 100%;
+    gap: 8px;
+  }
+  .dt-cards .data-table td button.link-btn:not(.move-btn) {
+    flex: 1 1 0;
+    min-width: 84px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: transparent;
+  }
+  .dt-cards .data-table td button.link-btn.danger:not(.move-btn) {
+    border-color: var(--danger);
+  }
+  .card-title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .card-sku {
+    flex: none;
+    max-width: 45%;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dt-muted, var(--muted));
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) td:first-child {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) td:first-child[data-label]::before {
+    display: none !important;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) td[data-label=""] {
+    padding-top: 2px;
+    border-top: 1px solid var(--dt-border, var(--border));
+    padding-top: 8px;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tr.dt-empty {
+    padding: 0;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tr.dt-empty td {
+    display: block;
+    text-align: center;
+    border-top: 0;
+    padding: 20px 12px;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tfoot tr {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--dt-border, var(--border));
+    border-radius: var(--dt-radius, 10px);
+    background: var(--dt-bg, var(--card-bg));
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tfoot tr {
+    display: block;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tfoot td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 0;
+    padding: 2px 0;
+  }
+  :is(.dt-cards .data-table, table.phone-cards) tbody tr.dt-clickable:active {
+    background: var(--dt-hover-bg, var(--card-bg));
+  }
+  /* A card with a coloured row (overdue, optional) keeps its tint. */
+  :is(.dt-cards .data-table, table.phone-cards) tbody tr.row-overdue,
+  :is(.dt-cards .data-table, table.phone-cards) tbody tr.row-optional {
+    background: var(--dt-row-bg, var(--dt-bg, var(--card-bg)));
+  }
+}
+
 .data-table .dt-align-center {
   text-align: center;
 }
@@ -2477,6 +2915,17 @@ th.col-inactive {
 .task-views {
   display: contents;
 }
+/* On a computer the filter wrapper and the quick-add wrapper vanish from the
+   layout (their children sit where they always did) and the phone-only
+   buttons stay hidden. */
+.task-filters,
+.quick-add {
+  display: contents;
+}
+.task-filter-toggle,
+.quick-add-btn {
+  display: none;
+}
 
 @media (max-width: 640px) {
   /* Forms: one column that can actually shrink (grid items default to their
@@ -2529,7 +2978,7 @@ th.col-inactive {
   .task-views {
     display: flex;
     flex: 1 1 100%;
-    gap: 6px;
+    gap: 8px;
     overflow-x: auto;
     padding-bottom: 2px;
   }
@@ -2550,6 +2999,203 @@ th.col-inactive {
   /* Calendar days keep a readable width and the month scrolls sideways. */
   .task-calendar-grid {
     grid-template-columns: repeat(7, minmax(88px, 1fr)) !important;
+  }
+
+  /* Tasks: Statuses and + New task share one row. */
+  .page-header-actions.tasks-header-actions {
+    flex-direction: row;
+    margin-bottom: 12px;
+  }
+  .tasks-header-actions button {
+    flex: 1 1 0;
+    width: auto;
+  }
+
+  /* Tasks toolbar: the view tabs first, then search with a Filters button;
+     the filters themselves open below it. */
+  .task-views {
+    order: 1;
+  }
+  .task-toolbar .task-search {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none !important;
+    width: auto;
+  }
+  .task-filter-toggle {
+    display: block;
+    order: 3;
+    flex: 0 0 auto;
+  }
+  .task-filters {
+    display: none;
+    order: 4;
+    flex: 1 1 100%;
+  }
+  .task-filters-open {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+  .task-filters select {
+    width: 100%;
+    min-width: 0;
+  }
+  .task-filters label {
+    grid-column: 1 / -1;
+  }
+
+  /* Drag-and-drop hints mean nothing on a touch screen. */
+  .task-dnd-hint {
+    display: none;
+  }
+
+  /* Board: a tab per status, then that status's cards full width. */
+  .task-status-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 4px 0 12px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .task-status-tabs .chip {
+    flex: 0 0 auto;
+    padding: 9px 14px;
+    font-size: 14px;
+  }
+  .task-status-count {
+    margin-left: 4px;
+    opacity: 0.75;
+  }
+  .task-phone-column .task-card {
+    padding: 12px !important;
+    margin-bottom: 10px !important;
+  }
+  .task-phone-column .task-card .link-btn {
+    font-size: 16px;
+    line-height: 1.3;
+  }
+  .task-phone-column .task-card .task-status-select {
+    width: 100%;
+    margin-top: 10px !important;
+    padding: 10px 8px !important;
+    font-size: 16px !important;
+  }
+  .task-phone-column .task-card button:not(.link-btn) {
+    padding: 9px 14px !important;
+    font-size: 14px !important;
+  }
+  .task-phone-empty {
+    padding: 10px 2px;
+    font-size: 14px;
+  }
+  .quick-add {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .quick-add input {
+    flex: 1 1 0;
+    width: auto !important;
+    min-width: 0;
+    margin-top: 0 !important;
+    padding: 10px 12px !important;
+    font-size: 16px !important;
+  }
+  .quick-add-btn {
+    display: block;
+    flex: 0 0 auto;
+  }
+
+  /* Calendar on a phone: the month's tasks by day (TaskAgenda). */
+  .agenda-day {
+    margin-bottom: 16px;
+  }
+  .agenda-heading {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .agenda-heading-today {
+    color: var(--accent);
+  }
+  button.agenda-task {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--text);
+    font-weight: 400;
+    text-align: left;
+  }
+  .agenda-title {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .agenda-meta {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .agenda-today {
+    color: var(--accent);
+  }
+
+  /* Workload on a phone: a card per student with their two-week strip. */
+  .wl-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wl-card {
+    padding: 10px 12px;
+  }
+  .wl-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4px 8px;
+  }
+  .wl-late {
+    color: var(--danger);
+  }
+  .wl-strip {
+    display: grid;
+    grid-template-columns: repeat(14, minmax(0, 1fr));
+    gap: 2px;
+    margin-top: 8px;
+  }
+  .wl-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 34px;
+    padding: 2px 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .wl-day {
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  /* Statuses editor: the name gets its own line, the toggles wrap under it. */
+  .status-row {
+    flex-wrap: wrap;
+  }
+  .status-row > input[aria-label='Status name'] {
+    flex: 1 1 100% !important;
   }
 
   .undo-bar {

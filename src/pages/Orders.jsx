@@ -671,7 +671,7 @@ export default function Orders() {
           </span>
         )}
       </p>
-      <DataTable
+      <DataTable cards
         columns={[
           { key: 'date', header: 'Date', nowrap: true, cell: (p) => formatDate(p.date), footerCell: () => <strong>Total</strong> },
           { key: 'product', header: 'Product', sticky: 'left', cell: (p) => p.productName },
