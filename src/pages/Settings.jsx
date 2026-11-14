@@ -15,6 +15,7 @@ import {
   addEvent,
   deleteEvent,
   fixOldPackPurchases,
+  markPackPurchaseFixed,
   migrateConsumableCategoriesToProducts,
   setCommunitySettings,
   syncAllDatesToCalendar,
@@ -1292,7 +1293,15 @@ function ProductTypesSection({ team }) {
             {oldPackFixes.map(({ purchase, product, packSize }) => (
               <li key={purchase.id}>
                 {product.name}: {purchase.quantity} pack{purchase.quantity === 1 ? '' : 's'} of {packSize} - adds the
-                missing {purchase.quantity * (packSize - 1)}
+                missing {purchase.quantity * (packSize - 1)}{' '}
+                <button
+                  type="button"
+                  className="link-btn"
+                  title="Stock for this one was already corrected by hand - just stop listing it"
+                  onClick={() => markPackPurchaseFixed(team.id, { purchase, packSize })}
+                >
+                  Already fixed
+                </button>
               </li>
             ))}
           </ul>

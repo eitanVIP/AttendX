@@ -971,6 +971,16 @@ export function fixOldPackPurchases(teamId, fixes) {
   return commitAll(writes)
 }
 
+// For an old pack purchase whose stock was already corrected by hand: records
+// the pack size on it (so it leaves the "fix their stock" list in Settings)
+// without touching any stock - fixOldPackPurchases above would add it twice.
+export function markPackPurchaseFixed(teamId, { purchase, packSize }) {
+  return Promise.all([
+    updateDoc(doc(db, 'teams', teamId, 'purchases', purchase.id), { unitsPerPurchase: packSize }),
+    logChange(teamId, 'purchase', 'update', `Marked the purchase of ${purchase.quantity} × "${purchase.productName}" as already fixed (stock left as it was)`),
+  ])
+}
+
 // Logging a purchase (the "+ Log a purchase" button on Orders) takes a whole
 // cart - everything bought in one order - in one go: each line restocks its
 // product and gets its own dated purchase record (so spend per
