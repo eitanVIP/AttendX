@@ -19,7 +19,26 @@ permissions:
   id-token: write # lets the job prove to Google who it is (no stored key)
 
 jobs:
+  # Nothing is deployed unless lint, the unit tests and a build all pass
+  # (same steps as ci.yml) - a red run here leaves the live site as it was.
+  test:
+    name: Lint, tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

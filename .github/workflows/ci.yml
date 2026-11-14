@@ -1,0 +1,43 @@
+# The gate every change has to pass. Runs on every pull request into dev or
+# main and on every push to dev: lint, the unit tests (npm test) and a
+# production build. A red run means the change is not ready - fix it on its
+# branch. Changes always go into dev first; main (which deploys the live
+# site, see deploy.yml) only ever receives dev.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      # Only proves the bundle builds; the real Firebase values are added in
+      # deploy.yml, which is the build that actually ships.
+      - run: npm run build
