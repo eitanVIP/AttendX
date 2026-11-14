@@ -137,7 +137,19 @@ plan, and shows a clear notice rather than breaking if the daily quota is hit.
 ## Tech stack
 
 - **React 19** with **React Router 7**
-- **Vite** for tooling, **oxlint** for linting
+- **Vite** for tooling, **oxlint** for linting, **Vitest** for unit tests
 - **Firebase**: Authentication, Cloud Firestore, Hosting
 - **Google Calendar API** for session sync
 - **GitHub Actions** for continuous delivery
+
+## Tests and the release gate
+
+The maths that people rely on (orders and stock, pack sizes, spending, formulas, attendance plans, trainings, streaks, tasks, CSV import) has unit tests next to the code, in `src/**/*.test.js`.
+
+```bash
+npm test          # run every test once
+npm run test:watch  # re-run while you edit
+npm run check     # lint + tests + production build, the same as CI
+```
+
+Every change goes into `dev` first, through a pull request. CI (`.github/workflows/ci.yml`) runs lint, the tests and a build on every pull request and every push to `dev`. `main` only ever receives `dev`, and the deploy workflow runs the same checks first, so a failing test stops the release instead of reaching the live site. When you fix a bug, add a test that fails without the fix.

@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm test && npm run build",
     "preview": "vite preview",
     "emulators": "node scripts/emulators.mjs"
   },
@@ -22,6 +25,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "firebase-tools": "^15.34.0",
     "oxlint": "^1.79.0",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^5.1.0"
   }
 }
