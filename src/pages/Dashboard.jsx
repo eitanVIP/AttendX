@@ -308,7 +308,7 @@ export default function Dashboard() {
       </div>
 
       <NoDivisionsNotice team={team} />
-      <TaskAttention tasks={streakTasks} statuses={streakStatuses} requests={taskRequests} />
+      <TaskAttention tasks={streakTasks} statuses={streakStatuses} requests={taskRequests} students={students} />
 
       <EventCountdowns events={events} />
 

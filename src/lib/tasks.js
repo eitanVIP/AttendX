@@ -534,6 +534,23 @@ export function isOverdue(task, statuses, today) {
   return !statusOf(task, statuses)?.done
 }
 
+// The Dashboard's "Needs attention" card can be narrowed to one person's tasks.
+// `who` is 'all' (everyone), 'none' (not assigned to anyone) or a student id.
+export function filterTasksByAssignee(tasks, who) {
+  if (!who || who === 'all') return tasks
+  return tasks.filter((t) => (who === 'none' ? !t.assigneeId : t.assigneeId === who))
+}
+
+// Who the filter can pick: the students that have at least one of `tasks`,
+// by name, plus whether any are unassigned.
+export function assigneeOptions(tasks, students) {
+  const ids = new Set(tasks.map((t) => t.assigneeId).filter(Boolean))
+  return {
+    people: students.filter((s) => ids.has(s.id)).sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '')),
+    hasUnassigned: tasks.some((t) => !t.assigneeId),
+  }
+}
+
 // History: a line per change, kept on the task. `historyUnion` goes straight
 // into an update (arrayUnion); describeChange writes the text for an edit.
 export const historyUnion = (by, text) => arrayUnion({ at: new Date().toISOString(), by, text })

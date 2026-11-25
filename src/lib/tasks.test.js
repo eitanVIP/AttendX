@@ -6,7 +6,9 @@ import {
   checklistProgress,
   completionFields,
   daysBetween,
+  assigneeOptions,
   describeChange,
+  filterTasksByAssignee,
   divisionColor,
   dueSoon,
   duplicateOf,
@@ -327,5 +329,40 @@ describe('describeChange', () => {
   it('says nothing when nothing changed', () => {
     expect(describeChange(before, { title: 'Task a', priority: 'normal' }, { statuses, students })).toBe('')
     expect(describeChange(before, {}, { statuses, students })).toBe('')
+  })
+})
+
+describe('Needs attention - narrowing to one person', () => {
+  const tasks = [
+    { id: 't1', assigneeId: 's1', title: 'A' },
+    { id: 't2', assigneeId: 's2', title: 'B' },
+    { id: 't3', assigneeId: 's1', title: 'C' },
+    { id: 't4', title: 'D' },
+    { id: 't5', assigneeId: '', title: 'E' },
+  ]
+  const students = [
+    { id: 's2', fullName: 'Zed' },
+    { id: 's1', fullName: 'Amy' },
+    { id: 's3', fullName: 'Nobody has tasks' },
+  ]
+
+  it('keeps everything for everyone', () => {
+    expect(filterTasksByAssignee(tasks, 'all')).toBe(tasks)
+    expect(filterTasksByAssignee(tasks, undefined)).toBe(tasks)
+  })
+
+  it('keeps only one student\'s tasks', () => {
+    expect(filterTasksByAssignee(tasks, 's1').map((t) => t.id)).toEqual(['t1', 't3'])
+  })
+
+  it('can pick the tasks nobody is assigned to', () => {
+    expect(filterTasksByAssignee(tasks, 'none').map((t) => t.id)).toEqual(['t4', 't5'])
+  })
+
+  it('offers only students who have tasks, by name, and says whether some are unassigned', () => {
+    const { people, hasUnassigned } = assigneeOptions(tasks, students)
+    expect(people.map((s) => s.fullName)).toEqual(['Amy', 'Zed'])
+    expect(hasUnassigned).toBe(true)
+    expect(assigneeOptions([{ id: 'x', assigneeId: 's1' }], students).hasUnassigned).toBe(false)
   })
 })
