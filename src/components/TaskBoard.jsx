@@ -4,8 +4,9 @@ import TaskStats from './TaskStats'
 import TaskWorkload from './TaskWorkload'
 import TaskProjects from './TaskProjects'
 import TaskTimeline from './TaskTimeline'
+import TaskWeek from './TaskWeek'
 import usePhone from '../lib/usePhone'
-import { TASK_PRIORITIES, linkLabel, taskLinks, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
+import { TASK_PRIORITIES, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 
 const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.name]))
@@ -52,15 +53,21 @@ function QuickAdd({ onAdd }) {
   )
 }
 
-function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting = [], systemName, canMove, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
+function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting = [], canMove, showStatusSelect, moveOptions, ownId, onRequestDone, onApprove, onReject, onMove, onOpen, today }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
   const overdue = isOverdue(task, statuses, today)
   const waiting = waitingOn(task, allTasks, statuses)
+  const { done: stepsDone, total: steps } = checklistProgress(task)
+  const when = taskDateLabel(task)
+  // A card shows the title, who and when, and only the things that need a
+  // look (waiting, blocked, awaiting approval). The rest - description, links,
+  // project, system, repeat, comments - is one click away in the task itself.
   return (
     <div
       className="card task-card"
       draggable={canMove}
       onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
+      title={task.division || undefined}
       style={{ padding: 10, marginBottom: 8, cursor: canMove ? 'grab' : 'default', borderLeft: `4px solid ${divisionColor(task.division, divisions)}` }}
     >
       <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
@@ -73,39 +80,22 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
         )}
         {task.priority === 'high' && <span style={{ color: 'var(--danger)', fontSize: 12 }}>High</span>}
       </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <span>{assignee ? assignee.fullName : task.assigneeId ? '(removed student)' : 'Unassigned'}</span>
+        {when && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{when}</span>}
+        {steps > 0 && <span title="Checklist">☑ {stepsDone}/{steps}</span>}
+      </div>
       {waiting.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waiting.map((t) => t.title).join(', ')}</div>
       )}
       {partsWaiting.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsWaiting.map((p) => p.name).join(', ')}</div>
       )}
-      {taskLinks(task).length > 0 && (
-        <div style={{ fontSize: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {taskLinks(task).map((l) => (
-            <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer" draggable={false}>
-              🔗 {linkLabel(l)}
-            </a>
-          ))}
-        </div>
-      )}
       {task.blockedReason && statusOf(task, statuses).blocked && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>⛔ {task.blockedReason}</div>
       )}
-      {task.description && (
-        <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
-          {task.description}
-        </div>
-      )}
-      <div className="muted" style={{ fontSize: 12, marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <span>{assignee ? assignee.fullName : task.assigneeId ? '(removed student)' : 'Unassigned'}</span>
-        {taskDateLabel(task) && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(task)}</span>}
-        {task.division && <span>{task.division}</span>}
-        {systemName && <span>⚙ {systemName}</span>}
-        {task.project && <span>📁 {task.project}</span>}
-        {task.priority === 'low' && <span>Low</span>}
-        <TaskExtras task={task} />
-      </div>
-      {canMove && (
+      {task.doneRequested && <div style={{ fontSize: 12, color: 'var(--warn-text)' }}>✋ Awaiting approval</div>}
+      {canMove && showStatusSelect && (
         <select
           value={statusOf(task, statuses).id}
           onChange={(e) => onMove(task, e.target.value)}
@@ -147,7 +137,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
 // One column per status (drag a card to another to change its status, or use
 // the select on it) or a plain list. `canMove` is who may change a status;
 // `onOpen` is set only for people who may edit the task's details.
-export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd, partsFor = () => [], systems = [] }) {
+export default function TaskBoard({ tasks, allTasks = tasks, statuses, students, divisions = [], weekStartsOn = 0, view, canMove, onMove, onOpen, onSchedule, onAssign, ownId, onRequestDone, onApprove, onReject, onQuickAdd, partsFor = () => [] }) {
   const [overStatus, setOverStatus] = useState(null)
   const [overUnassign, setOverUnassign] = useState(false)
   const phone = usePhone()
@@ -207,6 +197,8 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
   )
 
   if (view === 'timeline') return <TaskTimeline tasks={tasks} allTasks={allTasks} statuses={statuses} students={students} divisions={divisions} onOpen={onOpen} />
+
+  if (view === 'week') return <TaskWeek tasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={weekStartsOn} onOpen={onOpen} onAssign={onAssign} />
 
   if (view === 'projects') return <TaskProjects tasks={tasks} statuses={statuses} />
 
@@ -322,7 +314,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
         </div>
         <div className="task-phone-column">
           {column.map((t) => (
-            <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} systemName={systems.find((s) => s.id === t.systemId)?.name} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
+            <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} canMove={canMoveTask(t)} showStatusSelect={phone} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
           ))}
           {column.length === 0 && <div className="muted task-phone-empty">Nothing in {active.name}.</div>}
           {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, active.id)} />}
@@ -366,7 +358,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
               {status.name} <span className="muted">{column.length}</span>
             </div>
             {column.map((t) => (
-              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} systemName={systems.find((s) => s.id === t.systemId)?.name} canMove={canMoveTask(t)} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
+              <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} canMove={canMoveTask(t)} showStatusSelect={phone} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
             ))}
             {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>Nothing here</div>}
             {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, status.id)} />}

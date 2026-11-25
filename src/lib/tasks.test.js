@@ -7,6 +7,8 @@ import {
   completionFields,
   daysBetween,
   assigneeOptions,
+  needsYou,
+  weekPlan,
   describeChange,
   filterTasksByAssignee,
   divisionColor,
@@ -364,5 +366,100 @@ describe('Needs attention - narrowing to one person', () => {
     expect(people.map((s) => s.fullName)).toEqual(['Amy', 'Zed'])
     expect(hasUnassigned).toBe(true)
     expect(assigneeOptions([{ id: 'x', assigneeId: 's1' }], students).hasUnassigned).toBe(false)
+  })
+})
+
+describe('Needs you - what the Tasks page puts first', () => {
+  const statuses = [
+    { id: 'todo', name: 'To do' },
+    { id: 'blocked', name: 'Blocked', blocked: true },
+    { id: 'done', name: 'Done', done: true },
+  ]
+  const today = '2026-06-10'
+  const t = (id, extra = {}) => ({ id, title: id, statusId: 'todo', assigneeId: 'a', ...extra })
+  const ids = (list) => list.map((x) => x.id)
+
+  it('puts each task in its most pressing group only', () => {
+    const tasks = [
+      t('approve', { doneRequested: true, dueDate: '2026-06-01' }),
+      t('stuck', { statusId: 'blocked', dueDate: '2026-06-01', assigneeId: '' }),
+      t('late', { dueDate: '2026-06-05', assigneeId: '' }),
+      t('nobody'),
+    ].map((x) => (x.id === 'nobody' ? { ...x, assigneeId: '' } : x))
+    const r = needsYou(tasks, statuses, today)
+    expect(ids(r.approvals)).toEqual(['approve'])
+    expect(ids(r.blocked)).toEqual(['stuck'])
+    expect(ids(r.overdue)).toEqual(['late'])
+    expect(ids(r.unassigned)).toEqual(['nobody'])
+  })
+
+  it('ignores finished tasks', () => {
+    const r = needsYou([t('x', { statusId: 'done', dueDate: '2026-01-01', assigneeId: '', doneRequested: true })], statuses, today)
+    expect(r).toEqual({ approvals: [], blocked: [], overdue: [], unassigned: [] })
+  })
+
+  it('lists the most overdue first and leaves due-today tasks out', () => {
+    const r = needsYou([t('newer', { dueDate: '2026-06-09' }), t('older', { dueDate: '2026-05-01' }), t('today', { dueDate: today })], statuses, today)
+    expect(ids(r.overdue)).toEqual(['older', 'newer'])
+  })
+
+  it('is empty when everything is assigned and on time', () => {
+    const r = needsYou([t('a', { dueDate: '2026-07-01' }), t('b')], statuses, today)
+    expect(r).toEqual({ approvals: [], blocked: [], overdue: [], unassigned: [] })
+  })
+})
+
+describe('This week - sorting open tasks into a plan', () => {
+  const statuses = [
+    { id: 'todo', name: 'To do' },
+    { id: 'done', name: 'Done', done: true },
+  ]
+  // Wednesday 10 June 2026; with a Sunday start the week is 7-13 June.
+  const today = '2026-06-10'
+  const t = (id, extra = {}) => ({ id, title: id, statusId: 'todo', ...extra })
+  const ids = (list) => list.map((x) => x.id)
+
+  it('finds the week from the day the team starts on', () => {
+    expect(weekPlan([], statuses, today, 0)).toMatchObject({ weekStart: '2026-06-07', weekEnd: '2026-06-13' })
+    expect(weekPlan([], statuses, today, 1)).toMatchObject({ weekStart: '2026-06-08', weekEnd: '2026-06-14' })
+    expect(weekPlan([], statuses, '2026-06-07', 0)).toMatchObject({ weekStart: '2026-06-07', weekEnd: '2026-06-13' })
+  })
+
+  it('sorts tasks into overdue, this week by day, next week, later and no date', () => {
+    const plan = weekPlan(
+      [
+        t('late', { dueDate: '2026-06-02' }),
+        t('fri', { dueDate: '2026-06-12' }),
+        t('thu', { dueDate: '2026-06-11' }),
+        t('today', { dueDate: today }),
+        t('nextwk', { dueDate: '2026-06-16' }),
+        t('far', { dueDate: '2026-09-01' }),
+        t('nodate'),
+      ],
+      statuses,
+      today
+    )
+    expect(ids(plan.overdue)).toEqual(['late'])
+    expect(plan.days.map((d) => [d.date, ids(d.tasks)])).toEqual([
+      [today, ['today']],
+      ['2026-06-11', ['thu']],
+      ['2026-06-12', ['fri']],
+    ])
+    expect(ids(plan.next)).toEqual(['nextwk'])
+    expect(ids(plan.later)).toEqual(['far'])
+    expect(ids(plan.unscheduled)).toEqual(['nodate'])
+  })
+
+  it('leaves finished tasks out and lists the most overdue first', () => {
+    const plan = weekPlan([t('x', { statusId: 'done', dueDate: '2026-06-01' }), t('b', { dueDate: '2026-06-08' }), t('a', { dueDate: '2026-06-01' })], statuses, today)
+    expect(ids(plan.overdue)).toEqual(['a', 'b'])
+  })
+
+  it('uses the start date when there is no due date, and shows a started task under today', () => {
+    const plan = weekPlan([t('soon', { startDate: '2026-06-12' }), t('started', { startDate: '2026-06-01' })], statuses, today)
+    expect(plan.days.map((d) => [d.date, ids(d.tasks)])).toEqual([
+      [today, ['started']],
+      ['2026-06-12', ['soon']],
+    ])
   })
 })

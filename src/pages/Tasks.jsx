@@ -4,11 +4,13 @@ import { db } from '../firebase'
 import FormPanel from '../components/FormPanel'
 import TaskBoard from '../components/TaskBoard'
 import TaskFormPanel from '../components/TaskFormPanel'
+import TaskViewTabs from '../components/TaskViewTabs'
 import { useProducts, useStudents, useSystems } from '../lib/firestore-hooks'
 import { commentOnTask, createTask, decideTaskRequest, deleteTask, setTaskStatus, spawnRecurringTask, staleCalendarTasks, syncStaleTaskCalendars, updateTask, updateTaskStatuses } from '../lib/actions'
 import CompletionCelebration from '../components/CompletionCelebration'
 import UndoBar from '../components/UndoBar'
-import { TaskRequestList } from '../components/TaskRequests'
+import TaskNeedsYou from '../components/TaskNeedsYou'
+import { todayISO } from '../lib/calc'
 import BlockedPrompt from '../components/BlockedPrompt'
 import SendBackPrompt from '../components/SendBackPrompt'
 import { EMPTY_TASK, becameDone, completionFields, firstDoneStatus, isBlockedStatus, moveBlockedReason, prerequisiteCandidates, scheduleBlockedReason, statusOf, taskDateLabel, useTaskData, useTaskRequests, waitingOn, waitingParts, isOldDone, duplicateOf, projectNames } from '../lib/tasks'
@@ -42,6 +44,13 @@ export default function Tasks() {
   // On a phone the filters fold away behind one button (see .task-toolbar in index.css).
   const [showFilters, setShowFilters] = useState(false)
   const activeFilters = [assignee, division, system, project].filter((v) => v !== 'all').length + (showOld ? 1 : 0)
+  function clearFilters() {
+    setAssignee('all')
+    setDivision('all')
+    setSystem('all')
+    setProject('all')
+    setShowOld(false)
+  }
   const { data: systems } = useSystems(team?.id)
   // The inventory is only read when a task needs parts or the form is open.
   const needStock = tasks.some((t) => (t.partIds || []).length > 0) || showForm
@@ -253,7 +262,7 @@ export default function Tasks() {
 
   function handleAssign(task, assigneeId, skipUndo = false) {
     updateTask(team.id, task, { title: task.title, assigneeId }, students.find((s) => s.id === assigneeId)?.fullName || '', { statuses, students })
-    if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
+    if (!skipUndo) offerUndo(`${assigneeId ? "Assigned" : "Unassigned"} "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
 
   // Dragging a task on the calendar (see TaskCalendar) just changes its dates.
@@ -331,12 +340,36 @@ export default function Tasks() {
         </div>
       </div>
 
+      {notice && <p className="form-error">{notice}</p>}
+      {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
+
+      <TaskNeedsYou
+        tasks={tasks}
+        statuses={statuses}
+        students={students}
+        requests={requests}
+        today={todayISO()}
+        onOpen={startEdit}
+        onApprove={approveDone}
+        onReject={rejectDone}
+        onAssign={handleAssign}
+        onAcceptRequest={acceptRequest}
+        onDeclineRequest={(r, reason) => decideTaskRequest(team.id, r, 'declined', reason)}
+      />
+
       <div className="task-toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <input className="task-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ maxWidth: 220 }} />
         <button type="button" className="secondary task-filter-toggle" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
           Filters{activeFilters > 0 ? ` (${activeFilters})` : ''}
         </button>
-        <div className={showFilters ? 'task-filters task-filters-open' : 'task-filters'}>
+        {activeFilters > 0 && (
+          <button type="button" className="link-btn task-clear-filters" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
+        <TaskViewTabs view={view} onChange={setView} />
+        {showFilters && (
+        <div className="task-filters task-filters-open task-filters-panel">
         <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="Filter by assignee">
           <option value="all">Everyone</option>
           <option value="none">Unassigned</option>
@@ -386,41 +419,13 @@ export default function Tasks() {
           </label>
         )}
         </div>
-        <div className="task-views">
-        <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
-          Board
-        </button>
-        <button type="button" className={view === 'list' ? '' : 'secondary'} onClick={() => setView('list')}>
-          List
-        </button>
-        <button type="button" className={view === 'calendar' ? '' : 'secondary'} onClick={() => setView('calendar')}>
-          Calendar
-        </button>
-        <button type="button" className={view === 'stats' ? '' : 'secondary'} onClick={() => setView('stats')}>
-          Stats
-        </button>
-        <button type="button" className={view === 'workload' ? '' : 'secondary'} onClick={() => setView('workload')}>
-          Workload
-        </button>
-        <button type="button" className={view === 'projects' ? '' : 'secondary'} onClick={() => setView('projects')}>
-          Projects
-        </button>
-        <button type="button" className={view === 'timeline' ? '' : 'secondary'} onClick={() => setView('timeline')}>
-          Timeline
-        </button>
-        </div>
+        )}
       </div>
 
-      {notice && <p className="form-error">{notice}</p>}
-      {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
-      {tasks.some((t) => t.doneRequested && !statusOf(t, statuses).done) && (
-        <p style={{ color: 'var(--warn-text)' }}>✋ {tasks.filter((t) => t.doneRequested && !statusOf(t, statuses).done).length} task(s) waiting for your approval</p>
-      )}
 
       <CompletionCelebration tasks={tasks} statuses={statuses} />
       <UndoBar undo={undo} onClose={() => setUndo(null)} />
       <SendBackPrompt task={sendBackTask} onClose={() => setSendBackTask(null)} onSubmit={(note) => sendBack(sendBackTask, note)} />
-      <TaskRequestList requests={requests} onAccept={acceptRequest} onDecline={(r, reason) => decideTaskRequest(team.id, r, 'declined', reason)} />
       <BlockedPrompt ask={blockedAsk} onClose={() => setBlockedAsk(null)} onSubmit={(why) => { handleMove(blockedAsk.task, blockedAsk.statusId, { reason: why }); setBlockedAsk(null) }} />
 
       <TaskBoard tasks={shown} allTasks={tasks} statuses={statuses} students={students} divisions={divisions} weekStartsOn={team?.weekStartsOn ?? 0} view={view} canMove onMove={handleMove} onOpen={startEdit} onSchedule={handleSchedule} onAssign={handleAssign} onApprove={approveDone} onReject={rejectDone} onQuickAdd={quickAdd} partsFor={partsFor} systems={systems} />

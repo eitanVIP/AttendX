@@ -3,15 +3,23 @@ import FormPanel from './FormPanel'
 
 const DAY_MS = 86400000
 
-// For a task lead or admin: the requests still waiting for a decision.
-export function TaskRequestList({ requests, onAccept, onDecline }) {
+// For a task lead or admin: the requests still waiting for a decision. One
+// line with a count until opened, so a long list doesn't push the tasks down.
+export function TaskRequestList({ requests, onAccept, onDecline, embedded = false }) {
   const [declining, setDeclining] = useState(null)
   const [reason, setReason] = useState('')
+  const [openState, setOpen] = useState(false)
+  const open = embedded || openState
   const pending = requests.filter((r) => r.status === 'pending')
   if (pending.length === 0) return null
   return (
-    <div className="card" style={{ padding: 12, marginBottom: 12 }}>
-      <strong>Task requests ({pending.length})</strong>
+    <div className={embedded ? undefined : 'card'} style={embedded ? undefined : { padding: 12, marginBottom: 12 }}>
+      {!embedded && (
+        <button type="button" className="link-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ padding: 0, fontWeight: 600 }}>
+          📝 {pending.length} task request{pending.length === 1 ? '' : 's'} from students {open ? '▾' : '▸'}
+        </button>
+      )}
+      {open && (
       <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {pending.map((r) => (
           <li key={r.id}>
@@ -50,6 +58,7 @@ export function TaskRequestList({ requests, onAccept, onDecline }) {
           </li>
         ))}
       </ul>
+      )}
     </div>
   )
 }

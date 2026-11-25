@@ -2922,7 +2922,30 @@ th.col-inactive {
 .quick-add {
   display: contents;
 }
-.task-filter-toggle,
+.task-more-views {
+  width: auto;
+  font-size: 14px;
+}
+.task-more-active {
+  border-color: var(--accent);
+}
+.task-filters-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 100%;
+  order: 5;
+}
+.task-more > summary {
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 0;
+}
+.task-more > summary .muted {
+  font-size: 12px;
+  margin-left: 6px;
+}
 .quick-add-btn {
   display: none;
 }
@@ -2996,6 +3019,12 @@ th.col-inactive {
     gap: 8px;
     overflow-x: auto;
     padding-bottom: 2px;
+  }
+  .task-views > select {
+    flex: 0 0 auto;
+  }
+  .task-clear-filters {
+    order: 3;
   }
   .task-views > button {
     flex: 0 0 auto;
@@ -3222,5 +3251,39 @@ th.col-inactive {
   .celebration-note {
     max-width: 90vw;
     text-align: center;
+  }
+}
+
+/* Tasks "Needs you" rows: the title and detail on the left, the action
+   buttons on the right (underneath on a narrow screen). */
+.needs-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.needs-row-text {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.needs-row-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+  .needs-row-actions {
+    flex: 1 1 100%;
+  }
+  .needs-row-actions select {
+    width: 100% !important;
+    font-size: 16px;
+    padding: 9px 8px !important;
+  }
+  .needs-row-actions button {
+    flex: 1 1 0;
+    padding: 9px 12px !important;
+    font-size: 14px !important;
   }
 }
