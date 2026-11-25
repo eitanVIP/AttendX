@@ -1,4 +1,5 @@
-import { DEFAULT_PRODUCT } from './calc'
+import { DEFAULT_PRODUCT, canonicalSupplier, purchasedUnits } from './calc'
+import { convertPrice } from './currency'
 
 // Quotes a value only when it needs it (contains a comma, quote, or
 // newline) - keeps plain numbers and short text readable in the raw file.
@@ -169,4 +170,71 @@ export function parseProductImport(text, { categories, subcategories = {}, curre
   })
 
   return errors.length > 0 ? { products: null, errors } : { products, errors: [] }
+}
+
+// What Orders' "Export CSV" in the Bought section writes: every purchase ever
+// logged (dismissed ones too - dismissing only hides a row on Orders), one line
+// each, in the order given. Quantity counts packs (what was bought); Units
+// added is what actually went into stock (packs x pack size). Dates stay ISO
+// (YYYY-MM-DD) so a spreadsheet sorts them. Cost is in the currency it was
+// paid in, and again converted to the team's preferred one.
+export function purchaseExportHeaders(preferred) {
+  return ['Date', 'Item', 'Type', 'Category', 'Supplier', 'Quantity', 'Pack size', 'Units added', 'Unit price', 'Currency', 'Cost', `Cost (${preferred})`, 'Dismissed']
+}
+
+function purchaseType(p) {
+  if (p.productId) return 'Product'
+  if (p.discount) return 'Discount'
+  if (p.shipping) return 'Shipping'
+  return 'Manual expense'
+}
+
+const round2 = (n) => Math.round(n * 100) / 100
+
+export function purchaseExportRows(purchases, rates, preferred) {
+  return purchases.map((p) => {
+    const quantity = p.quantity || 0
+    const unitPrice = p.unitPrice || 0
+    const converted = unitPrice === 0 ? 0 : convertPrice(unitPrice, p.currency, preferred, rates)
+    const isProduct = purchaseType(p) === 'Product'
+    return [
+      p.date || '',
+      p.productName || '',
+      purchaseType(p),
+      p.category || '',
+      p.supplier || '',
+      quantity,
+      isProduct ? p.unitsPerPurchase || 1 : '',
+      isProduct ? round2(purchasedUnits(p)) : '',
+      unitPrice,
+      p.currency || '',
+      round2(unitPrice * quantity),
+      converted === null ? '' : round2(converted * quantity),
+      p.dismissed ? 'Yes' : 'No',
+    ]
+  })
+}
+
+// Which supplier a purchase belongs to for the export's supplier filter:
+// the list's own spelling, lower-cased ('' for none), so "saad" and "Saad"
+// are one supplier.
+export function purchaseSupplierKey(p, suppliers) {
+  return canonicalSupplier(p.supplier, suppliers).toLowerCase()
+}
+
+// The suppliers that appear on at least one purchase, as { key, label } sorted
+// by label ('' = bought with no supplier recorded).
+export function purchaseSupplierOptions(purchases, suppliers) {
+  const byKey = new Map()
+  for (const p of purchases) {
+    const key = purchaseSupplierKey(p, suppliers)
+    if (!byKey.has(key)) byKey.set(key, canonicalSupplier(p.supplier, suppliers))
+  }
+  return [...byKey].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+// Keeps only the purchases from the chosen supplier keys; no keys = all of them.
+export function filterPurchasesBySupplier(purchases, keys, suppliers) {
+  if (keys.length === 0) return purchases
+  return purchases.filter((p) => keys.includes(purchaseSupplierKey(p, suppliers)))
 }
