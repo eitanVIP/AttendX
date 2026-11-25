@@ -2974,6 +2974,21 @@ th.col-inactive {
     font-size: 16px;
   }
 
+  /* Orders and Inventory: the title, buttons, category chips and search made
+     a frozen bar that ate half the screen. On a phone it scrolls away with the
+     page instead (the products are cards there, so there is no table header
+     that needs the space reserved), and its buttons sit in a compact row. */
+  .page-toolbar.scrolls-on-phone {
+    position: static;
+  }
+  .scrolls-on-phone .page-header-actions {
+    flex-direction: row;
+  }
+  .scrolls-on-phone .page-header-actions button {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
   /* Tasks: the view buttons scroll in one row instead of wrapping onto three. */
   .task-views {
     display: flex;

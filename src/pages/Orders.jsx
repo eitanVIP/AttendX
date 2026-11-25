@@ -29,6 +29,7 @@ import {
   planSpools,
   supplierMultiplier,
   purchasedUnits,
+  todayISO,
   unitsPerPurchase,
 } from '../lib/calc'
 import { convertPrice, DEFAULT_CURRENCY_RATES } from '../lib/currency'
@@ -44,7 +45,13 @@ import {
   updateProduct,
 } from '../lib/actions'
 import { rememberForm, withLastValues } from '../lib/formMemory'
-import { downloadCSV } from '../lib/csv'
+import {
+  downloadCSV,
+  filterPurchasesBySupplier,
+  purchaseExportHeaders,
+  purchaseExportRows,
+  purchaseSupplierOptions,
+} from '../lib/csv'
 import { matchInvoiceLines, readInvoiceFile } from '../lib/invoiceImport'
 
 // Label for products with no supplier in the export panel's supplier list.
@@ -75,6 +82,9 @@ export default function Orders() {
   const [showExport, setShowExport] = useState(false)
   const [exportCategories, setExportCategories] = useState([])
   const [exportSuppliers, setExportSuppliers] = useState([])
+  // The same idea for the bought-items export: no supplier picked = all of them.
+  const [showBoughtExport, setShowBoughtExport] = useState(false)
+  const [boughtExportSuppliers, setBoughtExportSuppliers] = useState([])
 
   const categories = team?.categories || []
   const subcategories = team?.subcategories || NO_SUBCATEGORIES
@@ -518,6 +528,32 @@ export default function Orders() {
     downloadCSV(`${name}.csv`, headers, rows)
   }
 
+  // Every purchase ever logged - not narrowed by the category filter and
+  // including dismissed ones, so the file always matches "Bought items" -
+  // unless one or more suppliers are picked in the export panel.
+  const boughtExportSupplierOptions = useMemo(() => purchaseSupplierOptions(purchases, suppliers), [purchases, suppliers])
+  const boughtExportRows = useMemo(
+    () => filterPurchasesBySupplier(purchases, boughtExportSuppliers, suppliers),
+    [purchases, boughtExportSuppliers, suppliers]
+  )
+  const boughtExportSpent = totalSpent(boughtExportRows, rates, preferred)
+
+  function openBoughtExport() {
+    setBoughtExportSuppliers([])
+    setShowBoughtExport(true)
+  }
+
+  function handleExportPurchases(e) {
+    e.preventDefault()
+    if (boughtExportRows.length === 0) return
+    const names = boughtExportSuppliers.map(
+      (key) => boughtExportSupplierOptions.find((o) => o.key === key)?.label || 'no-supplier'
+    )
+    const name = ['purchases', ...names, todayISO()].join('-').replace(/[\\/:*?"<>|\s]+/g, '-')
+    downloadCSV(`${name}.csv`, purchaseExportHeaders(preferred), purchaseExportRows(boughtExportRows, rates, preferred))
+    setShowBoughtExport(false)
+  }
+
   const optionLabel = (key) => exportSupplierOptions.find((o) => o.key === key)?.label ?? key
 
   function handleExport(e) {
@@ -545,7 +581,7 @@ export default function Orders() {
 
   return (
     <div className="page">
-      <div className="page-toolbar">
+      <div className="page-toolbar scrolls-on-phone">
         <div className="page-header">
           <h1>Orders</h1>
           <div className="page-header-actions">
@@ -650,6 +686,9 @@ export default function Orders() {
           <Link to="/orders/purchases" className="secondary">
             View all bought items
           </Link>
+          <button type="button" className="secondary" disabled={purchases.length === 0} onClick={openBoughtExport}>
+            Export bought CSV
+          </button>
           <button type="button" className="secondary" onClick={openBoughtForm}>
             + Log a purchase
           </button>
@@ -776,6 +815,43 @@ export default function Orders() {
             One file per supplier
           </button>
           <button type="submit" disabled={exportStats.count === 0}>
+            Export
+          </button>
+        </div>
+      </FormPanel>
+
+      <FormPanel open={showBoughtExport} onClose={() => setShowBoughtExport(false)} onSubmit={handleExportPurchases}>
+        <h2>Export bought items</h2>
+        <p className="muted" style={{ marginTop: -8 }}>
+          Every purchase you logged, dismissed ones included. Pick one or more suppliers to export just theirs;
+          leave it empty to export everything.
+        </p>
+        <div className="form-grid">
+          <div className="span-2">
+            <strong>Suppliers</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {boughtExportSupplierOptions.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  className={`chip ${boughtExportSuppliers.includes(o.key) ? 'active' : ''}`}
+                  onClick={() => toggleIn(boughtExportSuppliers, setBoughtExportSuppliers, o.key)}
+                >
+                  {o.label || NO_SUPPLIER_LABEL}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="span-2" style={{ margin: 0 }}>
+            <strong>{boughtExportRows.length}</strong> entr{boughtExportRows.length === 1 ? 'y' : 'ies'}, total{' '}
+            <strong>{boughtExportSpent.toFixed(2)}</strong> {preferred}
+          </p>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setShowBoughtExport(false)}>
+            Cancel
+          </button>
+          <button type="submit" disabled={boughtExportRows.length === 0}>
             Export
           </button>
         </div>

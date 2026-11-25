@@ -140,7 +140,7 @@ export default function Inventory() {
 
   return (
     <div className="page">
-      <div className="page-toolbar">
+      <div className="page-toolbar scrolls-on-phone">
         <div className="page-header">
           <h1>Inventory</h1>
           <div className="page-header-actions">
