@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { communityDb } from '../firebase'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import TaskBoard from '../components/TaskBoard'
+import TaskViewTabs from '../components/TaskViewTabs'
 import TaskFormPanel from '../components/TaskFormPanel'
 import { logStudentChange } from '../lib/communityLog'
 import CompletionCelebration from '../components/CompletionCelebration'
@@ -365,33 +366,7 @@ export default function MyTasks() {
             Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
           </label>
         )}
-        <div className="task-views">
-        <button type="button" className={view === 'board' ? '' : 'secondary'} onClick={() => setView('board')}>
-          Board
-        </button>
-        <button type="button" className={view === 'list' ? '' : 'secondary'} onClick={() => setView('list')}>
-          List
-        </button>
-        <button type="button" className={view === 'calendar' ? '' : 'secondary'} onClick={() => setView('calendar')}>
-          Calendar
-        </button>
-        {isLead && (
-          <button type="button" className={view === 'stats' ? '' : 'secondary'} onClick={() => setView('stats')}>
-            Stats
-          </button>
-        )}
-        {isLead && (
-          <button type="button" className={view === 'workload' ? '' : 'secondary'} onClick={() => setView('workload')}>
-            Workload
-          </button>
-        )}
-        <button type="button" className={view === 'projects' ? '' : 'secondary'} onClick={() => setView('projects')}>
-          Projects
-        </button>
-        <button type="button" className={view === 'timeline' ? '' : 'secondary'} onClick={() => setView('timeline')}>
-          Timeline
-        </button>
-        </div>
+        <TaskViewTabs view={view} onChange={setView} isLead={isLead} />
       </div>
 
       {notice && <p className="form-error">{notice}</p>}

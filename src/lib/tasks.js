@@ -534,6 +534,49 @@ export function isOverdue(task, statuses, today) {
   return !statusOf(task, statuses)?.done
 }
 
+// The "This week" view: open tasks sorted into what to look at first.
+// Overdue; then this week by day (a task goes under its due date, or its start
+// date when it has no due date; one already started shows under today); then
+// next week; later; and ones with no date at all. `weekStartsOn` is 0 for
+// Sunday. Each task appears once.
+export function weekPlan(tasks, statuses, today, weekStartsOn = 0) {
+  const dow = new Date(toUTC(today)).getUTCDay()
+  const weekStart = addDays(today, -((dow - weekStartsOn + 7) % 7))
+  const weekEnd = addDays(weekStart, 6)
+  const nextEnd = addDays(weekEnd, 7)
+  const open = sortTasks(tasks.filter((t) => !statusOf(t, statuses)?.done))
+  const plan = { weekStart, weekEnd, overdue: [], days: [], next: [], later: [], unscheduled: [] }
+  const byDay = new Map()
+  for (const t of open) {
+    const date = t.dueDate || t.startDate
+    if (isOverdue(t, statuses, today)) plan.overdue.push(t)
+    else if (!date) plan.unscheduled.push(t)
+    else if (date <= weekEnd) {
+      const day = date < today ? today : date
+      if (!byDay.has(day)) byDay.set(day, [])
+      byDay.get(day).push(t)
+    } else if (date <= nextEnd) plan.next.push(t)
+    else plan.later.push(t)
+  }
+  plan.overdue.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  plan.days = [...byDay.keys()].sort().map((date) => ({ date, tasks: byDay.get(date) }))
+  return plan
+}
+
+// The Tasks page's "Needs you" block: the open tasks an admin has to act on,
+// each in the single most pressing group so nothing is listed twice -
+// waiting for approval, then blocked, then overdue, then not assigned.
+export function needsYou(tasks, statuses, today) {
+  const open = tasks.filter((t) => !statusOf(t, statuses)?.done)
+  const approvals = open.filter((t) => t.doneRequested)
+  const rest = open.filter((t) => !t.doneRequested)
+  const blocked = rest.filter((t) => statusOf(t, statuses)?.blocked)
+  const rest2 = rest.filter((t) => !statusOf(t, statuses)?.blocked)
+  const overdue = rest2.filter((t) => isOverdue(t, statuses, today)).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const unassigned = rest2.filter((t) => !t.assigneeId && !isOverdue(t, statuses, today))
+  return { approvals, blocked, overdue, unassigned }
+}
+
 // The Dashboard's "Needs attention" card can be narrowed to one person's tasks.
 // `who` is 'all' (everyone), 'none' (not assigned to anyone) or a student id.
 export function filterTasksByAssignee(tasks, who) {

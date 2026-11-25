@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import FormPanel from './FormPanel'
 import TaskHistory from './TaskHistory'
 import DateField from './DateField'
@@ -13,6 +13,8 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
   const [newLink, setNewLink] = useState({ url: '', label: '' })
   const [linkError, setLinkError] = useState('')
   const links = form.links || []
+  // The rarely used fields fold away; they start open only when this task already uses one.
+  const [more, setMore] = useState(false)
   function addLink() {
     const url = newLink.url.trim()
     if (!url) return
@@ -39,6 +41,12 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
     onAddComment(text)
     setNewComment('')
   }
+  const usesMore = !!(form.startDate || form.repeat || form.project || form.systemId || (form.partIds || []).length || links.length || checklist.length || (form.blockedBy || []).length)
+  useEffect(() => {
+    if (open) setMore(usesMore)
+    // Only when the panel opens - not while someone is typing in it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
   return (
     <FormPanel open={open} onClose={onClose} onSubmit={onSubmit}>
       <h3>{editing ? 'Edit task' : 'New task'}</h3>
@@ -61,23 +69,6 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
               </option>
             ))}
           </select>
-        </label>
-        {divisions.length > 0 && (
-          <label className="span-2">
-            Division
-            <select value={form.division || ''} onChange={set('division')}>
-              <option value="">None</option>
-              {divisions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label>
-          Start date
-          <DateField value={form.startDate} onChange={(startDate) => setForm({ ...form, startDate })} ariaLabel="Start date" />
         </label>
         <label>
           Due date
@@ -103,6 +94,47 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             ))}
           </select>
         </label>
+        {divisions.length > 0 && (
+          <label className="span-2">
+            Division
+            <select value={form.division || ''} onChange={set('division')}>
+              <option value="">None</option>
+              {divisions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {blockedIds.includes(form.statusId || statuses[0].id) && (
+          <label className="span-2">
+            Why is it blocked?
+            <input value={form.blockedReason || ''} onChange={set('blockedReason')} required />
+          </label>
+        )}
+        <details className="span-2 task-more" open={more} onToggle={(e) => setMore(e.currentTarget.open)}>
+          <summary>More options <span className="muted">dates, project, parts, links, checklist, repeat</span></summary>
+          <div className="form-grid" style={{ marginTop: 8 }}>
+        <label>
+          Start date
+          <DateField value={form.startDate} onChange={(startDate) => setForm({ ...form, startDate })} ariaLabel="Start date" />
+        </label>
+        <label>
+          Repeats
+          <select value={form.repeat || ''} onChange={set('repeat')}>
+            {REPEATS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form.repeat && !form.startDate && !form.dueDate && (
+          <p className="muted span-2" style={{ fontSize: 12, margin: 0 }}>
+            A repeating task needs a start or due date. The next copy is made when this one is finished.
+          </p>
+        )}
         <label className="span-2">
           Project (optional)
           <input list="task-projects" value={form.project || ''} onChange={set('project')} placeholder="e.g. Drivetrain v2" maxLength={80} />
@@ -158,27 +190,6 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
                   </button>
                 ))}
           </fieldset>
-        )}
-        {blockedIds.includes(form.statusId || statuses[0].id) && (
-          <label className="span-2">
-            Why is it blocked?
-            <input value={form.blockedReason || ''} onChange={set('blockedReason')} required />
-          </label>
-        )}
-        <label>
-          Repeats
-          <select value={form.repeat || ''} onChange={set('repeat')}>
-            {REPEATS.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {form.repeat && !form.startDate && !form.dueDate && (
-          <p className="muted span-2" style={{ fontSize: 12, margin: 0 }}>
-            A repeating task needs a start or due date. The next copy is made when this one is finished.
-          </p>
         )}
         <fieldset className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
           <legend className="muted" style={{ fontSize: 13 }}>Links</legend>
@@ -277,6 +288,8 @@ export default function TaskFormPanel({ open, onClose, onSubmit, form, setForm, 
             </div>
           </fieldset>
         )}
+          </div>
+        </details>
       </div>
       {editing && onAddComment && (
         <div style={{ marginTop: 10 }}>
