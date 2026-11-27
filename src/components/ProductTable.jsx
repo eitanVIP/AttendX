@@ -210,7 +210,7 @@ export default function ProductTable({
           <>
             {p.countInInventory}
             {p.lentOut > 0 && (
-              <span className="badge badge-warn" style={{ marginLeft: 6 }} title="Lent to another team - see Borrowing">
+              <span className="badge badge-warn" style={{ marginInlineStart: 6 }} title="Lent to another team - see Borrowing">
                 {p.lentOut} lent out
               </span>
             )}

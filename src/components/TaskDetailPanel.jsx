@@ -2,6 +2,7 @@ import { useState } from 'react'
 import FormPanel from './FormPanel'
 import TaskHistory from './TaskHistory'
 import { linkLabel, taskDateLabel, taskLinks } from '../lib/tasks'
+import { dateLocale, t } from '../lib/i18n'
 
 // What an assignee who isn't a task lead sees when they open their own task:
 // read-only details, plus the things they may do - move it between the
@@ -38,7 +39,7 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
       )}
       {!finished && (
         <label>
-          Status
+          {t('Status')}
           <select value={currentStatusId} onChange={(e) => onMove(e.target.value)}>
             {options.map((s) => (
               <option key={s.id} value={s.id}>
@@ -51,7 +52,7 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
       {checklist.length > 0 && (
         <div style={{ margin: '8px 0' }}>
           <div className="muted" style={{ fontSize: 13 }}>
-            Checklist ({checklist.filter((i) => i.done).length}/{checklist.length})
+            {t('Checklist')} ({checklist.filter((i) => i.done).length}/{checklist.length})
           </div>
           {checklist.map((item) => (
             <label key={item.id} style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
@@ -63,20 +64,20 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
       )}
       <div style={{ marginTop: 8 }}>
         <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
-          Comments{comments.length > 0 && ` (${comments.length})`}
+          {t('Comments')}{comments.length > 0 && ` (${comments.length})`}
         </div>
         <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
           {comments.map((c) => (
             <div key={c.id} style={{ fontSize: 13 }}>
-              <strong>{c.authorName}</strong> <span className="muted">{new Date(c.at).toLocaleString()}</span>
+              <strong>{c.authorName}</strong> <span className="muted">{new Date(c.at).toLocaleString(dateLocale())}</span>
               <div style={{ whiteSpace: 'pre-wrap' }}>{c.text}</div>
             </div>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Write a comment" style={{ flex: 1 }} />
+          <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder={t('Write a comment')} style={{ flex: 1 }} />
           <button type="button" className="secondary" onClick={post}>
-            Post
+            {t('Post')}
           </button>
         </div>
       </div>
@@ -85,18 +86,18 @@ export default function TaskDetailPanel({ open, onClose, task, statuses, current
         {!finished &&
           (task.doneRequested ? (
             <button type="button" className="secondary" onClick={() => onRequestDone(false)}>
-              Cancel finish request
+              {t('Cancel finish request')}
             </button>
           ) : (
             <button type="button" onClick={() => onRequestDone(true)}>
-              Request done
+              {t('Request done')}
             </button>
           ))}
         <button type="button" className="secondary" onClick={onClose}>
-          Close
+          {t('Close')}
         </button>
       </div>
-      {task.doneRequested && !finished && <p className="muted">Waiting for a task lead or admin to approve this as done.</p>}
+      {task.doneRequested && !finished && <p className="muted">{t('Waiting for a task lead or admin to approve this as done.')}</p>}
     </FormPanel>
   )
 }

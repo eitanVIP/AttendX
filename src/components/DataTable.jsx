@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 // DataTable - the table used everywhere in the app: frozen header row and
@@ -214,7 +215,7 @@ export default function DataTable({
   indent = 20,
   rowClassName,
   onRowClick,
-  emptyMessage = 'Nothing here yet.',
+  emptyMessage = t('Nothing here yet.'),
   className,
   style,
   ...tableProps
@@ -708,7 +709,7 @@ export default function DataTable({
                     type="button"
                     className="dt-expander"
                     aria-expanded={open}
-                    aria-label={open ? 'Collapse row' : 'Expand row'}
+                    aria-label={open ? t('Collapse row') : t('Expand row')}
                     onClick={() => toggle(id)}
                   >
                     <ChevronIcon />

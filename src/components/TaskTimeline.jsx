@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { addDays, daysBetween, divisionColor, formatDMY, isOverdue, sortTasksByDate, statusOf, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
 import usePhone from '../lib/usePhone'
@@ -20,7 +21,7 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
   const labelW = usePhone() ? 110 : LABEL_W
   const dated = sortTasksByDate(tasks.filter((t) => span(t)))
   const undated = tasks.filter((t) => !span(t))
-  if (dated.length === 0) return <p className="muted">No dated tasks to show. Give tasks a start or due date.</p>
+  if (dated.length === 0) return <p className="muted">{t('No dated tasks to show. Give tasks a start or due date.')}</p>
 
   const earliest = dated.map((t) => span(t)[0]).sort()[0]
   const first = addDays(earliest < today ? earliest : today, -1)
@@ -50,7 +51,7 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
 
   return (
     <>
-    <div className="card" style={{ display: 'flex', overflow: 'hidden' }}>
+    <div className="card" style={{ display: 'flex', overflow: 'hidden', direction: 'ltr' }}>
       <div style={{ width: labelW, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
         <div style={{ height: 24 }} />
         {dated.map((t) => (
@@ -71,9 +72,9 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
           </div>
           <div style={{ position: 'relative', height }}>
             {ticks.map((iso) => (
-              <div key={iso} style={{ position: 'absolute', left: x(iso), top: 0, bottom: 0, borderLeft: '1px solid var(--border)', opacity: 0.5 }} />
+              <div key={iso} style={{ position: 'absolute', left: x(iso), top: 0, bottom: 0, borderInlineStart: '1px solid var(--border)', opacity: 0.5 }} />
             ))}
-            <div title="Today" style={{ position: 'absolute', left: x(today), width: DAY_W, top: 0, bottom: 0, background: 'var(--accent-soft)' }} />
+            <div title={t('Today')} style={{ position: 'absolute', left: x(today), width: DAY_W, top: 0, bottom: 0, background: 'var(--accent-soft)' }} />
             {dated.map((t) => {
               const [s, e] = span(t)
               const done = statusOf(t, statuses).done
@@ -98,7 +99,7 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
                     background: `color-mix(in srgb, ${color} ${done ? 25 : 70}%, transparent)`,
                     color: 'var(--text-h)',
                     fontSize: 11,
-                    textAlign: 'left',
+                    textAlign: 'start',
                     overflow: 'hidden',
                     whiteSpace: 'nowrap',
                     textOverflow: 'ellipsis',
@@ -127,7 +128,7 @@ export default function TaskTimeline({ tasks, allTasks = tasks, statuses, studen
     </div>
     {undated.length > 0 && (
       <p className="muted" style={{ fontSize: 13 }}>
-        No dates ({undated.length}): {undated.map((t) => t.title).join(', ')}
+        {t('No dates')} ({undated.length}): {undated.map((task) => task.title).join(', ')}
       </p>
     )}
     </>

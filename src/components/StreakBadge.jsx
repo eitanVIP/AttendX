@@ -1,4 +1,5 @@
 import { streakTier } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 const TIER_ICON = {
   none: null,
@@ -27,7 +28,7 @@ export default function StreakBadge({ streak, frozen }) {
       {TIER_ICON[tier] && <span className="streak-icon">{TIER_ICON[tier]}</span>}
       <span className="streak-count">{streak}</span>
       {frozen && (
-        <span className="streak-frozen" title="Frozen - won't reset">
+        <span className="streak-frozen" title={t("Frozen - won't reset")}>
           ❄️
         </span>
       )}

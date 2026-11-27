@@ -23,6 +23,7 @@ import {
   summarizeAttendance,
   trainingAppliesToStudent,
 } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 const percent = (value) => (value === null ? '—' : `${value}%`)
 
@@ -33,10 +34,10 @@ function describeStreakReset(hours) {
   if (hours === null) return null
   if (hours >= 24) {
     const days = Math.ceil(hours / 24)
-    return `Resets in ${days} day${days === 1 ? '' : 's'}`
+    return days === 1 ? t('Resets in 1 day') : t('Resets in {n} days', { n: days })
   }
   const wholeHours = Math.max(1, Math.ceil(hours))
-  return `Resets in ${wholeHours} hour${wholeHours === 1 ? '' : 's'}`
+  return wholeHours === 1 ? t('Resets in 1 hour') : t('Resets in {n} hours', { n: wholeHours })
 }
 
 // One student's full profile: attendance stats/history, community hours
@@ -142,7 +143,7 @@ export default function StudentProfileView({
     const order = groupByScope([...applicableCerts, ...otherTrainings], divisions, subdivisionsByDivision)
     return order.map(({ key, division: d, subdivision: s }) => ({
       key,
-      title: d ? (s ? `${d} / ${s}` : d) : 'General',
+      title: d ? (s ? `${d} / ${s}` : d) : t('General'),
       certs: certsByKey.get(key) || [],
       otherTrainings: trainingsByKey.get(key) || [],
     }))
@@ -174,22 +175,22 @@ export default function StudentProfileView({
         <h1>{student.fullName}</h1>
       </div>
       <p className="muted">
-        {describeStudentDivisions(student) || 'No division'} · Grade {student.grade || '—'} ·{' '}
-        <span className={`badge ${student.active ? 'badge-ok' : 'badge-muted'}`}>{activityLabel(student)}</span>
+        {describeStudentDivisions(student) || t('No division')} · {t('Grade')} {student.grade || '—'} ·{' '}
+        <span className={`badge ${student.active ? 'badge-ok' : 'badge-muted'}`}>{t(activityLabel(student))}</span>
       </p>
 
       <div className="stat-cards">
         <div className="card stat-card">
-          <span className="stat-label">Attendance</span>
+          <span className="stat-label">{t('Attendance')}</span>
           <span className="stat-value">{percent(student.planInfo ? student.planInfo.percent : summary.percent)}</span>
           {student.planInfo ? (
             <>
               <span className="muted">
-                {student.planInfo.plan} · {student.planInfo.perWeek} a week
+                {student.planInfo.plan} · {t('{n} a week', { n: student.planInfo.perWeek })}
               </span>
-              <span className="muted" title="Oldest to newest, last 8 weeks with meetings">
+              <span className="muted" title={t('Oldest to newest, last 8 weeks with meetings')}>
                 {student.planInfo.weeks.slice(-8).map((w) => (
-                  <span key={w.week} title={`Week of ${w.week}: ${w.attended} of ${w.required} needed`}>
+                  <span key={w.week} title={t('Week of {week}: {attended} of {required} needed', { week: w.week, attended: w.attended, required: w.required })}>
                     {w.met ? '✓' : '✗'}{' '}
                   </span>
                 ))}
@@ -203,34 +204,34 @@ export default function StudentProfileView({
           ) : (
             <>
               <span className="muted">
-                Division {percent(breakdown.division.percent)} · General {percent(breakdown.general.percent)}
+                {t('Division')} {percent(breakdown.division.percent)} · {t('General')} {percent(breakdown.general.percent)}
               </span>
-              <span className="muted">{summary.statusLabel}</span>
+              <span className="muted">{t(summary.statusLabel)}</span>
             </>
           )}
         </div>
         <div className="card stat-card">
-          <span className="stat-label">Present / Late / Absent / Excused</span>
+          <span className="stat-label">{t('Present / Late / Absent / Excused')}</span>
           <span className="stat-value">
             {summary.present} / {summary.late} / {summary.absent} / {summary.excused}
           </span>
         </div>
         <div className="card stat-card">
-          <span className="stat-label">Trainings completed</span>
+          <span className="stat-label">{t('Trainings completed')}</span>
           <span className="stat-value">
             {trainingStats.completed}/{trainingStats.total}
           </span>
           <span className="muted">{percent(trainingStats.percent)}</span>
         </div>
         <div className="card stat-card">
-          <span className="stat-label">Streak</span>
+          <span className="stat-label">{t('Streak')}</span>
           <StreakTabs kind={streakKind} onChange={setStreakKind} />
           <StreakBadge streak={streak} frozen={streakFrozen} />
           {streakKind === 'attendance' ? (
-            streak > 0 && <span className="muted">Resets immediately after an absence</span>
+            streak > 0 && <span className="muted">{t('Resets immediately after an absence')}</span>
           ) : (
             <>
-              {streak > 0 && <span className="muted">{streakFrozen ? "Frozen - won't reset" : streakResetMessage}</span>}
+              {streak > 0 && <span className="muted">{streakFrozen ? t("Frozen - won't reset") : streakResetMessage}</span>}
               <button
                 type="button"
                 className="link-btn"
@@ -238,19 +239,19 @@ export default function StudentProfileView({
                 onClick={() => setShowContributions((o) => !o)}
                 aria-expanded={showContributions}
               >
-                {showContributions ? 'Hide what counts' : 'Show what counts'}
+                {showContributions ? t('Hide what counts') : t('Show what counts')}
               </button>
               {showContributions && (
                 <ul className="streak-contributions">
-                  {streakContributions.length === 0 && <li className="muted">Nothing counted yet.</li>}
+                  {streakContributions.length === 0 && <li className="muted">{t('Nothing counted yet.')}</li>}
                   {streakContributions.map((c) => (
                     <li key={c.id}>
                       <span>
                         {c.type === 'manual'
-                          ? `Manually set to ${c.value}`
+                          ? t('Manually set to {value}', { value: c.value })
                           : streakKind === 'training'
                             ? c.trainingName
-                            : `${c.hours}h of ${c.communityType}`}
+                            : t('{hours}h of {type}', { hours: c.hours, type: c.communityType })}
                       </span>
                       <span className="muted">{formatLocalDateTime(c.at)}</span>
                     </li>
@@ -267,14 +268,14 @@ export default function StudentProfileView({
                       setStreakEditOpen(true)
                     }}
                   >
-                    Edit
+                    {t('Edit')}
                   </button>
                   <button
                     type="button"
                     className="link-btn"
                     onClick={() => onUpdateStreak(streakKind, { [`${streakKind}StreakFrozen`]: !streakFrozen })}
                   >
-                    {streakFrozen ? 'Unfreeze' : 'Freeze'}
+                    {streakFrozen ? t('Unfreeze') : t('Freeze')}
                   </button>
                 </div>
               )}
@@ -283,44 +284,44 @@ export default function StudentProfileView({
         </div>
         {communitySettings.hoursTarget > 0 && (
           <div className="card stat-card">
-            <span className="stat-label">Community hours</span>
+            <span className="stat-label">{t('Community hours')}</span>
             <span className="stat-value">
               {communityHours}/{communitySettings.hoursTarget}
             </span>
-            <span className="muted">{communityHours >= communitySettings.hoursTarget ? 'Complete' : 'In progress'}</span>
+            <span className="muted">{communityHours >= communitySettings.hoursTarget ? t('Complete') : t('In progress')}</span>
           </div>
         )}
       </div>
 
-      <h2>Attendance history</h2>
+      <h2>{t('Attendance history')}</h2>
       {attendanceLoading ? (
-        <p className="muted">Loading history…</p>
+        <p className="muted">{t('Loading history…')}</p>
       ) : (
         <DataTable cards
           columns={[
-            { key: 'date', header: 'Date', nowrap: true, cell: (r) => formatDate(r.session.date) },
-            { key: 'session', header: 'Session', spread: true, cell: (r) => r.session.name },
+            { key: 'date', header: t('Date'), nowrap: true, cell: (r) => formatDate(r.session.date) },
+            { key: 'session', header: t('Session'), spread: true, cell: (r) => r.session.name },
             {
               key: 'status',
-              header: 'Status',
-              cell: (r) => <span className={`badge status-badge-${r.status}`}>{r.status}</span>,
+              header: t('Status'),
+              cell: (r) => <span className={`badge status-badge-${r.status}`}>{t(r.status)}</span>,
             },
-            { key: 'notes', header: 'Notes', cellClassName: 'muted', cell: (r) => r.session.notes || '—' },
+            { key: 'notes', header: t('Notes'), cellClassName: 'muted', cell: (r) => r.session.notes || '—' },
           ]}
           rows={history}
-          emptyMessage="No attendance recorded yet."
+          emptyMessage={t('No attendance recorded yet.')}
         />
       )}
 
       {communitySettings.hoursTarget > 0 && (
         <>
-          <h2>Community hours log</h2>
+          <h2>{t('Community hours log')}</h2>
           <DataTable cards
             columns={[
-              { key: 'date', header: 'Date', nowrap: true, cell: (l) => formatDate(l.date) },
-              { key: 'type', header: 'Type', spread: true, cell: (l) => l.type },
-              { key: 'hours', header: 'Hours', cell: (l) => l.hours },
-              { key: 'notes', header: 'Notes', cellClassName: 'muted', cell: (l) => l.notes || '—' },
+              { key: 'date', header: t('Date'), nowrap: true, cell: (l) => formatDate(l.date) },
+              { key: 'type', header: t('Type'), spread: true, cell: (l) => l.type },
+              { key: 'hours', header: t('Hours'), cell: (l) => l.hours },
+              { key: 'notes', header: t('Notes'), cellClassName: 'muted', cell: (l) => l.notes || '—' },
               ...(onDeleteLog
                 ? [
                     {
@@ -329,7 +330,7 @@ export default function StudentProfileView({
                       cell: (l) => (
                         <div className="row-actions">
                           <button className="link-btn danger" onClick={() => onDeleteLog(l)}>
-                            Delete
+                            {t('Delete')}
                           </button>
                         </div>
                       ),
@@ -338,13 +339,13 @@ export default function StudentProfileView({
                 : []),
             ]}
             rows={studentCommunityLogs}
-            emptyMessage="No hours logged yet."
+            emptyMessage={t('No hours logged yet.')}
           />
         </>
       )}
 
-      <h2>Certifications &amp; trainings</h2>
-      {scopeSections.length === 0 && <p className="muted">No trainings or certifications apply to this student.</p>}
+      <h2>{t('Certifications & trainings')}</h2>
+      {scopeSections.length === 0 && <p className="muted">{t('No trainings or certifications apply to this student.')}</p>}
       {scopeSections.map((scope) => (
         <div key={scope.key} className="scope-section">
           <h3 className="scope-section-title">{scope.title}</h3>
@@ -358,19 +359,19 @@ export default function StudentProfileView({
                 title={cert.name}
                 badge={
                   <span className={`badge ${earned ? 'badge-ok' : 'badge-warn'}`}>
-                    {earned ? 'Earned' : `${done}/${required.length}`}
+                    {earned ? t('Earned') : `${done}/${required.length}`}
                   </span>
                 }
                 trainings={required}
                 studentId={student.id}
                 defaultOpen={!earned}
-                emptyText="No trainings required for this certification yet."
+                emptyText={t('No trainings required for this certification yet.')}
               />
             )
           })}
           {scope.otherTrainings.length > 0 && (
             <TrainingGroup
-              title="Other trainings"
+              title={t('Other trainings')}
               badge={
                 <span className="badge badge-muted">
                   {scope.otherTrainings.filter((t) => t.completedStudentIds?.includes(student.id)).length}/
@@ -395,10 +396,10 @@ export default function StudentProfileView({
             setStreakEditOpen(false)
           }}
         >
-          <h2>Edit {STREAK_KINDS.find((k) => k.id === streakKind)?.label.toLowerCase()} streak</h2>
+          <h2>{t('Edit {kind} streak', { kind: t(STREAK_KINDS.find((k) => k.id === streakKind)?.label || '').toLowerCase() })}</h2>
           <div className="form-grid" style={{ gridTemplateColumns: '1fr' }}>
             <label>
-              Streak
+              {t('Streak')}
               <input
                 type="number"
                 inputMode="numeric"
@@ -413,9 +414,9 @@ export default function StudentProfileView({
           </div>
           <div className="form-actions">
             <button type="button" className="secondary" onClick={() => setStreakEditOpen(false)}>
-              Cancel
+              {t('Cancel')}
             </button>
-            <button type="submit">Save</button>
+            <button type="submit">{t('Save')}</button>
           </div>
         </FormPanel>
       )}
@@ -436,7 +437,7 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
           className="disclosure"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          aria-label={open ? 'Hide trainings' : 'Show trainings'}
+          aria-label={open ? t('Hide trainings') : t('Show trainings')}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 6l6 6-6 6" />
@@ -448,16 +449,16 @@ function TrainingGroup({ title, badge, trainings, studentId, defaultOpen, emptyT
       {open && (
         <DataTable cards
           columns={[
-            { key: 'name', header: 'Training', spread: true, cell: (t) => t.name },
-            { key: 'category', header: 'Category', cellClassName: 'muted', cell: (t) => t.category },
+            { key: 'name', header: t('Training'), spread: true, cell: (tr) => tr.name },
+            { key: 'category', header: t('Category'), cellClassName: 'muted', cell: (tr) => tr.category },
             {
               key: 'status',
-              header: 'Status',
-              cell: (t) => {
-                const completed = t.completedStudentIds?.includes(studentId)
+              header: t('Status'),
+              cell: (tr) => {
+                const completed = tr.completedStudentIds?.includes(studentId)
                 return (
                   <span className={`badge ${completed ? 'badge-ok' : 'badge-warn'}`}>
-                    {completed ? 'Completed' : 'Not yet'}
+                    {completed ? t('Completed') : t('Not yet')}
                   </span>
                 )
               },

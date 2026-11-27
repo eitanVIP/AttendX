@@ -6,6 +6,7 @@ import { DEFAULT_SYSTEM, consumableInventoryDeltas, overallocatedNeeds, usedQuan
 import { logStudentChange } from '../lib/communityLog'
 import FormPanel from '../components/FormPanel'
 import NeedsTable from '../components/NeedsTable'
+import { t } from '../lib/i18n'
 
 // A StudentLayout tab - sign-in (including which student this is) already
 // happened at /student-login (see StudentAuthContext). Products and every
@@ -24,7 +25,7 @@ export default function MySystems() {
   const editingId = editingSystem?.id ?? null
 
   useEffect(() => {
-    document.title = 'AttendX | My Systems'
+    document.title = `AttendX | ${t('My Systems')}`
   }, [])
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export default function MySystems() {
     e.preventDefault()
     for (const { product, max, shortfall } of overallocatedNeeds(form.needs, products, usedQuantities)) {
       const ok = confirm(
-        `Only ${max} ${product.name} available - this needs ${shortfall} more than that. Automatically request an order for the difference?`
+        t('Only {max} {name} available - this needs {shortfall} more than that. Automatically request an order for the difference?', { max, name: product.name, shortfall })
       )
       if (ok) await handleRequestOrder(product, shortfall)
     }
@@ -102,7 +103,7 @@ export default function MySystems() {
   }
 
   async function handleDelete(system) {
-    if (!confirm('Delete this system?')) return
+    if (!confirm(t('Delete this system?'))) return
     const inventoryDeltas = consumableInventoryDeltas(system.needs, [], products)
     const batch = writeBatch(communityDb)
     batch.delete(doc(communityDb, 'teams', verified.teamId, 'systems', system.id))
@@ -137,23 +138,23 @@ export default function MySystems() {
     )
   }
 
-  if (loading) return <div className="page-loading">Loading…</div>
+  if (loading) return <div className="page-loading">{t('Loading…')}</div>
 
   return (
     <div className="page">
       <div className="page-header">
-        <h1>My Systems</h1>
-        <button onClick={startNew}>+ New system</button>
+        <h1>{t('My Systems')}</h1>
+        <button onClick={startNew}>{t('+ New system')}</button>
       </div>
 
       <FormPanel open={showForm} onClose={() => setShowForm(false)} onSubmit={handleSubmit}>
-        <h2>{editingId ? 'Edit system' : 'New system'}</h2>
+        <h2>{editingId ? t('Edit system') : t('New system')}</h2>
         <label>
-          Name
+          {t('Name')}
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="e.g. Shooting mechanism"
+            placeholder={t('e.g. Shooting mechanism')}
             required
           />
         </label>
@@ -166,13 +167,13 @@ export default function MySystems() {
         />
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setShowForm(false)}>
-            Cancel
+            {t('Cancel')}
           </button>
-          <button type="submit">{editingId ? 'Save' : 'Create'}</button>
+          <button type="submit">{editingId ? t('Save') : t('Create')}</button>
         </div>
       </FormPanel>
 
-      {mySystems.length === 0 && <p className="muted">No systems yet.</p>}
+      {mySystems.length === 0 && <p className="muted">{t('No systems yet.')}</p>}
       {mySystems.map((system) => (
         <SystemCard
           key={system.id}
@@ -194,20 +195,20 @@ function SystemCard({ system, products, onEdit, onDelete }) {
         <h3 style={{ margin: 0 }}>{system.name}</h3>
         <div className="row-actions">
           <button type="button" className="link-btn" onClick={onEdit}>
-            Edit
+            {t('Edit')}
           </button>
           <button type="button" className="link-btn danger" onClick={onDelete}>
-            Delete
+            {t('Delete')}
           </button>
         </div>
       </div>
       {rows.length === 0 ? (
-        <p className="muted">No inventory needs added yet.</p>
+        <p className="muted">{t('No inventory needs added yet.')}</p>
       ) : (
         <ul className="checklist">
           {rows.map((r) => (
             <li key={r.productId}>
-              {r.product?.name || 'Unknown product'} × {r.quantity}
+              {r.product?.name || t('Unknown product')} × {r.quantity}
             </li>
           ))}
         </ul>
