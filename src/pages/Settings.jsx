@@ -1009,7 +1009,7 @@ function SuppliersSection({ team }) {
             <button
               type="button"
               className="link-btn"
-              style={{ fontSize: 13, alignSelf: 'flex-start', paddingLeft: 4 }}
+              style={{ fontSize: 13, alignSelf: 'flex-start', paddingInlineStart: 4 }}
               aria-expanded={!!r.showRange}
               onClick={() => updateRow(r.key, { showRange: !r.showRange })}
             >
@@ -1017,7 +1017,7 @@ function SuppliersSection({ team }) {
               {!r.showRange && (r.orderMin || r.orderMax) ? ` · ${r.orderMin || 0}-${r.orderMax || '∞'} ${r.orderCurrency}` : ''}
             </button>
             {r.showRange && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingLeft: 4 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingInlineStart: 4 }}>
               <input
                 type="number"
                 min="0"
@@ -1289,7 +1289,7 @@ function ProductTypesSection({ team }) {
             {oldPackFixes.length} purchase{oldPackFixes.length === 1 ? ' was' : 's were'} logged in packs before
             pack sizes were set up, so they added packs to stock instead of units:
           </p>
-          <ul style={{ margin: '0 0 8px', paddingLeft: 18, maxHeight: 160, overflowY: 'auto' }}>
+          <ul style={{ margin: '0 0 8px', paddingInlineStart: 18, maxHeight: 160, overflowY: 'auto' }}>
             {oldPackFixes.map(({ purchase, product, packSize }) => (
               <li key={purchase.id}>
                 {product.name}: {purchase.quantity} pack{purchase.quantity === 1 ? '' : 's'} of {packSize} - adds the
@@ -1428,7 +1428,7 @@ function ProductTypesSection({ team }) {
           <p style={{ margin: '0 0 6px' }}>
         Replaces the "to buy" column for this type; blank keeps wanted minus in stock. Available:
       </p>
-          <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
+          <ul style={{ margin: '0 0 6px', paddingInlineStart: 18 }}>
             <li>
               <code>sku</code>, <code>price</code> - this product's own SKU and price, as entered
             </li>
@@ -1462,7 +1462,7 @@ function ProductTypesSection({ team }) {
           <p style={{ margin: '0 0 6px' }}>
         Replaces the "total" column; blank keeps price × to buy. Everything above is available, plus:
       </p>
-          <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
+          <ul style={{ margin: '0 0 6px', paddingInlineStart: 18 }}>
             <li>
               <code>toBuy</code> - this product's to-buy result, from the formula above (or the
               default if it's blank)
@@ -2236,7 +2236,7 @@ function DivisionRow({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
         {row.subdivisions.map((sub, i) => (
-          <div key={sub.key} style={{ display: 'flex', gap: 6, alignItems: 'center', paddingLeft: 24 }}>
+          <div key={sub.key} style={{ display: 'flex', gap: 6, alignItems: 'center', paddingInlineStart: 24 }}>
             <MoveButtons
               onUp={() => onMoveSub(sub.key, -1)}
               onDown={() => onMoveSub(sub.key, 1)}

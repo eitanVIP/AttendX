@@ -1,11 +1,12 @@
 import { formatDMY, isOverdue, projectSummaries } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 // One bar per project (a free-text name on tasks): how much of it is finished.
 export default function TaskProjects({ tasks, statuses }) {
   const today = todayISO()
   const projects = projectSummaries(tasks, statuses)
-  if (projects.length === 0) return <p className="muted">No projects yet. Give tasks a project name in the task form to group them.</p>
+  if (projects.length === 0) return <p className="muted">{t('No projects yet. Give tasks a project name in the task form to group them.')}</p>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {projects.map((p) => {
@@ -16,8 +17,8 @@ export default function TaskProjects({ tasks, statuses }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
               <strong>📁 {p.name}</strong>
               <span className="muted">
-                {p.done}/{p.total} finished ({percent}%)
-                {late > 0 && <span style={{ color: 'var(--danger)' }}>, {late} overdue</span>}
+                {t('{done}/{total} finished ({percent}%)', { done: p.done, total: p.total, percent })}
+                {late > 0 && <span style={{ color: 'var(--danger)' }}>, {t('{n} overdue', { n: late })}</span>}
               </span>
             </div>
             <div

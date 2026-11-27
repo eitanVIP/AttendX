@@ -1,3 +1,5 @@
+import { t } from '../lib/i18n'
+
 // A short-lived bar offering to take back the last drag or move. `undo` is
 // { message, run } or null.
 export default function UndoBar({ undo, onClose }) {
@@ -13,9 +15,9 @@ export default function UndoBar({ undo, onClose }) {
           onClose()
         }}
       >
-        Undo
+        {t('Undo')}
       </button>
-      <button type="button" className="link-btn" aria-label="Dismiss" onClick={onClose}>
+      <button type="button" className="link-btn" aria-label={t('Dismiss')} onClick={onClose}>
         ✕
       </button>
     </div>

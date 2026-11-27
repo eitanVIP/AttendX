@@ -46,7 +46,7 @@ export default function TaskStats({ tasks, statuses, students, divisions }) {
       <div className="card" style={{ overflowX: 'auto', marginBottom: 16 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ textAlign: 'left' }}>
+            <tr style={{ textAlign: 'start' }}>
               <th>Division</th>
               <th>Open</th>
               <th>Finished</th>
@@ -56,7 +56,7 @@ export default function TaskStats({ tasks, statuses, students, divisions }) {
             {divisionRows.map(([name, v]) => (
               <tr key={name || 'none'}>
                 <td>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: divisionColor(name, divisions), marginRight: 6 }} />
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: divisionColor(name, divisions), marginInlineEnd: 6 }} />
                   {name || 'No division'}
                 </td>
                 <td>{v.open}</td>
@@ -76,7 +76,7 @@ export default function TaskStats({ tasks, statuses, students, divisions }) {
       <div className="card phone-cards-wrap" style={{ overflowX: 'auto' }}>
         <table className="phone-cards" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ textAlign: 'left' }}>
+            <tr style={{ textAlign: 'start' }}>
               <th>Student</th>
               <th>Open</th>
               <th>Overdue</th>

@@ -1,18 +1,19 @@
 import { useState } from 'react'
 import { divisionColor, formatDMY, statusOf, taskDateLabel, weekPlan } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
+import { dateLocale, t } from '../lib/i18n'
 
-const dayHeading = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' })
+const dayHeading = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'short' })
 
 function Row({ task, students, statuses, divisions, onOpen, onAssign }) {
   const assignee = students.find((s) => s.id === task.assigneeId)
   const status = statusOf(task, statuses)
   const date = taskDateLabel(task)
   return (
-    <li className="needs-row" style={{ borderLeft: `4px solid ${divisionColor(task.division, divisions)}`, paddingLeft: 8 }}>
+    <li className="needs-row" style={{ borderInlineStart: `4px solid ${divisionColor(task.division, divisions)}`, paddingInlineStart: 8 }}>
       <div className="needs-row-text">
         {onOpen ? (
-          <button type="button" className="link-btn" style={{ padding: 0, fontWeight: 600, textAlign: 'left' }} onClick={() => onOpen(task)}>
+          <button type="button" className="link-btn" style={{ padding: 0, fontWeight: 600, textAlign: 'start' }} onClick={() => onOpen(task)}>
             {task.title}
           </button>
         ) : (
@@ -20,17 +21,17 @@ function Row({ task, students, statuses, divisions, onOpen, onAssign }) {
         )}{' '}
         {task.priority === 'high' && <span style={{ color: 'var(--danger)', fontSize: 12 }}>High</span>}
         <div className="muted" style={{ fontSize: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {assignee ? <span>{assignee.fullName}</span> : task.assigneeId ? <span>(removed student)</span> : <span style={{ color: 'var(--danger)' }}>Unassigned</span>}
+          {assignee ? <span>{assignee.fullName}</span> : task.assigneeId ? <span>{t('(removed student)')}</span> : <span style={{ color: 'var(--danger)' }}>{t('Unassigned')}</span>}
           <span>{status.name}</span>
           {date && <span>{date}</span>}
-          {task.doneRequested && <span style={{ color: 'var(--warn-text)' }}>✋ Awaiting approval</span>}
+          {task.doneRequested && <span style={{ color: 'var(--warn-text)' }}>✋ {t('Awaiting approval')}</span>}
           {task.blockedReason && status.blocked && <span style={{ color: 'var(--danger)' }}>⛔ {task.blockedReason}</span>}
         </div>
       </div>
       {onAssign && !task.assigneeId && (
         <div className="needs-row-actions">
-          <select value="" onChange={(e) => e.target.value && onAssign(task, e.target.value)} aria-label={`Assign ${task.title}`} style={{ fontSize: 12, padding: '3px 6px', width: 'auto' }}>
-            <option value="">Assign to…</option>
+          <select value="" onChange={(e) => e.target.value && onAssign(task, e.target.value)} aria-label={t('Assign {title}', { title: task.title })} style={{ fontSize: 12, padding: '3px 6px', width: 'auto' }}>
+            <option value="">{t('Assign to…')}</option>
             {students.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.fullName}
@@ -89,22 +90,22 @@ export default function TaskWeek({ tasks, statuses, students, divisions = [], we
     <div className="card" style={{ padding: 12 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div>
-          <strong>This week</strong> <span className="muted">{formatDMY(base.weekStart)} – {formatDMY(base.weekEnd)}</span>
+          <strong>{t('This week')}</strong> <span className="muted">{formatDMY(base.weekStart)} – {formatDMY(base.weekEnd)}</span>
         </div>
         <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center', fontSize: 13 }}>
           <input type="checkbox" checked={onlyUnassigned} onChange={(e) => setOnlyUnassigned(e.target.checked)} style={{ width: 'auto' }} />
-          Only unassigned ({unassignedCount})
+          {t('Only unassigned')} ({unassignedCount})
         </label>
       </div>
-      {nothing && <p className="muted">{onlyUnassigned ? 'Every open task has someone on it.' : 'No open tasks.'}</p>}
-      <Section title="⚠ Overdue" color="var(--danger)" tasks={plan.overdue} {...rowProps} />
+      {nothing && <p className="muted">{onlyUnassigned ? t('Every open task has someone on it.') : t('No open tasks.')}</p>}
+      <Section title={`⚠ ${t('Overdue')}`} color="var(--danger)" tasks={plan.overdue} {...rowProps} />
       {plan.days.map((d) => (
-        <Section key={d.date} title={d.date === today ? `Today - ${dayHeading(d.date)}` : dayHeading(d.date)} tasks={d.tasks} {...rowProps} />
+        <Section key={d.date} title={d.date === today ? t('Today - {day}', { day: dayHeading(d.date) }) : dayHeading(d.date)} tasks={d.tasks} {...rowProps} />
       ))}
-      {thisWeek.length === 0 && plan.overdue.length > 0 && <p className="muted" style={{ marginTop: 14 }}>Nothing else is due this week.</p>}
-      <Section title="Next week" tasks={plan.next} collapsed {...rowProps} />
-      <Section title="Later" tasks={plan.later} collapsed {...rowProps} />
-      <Section title="No date yet" tasks={plan.unscheduled} collapsed {...rowProps} />
+      {thisWeek.length === 0 && plan.overdue.length > 0 && <p className="muted" style={{ marginTop: 14 }}>{t('Nothing else is due this week.')}</p>}
+      <Section title={t('Next week')} tasks={plan.next} collapsed {...rowProps} />
+      <Section title={t('Later')} tasks={plan.later} collapsed {...rowProps} />
+      <Section title={t('No date yet')} tasks={plan.unscheduled} collapsed {...rowProps} />
     </div>
   )
 }

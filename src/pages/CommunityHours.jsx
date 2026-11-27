@@ -4,6 +4,7 @@ import { communityDb } from '../firebase'
 import { effectiveStreak, formatDate, studentCommunityHours, todayISO } from '../lib/calc'
 import { logStudentChange } from '../lib/communityLog'
 import { useStudentAuth } from '../context/StudentAuthContext'
+import { t } from '../lib/i18n'
 
 // A StudentLayout tab - sign-in (including which student this is) already
 // happened at /student-login (see StudentAuthContext), so this only has to
@@ -23,7 +24,7 @@ export default function CommunityHours() {
   const [justSubmitted, setJustSubmitted] = useState(false)
 
   useEffect(() => {
-    document.title = 'AttendX | Log Hours'
+    document.title = `AttendX | ${t('Log hours')}`
   }, [])
 
   useEffect(() => {
@@ -85,26 +86,26 @@ export default function CommunityHours() {
       setDate(todayISO())
       setNotes('')
     } catch {
-      setError('Something went wrong submitting that - please try again.')
+      setError(t('Something went wrong submitting that - please try again.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  if (loading) return <div className="page-loading">Loading…</div>
+  if (loading) return <div className="page-loading">{t('Loading…')}</div>
 
   return (
     <div className="page">
-      <h1>Log community hours</h1>
+      <h1>{t('Log community hours')}</h1>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 420 }}>
-        {justSubmitted && <p className="muted">Logged! You can add another entry below.</p>}
+        {justSubmitted && <p className="muted">{t('Logged! You can add another entry below.')}</p>}
         {verified.hoursTarget > 0 && (
           <p className="muted" style={{ margin: 0 }}>
-            {loggedHours} / {verified.hoursTarget} hours logged so far
+            {t('{logged} / {target} hours logged so far', { logged: loggedHours, target: verified.hoursTarget })}
           </p>
         )}
         <label>
-          Community type
+          {t('Community type')}
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
@@ -112,17 +113,17 @@ export default function CommunityHours() {
             disabled={verified.communityTypes.length === 0}
           >
             <option value="" disabled>
-              {verified.communityTypes.length === 0 ? 'No types set up yet - ask an admin' : 'Select…'}
+              {verified.communityTypes.length === 0 ? t('No types set up yet - ask an admin') : t('Select…')}
             </option>
-            {verified.communityTypes.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {verified.communityTypes.map((ct) => (
+              <option key={ct} value={ct}>
+                {ct}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Hours
+          {t('Hours')}
           <input
             type="number"
             min="0.25"
@@ -133,16 +134,16 @@ export default function CommunityHours() {
           />
         </label>
         <label>
-          Date
+          {t('Date')}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </label>
         <label>
-          Notes
-          <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you do?" />
+          {t('Notes')}
+          <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('What did you do?')} />
         </label>
         {error && <p className="form-error">{error}</p>}
         <button type="submit" disabled={submitting || verified.communityTypes.length === 0}>
-          {submitting ? 'Submitting…' : 'Submit'}
+          {submitting ? t('Submitting…') : t('Submit')}
         </button>
       </form>
     </div>

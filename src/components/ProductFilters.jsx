@@ -22,7 +22,7 @@ export default function ProductFilters({
     <>
       <div className="filter-row">
         <button className={!categoryFilter ? 'chip active' : 'chip'} onClick={() => onCategoryFilter('')}>
-          All ({products.length})
+          {t('All')} ({products.length})
         </button>
         {categories.map((c) => (
           <button
@@ -37,7 +37,7 @@ export default function ProductFilters({
       {categorySubs.length > 0 && onSubcategoryFilter && (
         <div className="filter-row" style={{ marginTop: 6 }}>
           <button className={!subcategoryFilter ? 'chip active' : 'chip'} onClick={() => onSubcategoryFilter('')}>
-            All {categoryFilter} ({inCategory.length})
+            {t('All {category}', { category: categoryFilter })} ({inCategory.length})
           </button>
           {categorySubs.map((s) => (
             <button
@@ -54,7 +54,7 @@ export default function ProductFilters({
         type="search"
         value={search}
         onChange={(e) => onSearch(e.target.value)}
-        placeholder="Search products..."
+        placeholder={t('Search products...')}
         style={{ maxWidth: 280, marginTop: 8 }}
       />
     </>

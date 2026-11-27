@@ -635,7 +635,7 @@ export default function Orders() {
                     <span className="muted">
                       {formatMeters(sp.plan.meters)} for need of {formatMeters(sp.need)} · {Math.round(sp.cost)} {preferred}
                     </span>
-                    <button type="button" className="secondary" style={{ fontSize: 13, padding: '3px 10px', marginLeft: 'auto' }} onClick={() => addSpoolToCart(sp)}>
+                    <button type="button" className="secondary" style={{ fontSize: 13, padding: '3px 10px', marginInlineStart: 'auto' }} onClick={() => addSpoolToCart(sp)}>
                       Add to cart
                     </button>
                   </>
@@ -969,7 +969,7 @@ export default function Orders() {
                   aria-label={`Quantity of ${l.product.name}`}
                   style={{ width: 80 }}
                 />
-                <span style={{ width: 84, textAlign: 'right' }}>{l.cost.toFixed(2)}</span>
+                <span style={{ width: 84, textAlign: 'end' }}>{l.cost.toFixed(2)}</span>
                 <button
                   type="button"
                   className="link-btn danger"

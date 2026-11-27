@@ -7,6 +7,7 @@ import StreakBadge from '../components/StreakBadge'
 import StreakTabs from '../components/StreakTabs'
 import { DEFAULT_STREAK_RESET_DAYS, LEADERBOARD_STREAK_KINDS, streakBoard } from '../lib/calc'
 import { taskStreaksByStudent, useTaskData } from '../lib/tasks'
+import { t } from '../lib/i18n'
 
 // A StudentLayout tab - the same Training/Community/Attendance leaderboard
 // an admin sees on the Dashboard, but the full roster rather than just the
@@ -24,7 +25,7 @@ export default function Streaks() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    document.title = 'AttendX | Streaks'
+    document.title = `AttendX | ${t('Streaks')}`
   }, [])
 
   useEffect(() => {
@@ -61,14 +62,14 @@ export default function Streaks() {
     [verified.students, kind, verified.streakResetDays, recordsByStudent, sessionById, taskStreaks]
   )
 
-  if (loading) return <div className="page-loading">Loading…</div>
+  if (loading) return <div className="page-loading">{t('Loading…')}</div>
 
   return (
     <div className="page">
-      <h1>Streaks</h1>
+      <h1>{t('Streaks')}</h1>
       <StreakTabs kind={kind} onChange={setKind} kinds={LEADERBOARD_STREAK_KINDS} />
       {board.length === 0 ? (
-        <p className="muted">No students yet.</p>
+        <p className="muted">{t('No students yet.')}</p>
       ) : (
         <ol className="streak-board">
           {board.map(({ student, streak }, i) => (

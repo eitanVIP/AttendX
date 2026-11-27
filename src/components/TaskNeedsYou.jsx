@@ -28,7 +28,7 @@ function Row({ task, detail, detailColor, onOpen, children }) {
   return (
     <li className="needs-row">
       <div className="needs-row-text">
-        <button type="button" className="link-btn" style={{ padding: 0, fontWeight: 600, textAlign: 'left' }} onClick={() => onOpen(task)}>
+        <button type="button" className="link-btn" style={{ padding: 0, fontWeight: 600, textAlign: 'start' }} onClick={() => onOpen(task)}>
           {task.title}
         </button>{' '}
         <span className="muted" style={detailColor ? { color: detailColor } : undefined}>

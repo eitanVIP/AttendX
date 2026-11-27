@@ -4,15 +4,17 @@ import { clearRememberedStudent, loadSavedLogHoursCode, saveLogHoursCode, saveRe
 import { useStudentAuth } from '../context/StudentAuthContext'
 import PasswordInput from '../components/PasswordInput'
 import TeamNumberInput from '../components/TeamNumberInput'
+import LangToggle from '../components/LangToggle'
+import { t } from '../lib/i18n'
 
 function friendlyError(err) {
   if (err.code === 'auth/admin-restricted-operation') {
-    return 'This page is not enabled yet - ask your admin to turn on Anonymous sign-in in Firebase.'
+    return t('This page is not enabled yet - ask your admin to turn on Anonymous sign-in in Firebase.')
   }
   if (err.code === 'permission-denied') {
-    return 'Team number or student code is incorrect.'
+    return t('Team number or student code is incorrect.')
   }
-  return `Something went wrong (${err.code || err.message || 'unknown error'}). Please try again.`
+  return t('Something went wrong ({detail}). Please try again.', { detail: err.code || err.message || t('unknown error') })
 }
 
 // Public, no-account entry point for every student-facing page, in two
@@ -27,20 +29,23 @@ export default function StudentLogin() {
   const { verified, studentId, restoring } = useStudentAuth()
 
   useEffect(() => {
-    document.title = 'AttendX | Student sign in'
+    document.title = `AttendX | ${t('Student sign in')}`
   }, [])
 
-  if (restoring) return <div className="page-loading">Signing in…</div>
+  if (restoring) return <div className="page-loading">{t('Signing in…')}</div>
 
   if (verified && studentId) return <Navigate to="/log-hours" replace />
 
   return (
     <div className="login-page">
       <div className="login-card" style={{ maxWidth: 420 }}>
-        <h1>Student sign in</h1>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <LangToggle />
+        </div>
+        <h1>{t('Student sign in')}</h1>
         {!verified ? <TeamCodeStep /> : <StudentPickStep />}
         <p className="muted" style={{ marginTop: 8 }}>
-          <Link to="/login">Admin? Sign in here</Link>
+          <Link to="/login">{t('Admin? Sign in here')}</Link>
         </p>
       </div>
     </div>
@@ -71,18 +76,18 @@ function TeamCodeStep() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <p className="login-sub">Enter your team number and the student code your mentors gave you.</p>
+      <p className="login-sub">{t('Enter your team number and the student code your mentors gave you.')}</p>
       <label>
-        Team number
+        {t('Team number')}
         <TeamNumberInput value={teamId} onChange={setTeamId} />
       </label>
       <label>
-        Student code
+        {t('Student code')}
         <PasswordInput value={code} onChange={(e) => setCode(e.target.value)} required />
       </label>
       {error && <p className="form-error">{error}</p>}
       <button type="submit" disabled={submitting}>
-        {submitting ? 'Signing in…' : 'Continue'}
+        {submitting ? t('Signing in…') : t('Continue')}
       </button>
     </form>
   )
@@ -105,13 +110,13 @@ function StudentPickStep() {
   return (
     <form onSubmit={handleSubmit}>
       <p className="login-sub">
-        {verified.teamName ? `Signed in to ${verified.teamName}. ` : ''}Which one are you?
+        {verified.teamName ? t('Signing in to {team}. ', { team: verified.teamName }) : ''}{t('Which one are you?')}
       </p>
       <label>
-        Your name
+        {t('Your name')}
         <select value={studentId} onChange={(e) => setStudentId(e.target.value)} required>
           <option value="" disabled>
-            Select…
+            {t('Select…')}
           </option>
           {verified.students.map((s) => (
             <option key={s.id} value={s.id}>
@@ -122,10 +127,10 @@ function StudentPickStep() {
       </label>
       <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-        Remember me on this phone
+        {t('Remember me on this phone')}
       </label>
       <button type="submit" disabled={!studentId}>
-        Continue
+        {t('Continue')}
       </button>
     </form>
   )

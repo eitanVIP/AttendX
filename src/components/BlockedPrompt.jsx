@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
+import { t } from '../lib/i18n'
 
 // Asks why a task is being put into a blocked status. `ask` is
 // { task, statusId } or null.
@@ -17,17 +18,17 @@ export default function BlockedPrompt({ ask, onSubmit, onClose }) {
         setReason('')
       }}
     >
-      <h3>Why is it blocked?</h3>
+      <h3>{t('Why is it blocked?')}</h3>
       {ask && <p className="muted">{ask.task.title}</p>}
       <label>
-        Reason
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. waiting for the motor mount" required autoFocus />
+        {t('Reason')}
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. waiting for the motor mount')} required autoFocus />
       </label>
       <div className="form-actions">
         <button type="button" className="secondary" onClick={onClose}>
-          Cancel
+          {t('Cancel')}
         </button>
-        <button type="submit">Mark blocked</button>
+        <button type="submit">{t('Mark blocked')}</button>
       </div>
     </FormPanel>
   )

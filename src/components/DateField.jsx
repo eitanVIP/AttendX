@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { formatDMY, parseDMY } from '../lib/tasks'
 
@@ -15,8 +16,8 @@ export default function DateField({ value, onChange, min, ariaLabel }) {
   useEffect(() => {
     const input = textRef.current
     if (!input) return
-    if (parsed === null) input.setCustomValidity('Use the format dd/mm/yy')
-    else if (min && parsed && parsed < min) input.setCustomValidity('This is before the start date')
+    if (parsed === null) input.setCustomValidity(t('Use the format dd/mm/yy'))
+    else if (min && parsed && parsed < min) input.setCustomValidity(t('This is before the start date'))
     else input.setCustomValidity('')
   }, [parsed, min])
 
@@ -26,6 +27,7 @@ export default function DateField({ value, onChange, min, ariaLabel }) {
         ref={textRef}
         value={text}
         placeholder="dd/mm/yy"
+        dir="ltr"
         inputMode="numeric"
         aria-label={ariaLabel}
         onChange={(e) => {
@@ -38,7 +40,7 @@ export default function DateField({ value, onChange, min, ariaLabel }) {
         }}
         style={{ flex: 1, minWidth: 0 }}
       />
-      <button type="button" className="secondary" aria-label="Pick a date" onClick={() => pickerRef.current?.showPicker?.()} style={{ padding: '4px 8px' }}>
+      <button type="button" className="secondary" aria-label={t('Pick a date')} onClick={() => pickerRef.current?.showPicker?.()} style={{ padding: '4px 8px' }}>
         📅
       </button>
       <input

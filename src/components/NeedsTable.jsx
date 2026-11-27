@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import DataTable from './DataTable'
 import ProductFilters from './ProductFilters'
 import { availableForProduct, productMatchesSearch } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 // The "how much of each product does this system need" editor shared by
 // the student (MySystems) and admin (Systems) pages - one row per product,
@@ -39,12 +40,12 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
   }
 
   const columns = [
-    { key: 'name', header: 'Name', sticky: 'left', cell: (p) => p.name },
-    { key: 'category', header: 'Category', cellClassName: 'muted', cell: (p) => p.category },
-    { key: 'available', header: 'Available', cell: (p) => availableForProduct(p, usedQuantities) },
+    { key: 'name', header: t('Name'), sticky: 'left', cell: (p) => p.name },
+    { key: 'category', header: t('Category'), cellClassName: 'muted', cell: (p) => p.category },
+    { key: 'available', header: t('Available'), cell: (p) => availableForProduct(p, usedQuantities) },
     {
       key: 'needed',
-      header: 'Needed',
+      header: t('Needed'),
       cell: (p) => (
         <input
           type="number"
@@ -60,7 +61,7 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
 
   return (
     <div style={{ marginTop: 10 }}>
-      <label style={{ marginBottom: 6 }}>Inventory needed</label>
+      <label style={{ marginBottom: 6 }}>{t('Inventory needed')}</label>
       <ProductFilters
         products={products}
         categories={categories}
@@ -76,7 +77,7 @@ export default function NeedsTable({ products, categories, needs, usedQuantities
         columns={columns}
         rows={visible}
         stickyTop={0}
-        emptyMessage="No products match."
+        emptyMessage={t('No products match.')}
         style={{ marginTop: 10 }}
       />
     </div>

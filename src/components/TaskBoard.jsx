@@ -8,6 +8,7 @@ import TaskWeek from './TaskWeek'
 import usePhone from '../lib/usePhone'
 import { TASK_PRIORITIES, checklistProgress, divisionColor, isOverdue, repeatLabel, sortTasks, sortTasksByDate, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 const PRIORITY_NAME = Object.fromEntries(TASK_PRIORITIES.map((p) => [p.id, p.name]))
 
@@ -18,10 +19,10 @@ function TaskExtras({ task }) {
   if (!total && !task.repeat && !comments && !task.doneRequested) return null
   return (
     <span style={{ display: 'inline-flex', gap: 8 }}>
-      {total > 0 && <span title="Checklist">☑ {done}/{total}</span>}
+      {total > 0 && <span title={t('Checklist')}>☑ {done}/{total}</span>}
       {task.repeat && <span title={repeatLabel(task)}>🔁</span>}
-      {comments > 0 && <span title="Comments">💬 {comments}</span>}
-      {task.doneRequested && <span style={{ color: 'var(--warn-text)' }}>✋ Awaiting approval</span>}
+      {comments > 0 && <span title={t('Comments')}>💬 {comments}</span>}
+      {task.doneRequested && <span style={{ color: 'var(--warn-text)' }}>✋ {t('Awaiting approval')}</span>}
     </span>
   )
 }
@@ -42,12 +43,12 @@ function QuickAdd({ onAdd }) {
         onKeyDown={(e) => {
           if (e.key === 'Enter') add()
         }}
-        placeholder="+ Add task"
-        aria-label="Add a task here"
+        placeholder={t('+ Add task')}
+        aria-label={t('Add a task here')}
         style={{ width: '100%', marginTop: 4, fontSize: 13, padding: '5px 8px' }}
       />
       <button type="button" className="quick-add-btn" onClick={add}>
-        Add
+        {t('Add')}
       </button>
     </div>
   )
@@ -68,38 +69,38 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
       draggable={canMove}
       onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
       title={task.division || undefined}
-      style={{ padding: 10, marginBottom: 8, cursor: canMove ? 'grab' : 'default', borderLeft: `4px solid ${divisionColor(task.division, divisions)}` }}
+      style={{ padding: 10, marginBottom: 8, cursor: canMove ? 'grab' : 'default', borderInlineStart: `4px solid ${divisionColor(task.division, divisions)}` }}
     >
       <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
         {onOpen ? (
-          <button type="button" className="link-btn" style={{ textAlign: 'left', fontWeight: 600, padding: 0 }} onClick={() => onOpen(task)}>
+          <button type="button" className="link-btn" style={{ textAlign: 'start', fontWeight: 600, padding: 0 }} onClick={() => onOpen(task)}>
             {task.title}
           </button>
         ) : (
           <strong>{task.title}</strong>
         )}
-        {task.priority === 'high' && <span style={{ color: 'var(--danger)', fontSize: 12 }}>High</span>}
+        {task.priority === 'high' && <span style={{ color: 'var(--danger)', fontSize: 12 }}>{t('High')}</span>}
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <span>{assignee ? assignee.fullName : task.assigneeId ? '(removed student)' : 'Unassigned'}</span>
+        <span>{assignee ? assignee.fullName : task.assigneeId ? t('(removed student)') : t('Unassigned')}</span>
         {when && <span style={overdue ? { color: 'var(--danger)' } : undefined}>{when}</span>}
-        {steps > 0 && <span title="Checklist">☑ {stepsDone}/{steps}</span>}
+        {steps > 0 && <span title={t('Checklist')}>☑ {stepsDone}/{steps}</span>}
       </div>
       {waiting.length > 0 && (
-        <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waiting.map((t) => t.title).join(', ')}</div>
+        <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 {t('Waiting on {names}', { names: waiting.map((w) => w.title).join(', ') })}</div>
       )}
       {partsWaiting.length > 0 && (
-        <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsWaiting.map((p) => p.name).join(', ')}</div>
+        <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 {t('Waiting for parts:')} {partsWaiting.map((p) => p.name).join(', ')}</div>
       )}
       {task.blockedReason && statusOf(task, statuses).blocked && (
         <div style={{ fontSize: 12, color: 'var(--danger)' }}>⛔ {task.blockedReason}</div>
       )}
-      {task.doneRequested && <div style={{ fontSize: 12, color: 'var(--warn-text)' }}>✋ Awaiting approval</div>}
+      {task.doneRequested && <div style={{ fontSize: 12, color: 'var(--warn-text)' }}>✋ {t('Awaiting approval')}</div>}
       {canMove && showStatusSelect && (
         <select
           value={statusOf(task, statuses).id}
           onChange={(e) => onMove(task, e.target.value)}
-          aria-label={`Status of ${task.title}`}
+          aria-label={t('Status of {title}', { title: task.title })}
           className="task-status-select"
           style={{ marginTop: 6, fontSize: 12, padding: '3px 6px' }}
         >
@@ -113,10 +114,10 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
       {task.doneRequested && onApprove && (
         <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
           <button type="button" onClick={() => onApprove(task)} style={{ fontSize: 12, padding: '3px 8px' }}>
-            Approve done
+            {t('Approve done')}
           </button>
           <button type="button" className="secondary" onClick={() => onReject(task)} style={{ fontSize: 12, padding: '3px 8px' }}>
-            Send back
+            {t('Send back')}
           </button>
         </div>
       )}
@@ -127,7 +128,7 @@ function TaskCard({ task, students, statuses, divisions, allTasks, partsWaiting 
           onClick={() => onRequestDone(task, !task.doneRequested)}
           style={{ marginTop: 6, fontSize: 12, padding: '3px 8px' }}
         >
-          {task.doneRequested ? 'Cancel finish request' : 'Request done'}
+          {task.doneRequested ? t('Cancel finish request') : t('Request done')}
         </button>
       )}
     </div>
@@ -192,7 +193,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
         background: overUnassign ? 'var(--accent-soft)' : 'transparent',
       }}
     >
-      Unassigned - drop a task here to take its assignee off
+      {t('Unassigned - drop a task here to take its assignee off')}
     </div>
   )
 
@@ -223,46 +224,46 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
       <div className="card phone-cards-wrap" style={{ overflowX: 'auto' }}>
         <table className="phone-cards" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ textAlign: 'left' }}>
-              <th>Task</th>
-              <th>Assignee</th>
-              <th>Status</th>
-              <th>Division</th>
-              <th>Priority</th>
-              <th>Dates</th>
+            <tr style={{ textAlign: 'start' }}>
+              <th>{t('Task')}</th>
+              <th>{t('Assignee')}</th>
+              <th>{t('Status')}</th>
+              <th>{t('Division')}</th>
+              <th>{t('Priority')}</th>
+              <th>{t('Dates')}</th>
             </tr>
           </thead>
           <tbody>
-            {sortTasksByDate(tasks).map((t) => {
-              const assignee = students.find((s) => s.id === t.assigneeId)
-              const overdue = isOverdue(t, statuses, today)
+            {sortTasksByDate(tasks).map((task) => {
+              const assignee = students.find((s) => s.id === task.assigneeId)
+              const overdue = isOverdue(task, statuses, today)
               return (
-                <tr key={t.id}>
+                <tr key={task.id}>
                   <td>
                     {onOpen ? (
-                      <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => onOpen(t)}>
-                        {t.title}
+                      <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => onOpen(task)}>
+                        {task.title}
                       </button>
                     ) : (
-                      t.title
+                      task.title
                     )}
                     <div className="muted" style={{ fontSize: 12 }}>
-                      <TaskExtras task={t} />
+                      <TaskExtras task={task} />
                     </div>
-                    {waitingOn(t, allTasks, statuses).length > 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 Waiting on {waitingOn(t, allTasks, statuses).map((w) => w.title).join(', ')}</div>
+                    {waitingOn(task, allTasks, statuses).length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--danger)' }}>🔒 {t('Waiting on {names}', { names: waitingOn(task, allTasks, statuses).map((w) => w.title).join(', ') })}</div>
                     )}
-                    {partsFor(t).length > 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 Waiting for parts: {partsFor(t).map((p) => p.name).join(', ')}</div>
+                    {partsFor(task).length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--danger)' }}>🛒 {t('Waiting for parts:')} {partsFor(task).map((p) => p.name).join(', ')}</div>
                     )}
                   </td>
-                  <td data-label="Assignee">{assignee ? assignee.fullName : t.assigneeId ? '(removed student)' : '—'}</td>
-                  <td data-label="Status">
-                    {canMoveTask(t) ? (
+                  <td data-label={t('Assignee')}>{assignee ? assignee.fullName : task.assigneeId ? t('(removed student)') : '—'}</td>
+                  <td data-label={t('Status')}>
+                    {canMoveTask(task) ? (
                       <select
-                        value={statusOf(t, statuses).id}
-                        onChange={(e) => onMove(t, e.target.value)}
-                        aria-label={`Status of ${t.title}`}
+                        value={statusOf(task, statuses).id}
+                        onChange={(e) => onMove(task, e.target.value)}
+                        aria-label={t('Status of {title}', { title: task.title })}
                         style={{ fontSize: 13, padding: '3px 6px' }}
                       >
                         {moveOptions.map((s) => (
@@ -272,19 +273,19 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
                         ))}
                       </select>
                     ) : (
-                      statusOf(t, statuses).name
+                      statusOf(task, statuses).name
                     )}
                   </td>
-                  <td data-label="Division">{t.division || '—'}</td>
-                  <td data-label="Priority">{PRIORITY_NAME[t.priority] || 'Normal'}</td>
-                  <td data-label="Dates" style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(t) || '—'}</td>
+                  <td data-label={t('Division')}>{task.division || '—'}</td>
+                  <td data-label={t('Priority')}>{t(PRIORITY_NAME[task.priority] || 'Normal')}</td>
+                  <td data-label={t('Dates')} style={overdue ? { color: 'var(--danger)' } : undefined}>{taskDateLabel(task) || '—'}</td>
                 </tr>
               )
             })}
             {tasks.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted">
-                  No tasks.
+                  {t('No tasks.')}
                 </td>
               </tr>
             )}
@@ -305,7 +306,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
     return (
       <>
         {legend}
-        <div className="task-status-tabs" role="tablist" aria-label="Status">
+        <div className="task-status-tabs" role="tablist" aria-label={t('Status')}>
           {statuses.map((s) => (
             <button key={s.id} type="button" role="tab" aria-selected={s.id === active.id} className={s.id === active.id ? 'chip active' : 'chip'} onClick={() => setPhoneStatus(s.id)}>
               {s.name} <span className="task-status-count">{inStatus(s).length}</span>
@@ -316,7 +317,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
           {column.map((t) => (
             <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} canMove={canMoveTask(t)} showStatusSelect={phone} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
           ))}
-          {column.length === 0 && <div className="muted task-phone-empty">Nothing in {active.name}.</div>}
+          {column.length === 0 && <div className="muted task-phone-empty">{t('Nothing in {name}.', { name: active.name })}</div>}
           {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, active.id)} />}
         </div>
       </>
@@ -360,7 +361,7 @@ export default function TaskBoard({ tasks, allTasks = tasks, statuses, students,
             {column.map((t) => (
               <TaskCard key={t.id} task={t} students={students} statuses={statuses} divisions={divisions} allTasks={allTasks} partsWaiting={partsFor(t)} canMove={canMoveTask(t)} showStatusSelect={phone} moveOptions={moveOptions} ownId={ownId} onRequestDone={onRequestDone} onApprove={onApprove} onReject={onReject} onMove={onMove} onOpen={onOpen} today={today} />
             ))}
-            {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>Nothing here</div>}
+            {column.length === 0 && <div className="muted" style={{ fontSize: 13 }}>{t('Nothing here')}</div>}
             {onQuickAdd && <QuickAdd onAdd={(title) => onQuickAdd(title, status.id)} />}
           </div>
         )
