@@ -1,6 +1,7 @@
 import FormPanel from './FormPanel'
 import { NO_SUPPLIERS, supplierMultiplier } from '../lib/calc'
 import { isReservedFieldName } from '../lib/formula'
+import { t } from '../lib/i18n'
 
 // Shared by Inventory and Orders. Both counts are always shown on either
 // page - the product is the same doc either way (see DEFAULT_PRODUCT in
@@ -59,21 +60,21 @@ export default function ProductForm({
 
   return (
     <FormPanel open={open} onClose={onClose} onSubmit={onSubmit}>
-      <h2>{editing ? 'Edit product' : 'New product'}</h2>
+      <h2>{editing ? t('Edit product') : t('New product')}</h2>
       <div className="form-grid">
         <label className="span-2">
-          Name
+          {t('Name')}
           <input value={form.name} onChange={set('name')} required />
         </label>
         <label>
-          SKU
+          {t('SKU')}
           <input value={form.sku} onChange={set('sku')} />
         </label>
         <label>
-          Category
+          {t('Category')}
           <select value={form.category} onChange={setCategory} required>
             <option value="" disabled>
-              {categories.length ? 'Choose…' : 'Set up categories in Settings first'}
+              {categories.length ? t('Choose…') : t('Set up categories in Settings first')}
             </option>
             {categories.map((c) => (
               <option key={c} value={c}>
@@ -84,9 +85,9 @@ export default function ProductForm({
         </label>
         {categorySubs.length > 0 && (
           <label>
-            Subcategory (optional)
+            {t('Subcategory (optional)')}
             <select value={form.subcategory || ''} onChange={set('subcategory')}>
-              <option value="">None</option>
+              <option value="">{t('None')}</option>
               {categorySubs.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -96,12 +97,12 @@ export default function ProductForm({
           </label>
         )}
         <label>
-          Price
+          {t('Price')}
           {/* step="any": "0.01" made the browser reject submission past 2 decimals - rounding is display-only (ProductTable). */}
           <input type="number" min="0" step="any" value={form.price} onChange={set('price')} required />
         </label>
         <label>
-          Currency
+          {t('Currency')}
           <select value={form.currency} onChange={set('currency')}>
             {currencyCodes.map((code) => (
               <option key={code} value={code}>
@@ -111,9 +112,9 @@ export default function ProductForm({
           </select>
         </label>
         <label>
-          Supplier
+          {t('Supplier')}
           <select value={supplierValue} onChange={set('supplier')}>
-            <option value="">None</option>
+            <option value="">{t('None')}</option>
             {suppliers.map((s) => (
               <option key={s.name} value={s.name}>
                 {s.name}
@@ -122,37 +123,37 @@ export default function ProductForm({
             ))}
             {/* A product saved before suppliers became a list (or with a since-removed one) keeps its old name selectable. */}
             {form.supplier && !listedSupplier && (
-              <option value={form.supplier}>{form.supplier} (not in list)</option>
+              <option value={form.supplier}>{form.supplier} ({t('not in list')})</option>
             )}
           </select>
           {multiplier !== 1 && (
             <span className="muted" style={{ fontSize: 12 }}>
-              Price above is the listed one - ×{multiplier} is added automatically.
+              {t('Price above is the listed one - ×{multiplier} is added automatically.', { multiplier })}
             </span>
           )}
         </label>
         <label className="span-2">
-          Link
+          {t('Link')}
           <input type="url" value={form.link} onChange={set('link')} placeholder="https://…" />
         </label>
         <label className="span-2">
-          Notes
+          {t('Notes')}
           <input value={form.notes} onChange={set('notes')} />
         </label>
         <label className="span-2">
-          Spool sizes (optional)
+          {t('Spool sizes (optional)')}
           <input
             value={form.spools || ''}
             onChange={set('spools')}
             placeholder="7.6 m = 54, 15.2 m = 104"
-            title="Length and price of each spool the supplier sells. Orders then picks the cheapest spools that cover what you need."
+            title={t('Length and price of each spool the supplier sells. Orders then picks the cheapest spools that cover what you need.')}
           />
         </label>
         {productTypes.length > 0 && (
           <label className="span-2">
-            Product type (optional)
+            {t('Product type (optional)')}
             <select value={form.customData?.type || ''} onChange={(e) => setProductType(e.target.value)}>
-              <option value="">None</option>
+              <option value="">{t('None')}</option>
               {productTypes.map((t) => (
                 <option key={t.name} value={t.name}>
                   {t.name}
@@ -163,7 +164,7 @@ export default function ProductForm({
         )}
         {selectedType && selectedType.fields.length > 0 && (
           <div className="span-2">
-            <span className="field-label">{selectedType.name} details</span>
+            <span className="field-label">{t('{type} details', { type: selectedType.name })}</span>
             <div className="form-grid" style={{ margin: '4px 0 0' }}>
               {selectedType.fields.filter((field) => !isReservedFieldName(field)).map((field) => (
                 <label key={field}>
@@ -175,11 +176,11 @@ export default function ProductForm({
           </div>
         )}
         <label>
-          Count in inventory
+          {t('Count in inventory')}
           <input type="number" min="0" step="any" value={form.countInInventory} onChange={set('countInInventory')} />
         </label>
         <label>
-          Wanted count
+          {t('Wanted count')}
           <input type="number" min="0" step="any" value={form.wantedCount} onChange={set('wantedCount')} />
         </label>
         <label className="span-2 checkbox-field">
@@ -188,16 +189,14 @@ export default function ProductForm({
             checked={!!form.consumable}
             onChange={(e) => setForm({ ...form, consumable: e.target.checked })}
           />
-          Consumable - claiming it on a system actually uses it up (glue, zip ties, sheet stock), lowering
-          this count in inventory. Leave off for reusable parts (motors, sensors), which stay in stock and
-          are only reserved against.
+          {t('Consumable - claiming it on a system actually uses it up (glue, zip ties, sheet stock), lowering this count in inventory. Leave off for reusable parts (motors, sensors), which stay in stock and are only reserved against.')}
         </label>
       </div>
       <div className="form-actions">
         <button type="button" className="secondary" onClick={onClose}>
-          Cancel
+          {t('Cancel')}
         </button>
-        <button type="submit">{editing ? 'Save' : 'Add product'}</button>
+        <button type="submit">{editing ? t('Save') : t('Add product')}</button>
       </div>
     </FormPanel>
   )

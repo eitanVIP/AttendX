@@ -5,6 +5,7 @@ import { DEFAULT_PRODUCT } from '../lib/calc'
 import { logStudentChange } from '../lib/communityLog'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import ProductForm from '../components/ProductForm'
+import { t } from '../lib/i18n'
 
 // A StudentLayout tab - sign-in (including which student this is) already
 // happened at /student-login (see StudentAuthContext), so `verified`/
@@ -20,7 +21,7 @@ export default function RequestOrder() {
   const [justSubmitted, setJustSubmitted] = useState(false)
 
   useEffect(() => {
-    document.title = 'AttendX | Request Order'
+    document.title = `AttendX | ${t('Request Order')}`
   }, [])
 
   function startNew() {
@@ -52,18 +53,18 @@ export default function RequestOrder() {
       setShowForm(false)
       setJustSubmitted(true)
     } catch {
-      setError('Something went wrong submitting that - please try again.')
+      setError(t('Something went wrong submitting that - please try again.'))
     }
   }
 
   return (
     <div className="page">
-      <h1>Request a product</h1>
+      <h1>{t('Request a product')}</h1>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 420 }}>
-        {justSubmitted && <p className="muted">Requested! An admin will review it. You can request another below.</p>}
+        {justSubmitted && <p className="muted">{t('Requested! An admin will review it. You can request another below.')}</p>}
         {error && <p className="form-error">{error}</p>}
         <button type="button" onClick={startNew}>
-          + Request product
+          {t('+ Request product')}
         </button>
       </div>
 
@@ -75,7 +76,7 @@ export default function RequestOrder() {
         setForm={setForm}
         editing={false}
         countField="wantedCount"
-        countLabel="Wanted count"
+        countLabel={t('Wanted count')}
         categories={verified.categories}
         subcategories={verified.subcategories}
         suppliers={verified.suppliers}

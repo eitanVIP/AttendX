@@ -179,7 +179,7 @@ export default function Inventory() {
           <strong>
             Couldn't import that file - fix {importErrors.length === 1 ? 'this' : 'these'} and try again:
           </strong>
-          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+          <ul style={{ margin: '4px 0 0', paddingInlineStart: 18 }}>
             {importErrors.map((err, i) => (
               <li key={i}>{err}</li>
             ))}

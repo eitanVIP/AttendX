@@ -1,3 +1,4 @@
+import { t } from './i18n'
 import { addDoc, arrayUnion, collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { computeToBuy, normalizeProduct, todayISO } from './calc'
@@ -34,7 +35,7 @@ const PRIORITY_RANK = { high: 0, normal: 1, low: 2 }
 
 export function taskStatuses(settings) {
   const list = settings?.statuses
-  return Array.isArray(list) && list.length > 0 ? list : DEFAULT_TASK_STATUSES
+  return Array.isArray(list) && list.length > 0 ? list : DEFAULT_TASK_STATUSES.map((s) => ({ ...s, name: t(s.name) }))
 }
 
 // A task whose status was deleted (or is unset) shows in the first column.
@@ -105,8 +106,8 @@ export function addDays(iso, days) {
 // "03/11/26 → 05/11/26", "Due 2026-03-05" or "Starts 2026-03-03".
 export function taskDateLabel(task) {
   if (task.startDate && task.dueDate && task.startDate !== task.dueDate) return `${formatDMY(task.startDate)} → ${formatDMY(task.dueDate)}`
-  if (task.dueDate) return `Due ${formatDMY(task.dueDate)}`
-  if (task.startDate) return `Starts ${formatDMY(task.startDate)}`
+  if (task.dueDate) return t('Due {date}', { date: formatDMY(task.dueDate) })
+  if (task.startDate) return t('Starts {date}', { date: formatDMY(task.startDate) })
   return ''
 }
 
@@ -122,8 +123,8 @@ export function moveBlockedReason(task, statusId, allTasks, statuses, parts = []
   if (statusId === statuses[0].id) return ''
   const waiting = waitingOn(task, allTasks, statuses)
   if (waiting.length === 0 && parts.length === 0) return ''
-  const names = [...waiting.map((t) => `"${t.title}"`), ...parts.map((p) => `the part "${p.name}"`)]
-  return `"${task.title}" is waiting on ${names.join(', ')} - that has to be done (or bought) first.`
+  const names = [...waiting.map((w) => `"${w.title}"`), ...parts.map((p) => t('the part "{name}"', { name: p.name }))]
+  return t('"{title}" is waiting on {names} - that has to be done (or bought) first.', { title: task.title, names: names.join(', ') })
 }
 
 // The parts a task needs that are still on the to-buy list. Logging the
@@ -173,7 +174,7 @@ export function scheduleBlockedReason(task, startDate, dueDate, allTasks, status
   for (const p of waitingOn(task, allTasks, statuses)) {
     const ends = p.dueDate || p.startDate
     if (ends && start < ends) {
-      return `"${task.title}" can't start before "${p.title}" is done - that one ends ${formatDMY(ends)}, so this can start on that day or later.`
+      return t('"{title}" can\'t start before "{other}" is done - that one ends {date}, so this can start on that day or later.', { title: task.title, other: p.title, date: formatDMY(ends) })
     }
   }
   return ''
@@ -219,7 +220,7 @@ function addMonths(iso, months) {
 }
 
 export function repeatLabel(task) {
-  return task.repeat ? REPEAT_BY_ID[task.repeat]?.name || '' : ''
+  return task.repeat ? t(REPEAT_BY_ID[task.repeat]?.name || '') : ''
 }
 
 // The fields of the next copy of a repeating task, or null when it doesn't

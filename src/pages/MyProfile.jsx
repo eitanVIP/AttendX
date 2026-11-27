@@ -5,6 +5,7 @@ import { loadAttendanceRecords } from '../lib/attendanceRecords'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import StudentProfileView from '../components/StudentProfileView'
 import { normalizeStudentForView } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 // A StudentLayout tab - the same profile an admin sees at /students/:id
 // (see StudentProfileView), but read-only (no onDeleteLog passed down, so
@@ -22,7 +23,7 @@ export default function MyProfile() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    document.title = 'AttendX | My Profile'
+    document.title = `AttendX | ${t('My Profile')}`
   }, [])
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export default function MyProfile() {
     [rawStudent, structure, attendanceRecords, sessionById]
   )
 
-  if (loading) return <div className="page-loading">Loading…</div>
+  if (loading) return <div className="page-loading">{t('Loading…')}</div>
 
   return (
     <StudentProfileView

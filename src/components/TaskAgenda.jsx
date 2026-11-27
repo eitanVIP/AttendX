@@ -1,4 +1,5 @@
 import { divisionColor, statusOf, taskDateLabel, waitingOn } from '../lib/tasks'
+import { dateLocale, t } from '../lib/i18n'
 
 const pad = (n) => String(n).padStart(2, '0')
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -11,7 +12,7 @@ function taskRange(task) {
 }
 
 function dayHeading(isoDate) {
-  return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })
+  return new Date(`${isoDate}T00:00:00`).toLocaleDateString(dateLocale(), { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 // The calendar on a phone (TaskCalendar swaps this in below 640px - the month
@@ -32,28 +33,28 @@ export default function TaskAgenda({ tasks, cursor, today, allTasks, statuses, s
   const keys = [...groups.keys()].sort((a, b) => (a === 'earlier' ? -1 : b === 'earlier' ? 1 : a < b ? -1 : 1))
   const undated = tasks.filter((t) => !taskRange(t))
 
-  const row = (t) => {
-    const range = taskRange(t)
-    const assignee = students.find((s) => s.id === t.assigneeId)
-    const done = statusOf(t, statuses).done
-    const waiting = waitingOn(t, allTasks, statuses).length > 0
+  const row = (task) => {
+    const range = taskRange(task)
+    const assignee = students.find((s) => s.id === task.assigneeId)
+    const done = statusOf(task, statuses).done
+    const waiting = waitingOn(task, allTasks, statuses).length > 0
     const runningToday = range && range[0] <= today && today <= range[1]
     return (
       <button
-        key={t.id}
+        key={task.id}
         type="button"
         className="agenda-task"
         disabled={!onOpen}
-        onClick={onOpen ? () => onOpen(t) : undefined}
-        style={{ borderLeftColor: divisionColor(t.division, divisions) }}
+        onClick={onOpen ? () => onOpen(task) : undefined}
+        style={{ borderInlineStartColor: divisionColor(task.division, divisions) }}
       >
         <span className="agenda-title" style={done ? { textDecoration: 'line-through' } : undefined}>
           {waiting && '🔒 '}
-          {t.title}
+          {task.title}
         </span>
         <span className="agenda-meta">
-          {[assignee ? assignee.fullName : 'Unassigned', taskDateLabel(t), t.division].filter(Boolean).join(' · ')}
-          {runningToday && !done && <span className="agenda-today"> · running today</span>}
+          {[assignee ? assignee.fullName : t('Unassigned'), taskDateLabel(task), task.division].filter(Boolean).join(' · ')}
+          {runningToday && !done && <span className="agenda-today"> · {t('running today')}</span>}
         </span>
       </button>
     )
@@ -64,16 +65,16 @@ export default function TaskAgenda({ tasks, cursor, today, allTasks, statuses, s
       {keys.map((key) => (
         <section key={key} className="agenda-day">
           <h3 className={key === today ? 'agenda-heading agenda-heading-today' : 'agenda-heading'}>
-            {key === 'earlier' ? 'Started earlier' : dayHeading(key)}
-            {key === today && ' · Today'}
+            {key === 'earlier' ? t('Started earlier') : dayHeading(key)}
+            {key === today && ` · ${t('Today')}`}
           </h3>
           {groups.get(key).map(row)}
         </section>
       ))}
-      {keys.length === 0 && <p className="muted">No dated tasks this month.</p>}
+      {keys.length === 0 && <p className="muted">{t('No dated tasks this month.')}</p>}
       {undated.length > 0 && (
         <section className="agenda-day">
-          <h3 className="agenda-heading">No date ({undated.length})</h3>
+          <h3 className="agenda-heading">{t('No date')} ({undated.length})</h3>
           {undated.map(row)}
         </section>
       )}

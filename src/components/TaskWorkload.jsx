@@ -45,7 +45,7 @@ export default function TaskWorkload({ tasks, statuses, students }) {
     <div className="card" style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ textAlign: 'left' }}>
+          <tr style={{ textAlign: 'start' }}>
             <th>Student</th>
             <th>Open</th>
             <th>Overdue</th>

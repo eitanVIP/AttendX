@@ -6,6 +6,8 @@ import TaskAgenda from './TaskAgenda'
 
 const pad = (n) => String(n).padStart(2, '0')
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+import { dateLocale, langDir, t } from '../lib/i18n'
+
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // A task covers startDate..dueDate (either alone is a single day).
@@ -64,25 +66,25 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
     onSchedule(task, addDays(range[0], shift), addDays(range[1], shift))
   }
 
-  const chip = (t, day) => {
-    const range = taskRange(t)
-    const done = statusOf(t, statuses).done
+  const chip = (task, day) => {
+    const range = taskRange(task)
+    const done = statusOf(task, statuses).done
     const first = day === range[0]
     const last = day === range[1]
-    const waiting = waitingOn(t, allTasks, statuses).length > 0
-    const assignee = students.find((s) => s.id === t.assigneeId)
-    const color = divisionColor(t.division, divisions)
+    const waiting = waitingOn(task, allTasks, statuses).length > 0
+    const assignee = students.find((s) => s.id === task.assigneeId)
+    const color = divisionColor(task.division, divisions)
     return (
       <div
-        key={t.id}
+        key={task.id}
         draggable={!!onSchedule}
-        onDragStart={onSchedule ? (e) => startDrag(e, t, 'move', day) : undefined}
-        title={`${t.title}${assignee ? ` - ${assignee.fullName}` : ''}${t.division ? ` (${t.division})` : ''}`}
+        onDragStart={onSchedule ? (e) => startDrag(e, task, 'move', day) : undefined}
+        title={`${task.title}${assignee ? ` - ${assignee.fullName}` : ''}${task.division ? ` (${task.division})` : ''}`}
         style={{
           display: 'flex',
           alignItems: 'stretch',
           marginBottom: 2,
-          borderLeft: `3px solid ${color}`,
+          borderInlineStart: `3px solid ${color}`,
           borderRadius: 3,
           background: `color-mix(in srgb, ${color} 22%, transparent)`,
           cursor: onSchedule ? 'grab' : 'default',
@@ -91,18 +93,18 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
         {onSchedule && first && (
           <span
             draggable
-            onDragStart={(e) => startDrag(e, t, 'stretchStart', day)}
-            title="Drag to an earlier day to start this task sooner"
+            onDragStart={(e) => startDrag(e, task, 'stretchStart', day)}
+            title={t('Drag to an earlier day to start this task sooner')}
             style={{ width: 6, cursor: 'ew-resize', background: color, opacity: 0.6 }}
           />
         )}
         <button
           type="button"
-          onClick={onOpen ? () => onOpen(t) : undefined}
+          onClick={onOpen ? () => onOpen(task) : undefined}
           style={{
             flex: 1,
             minWidth: 0,
-            textAlign: 'left',
+            textAlign: 'start',
             fontSize: 11,
             lineHeight: 1.3,
             padding: '1px 4px',
@@ -117,13 +119,13 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
           }}
         >
           {waiting && '🔒 '}
-          {first ? t.title : `↳ ${t.title}`}
+          {first ? task.title : `↳ ${task.title}`}
         </button>
         {onSchedule && last && (
           <span
             draggable
-            onDragStart={(e) => startDrag(e, t, 'stretch', day)}
-            title="Drag to another day to stretch or shrink this task"
+            onDragStart={(e) => startDrag(e, task, 'stretch', day)}
+            title={t('Drag to another day to stretch or shrink this task')}
             style={{ width: 8, cursor: 'ew-resize', background: color, opacity: 0.6, borderRadius: '0 3px 3px 0' }}
           />
         )}
@@ -134,14 +136,14 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-        <button type="button" className="secondary" onClick={() => move(-1)} aria-label="Previous month">
-          ‹
+        <button type="button" className="secondary" onClick={() => move(-1)} aria-label={t('Previous month')}>
+          {langDir() === 'rtl' ? '›' : '‹'}
         </button>
         <strong style={{ minWidth: 140, textAlign: 'center' }}>
-          {cursor.toLocaleString('en', { month: 'long', year: 'numeric' })}
+          {cursor.toLocaleString(dateLocale(), { month: 'long', year: 'numeric' })}
         </strong>
-        <button type="button" className="secondary" onClick={() => move(1)} aria-label="Next month">
-          ›
+        <button type="button" className="secondary" onClick={() => move(1)} aria-label={t('Next month')}>
+          {langDir() === 'rtl' ? '‹' : '›'}
         </button>
         <button
           type="button"
@@ -151,7 +153,7 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
             setCursor(new Date(d.getFullYear(), d.getMonth(), 1))
           }}
         >
-          Today
+          {t('Today')}
         </button>
       </div>
       {phone ? (
@@ -162,7 +164,7 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
       <div className="task-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2, overflowX: 'auto' }}>
         {Array.from({ length: 7 }, (_, i) => (
           <div key={i} className="muted" style={{ fontSize: 12, textAlign: 'center', padding: 2 }}>
-            {WEEKDAYS[(weekStartsOn + i) % 7]}
+            {t(WEEKDAYS[(weekStartsOn + i) % 7])}
           </div>
         ))}
         {days.map((d) => {
@@ -230,7 +232,7 @@ export default function TaskCalendar({ tasks, allTasks = tasks, statuses, studen
                 className="secondary"
                 disabled={!onOpen}
                 onClick={onOpen ? () => onOpen(t) : undefined}
-                style={{ fontSize: 12, padding: '2px 8px', borderLeft: `3px solid ${divisionColor(t.division, divisions)}`, cursor: 'inherit' }}
+                style={{ fontSize: 12, padding: '2px 8px', borderInlineStart: `3px solid ${divisionColor(t.division, divisions)}`, cursor: 'inherit' }}
               >
                 {t.title}
               </button>

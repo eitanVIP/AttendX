@@ -371,7 +371,7 @@ export default function Dashboard() {
         <>
           <h3>Attendance to talk about</h3>
           <div className="card" style={{ marginBottom: 16 }}>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
+            <ul style={{ margin: 0, paddingInlineStart: 18 }}>
               {attendanceFlags.map((s) => (
                 <li key={s.id}>
                   <Link to={`/students/${s.id}`}>{s.fullName}</Link>{' '}

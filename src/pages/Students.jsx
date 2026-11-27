@@ -265,7 +265,7 @@ export default function Students() {
                         <span
                           className={`badge ${s.planInfo.flag.type === 'short' ? 'badge-warn' : 'badge-ok'}`}
                           title={s.planInfo.flag.message}
-                          style={{ marginLeft: 6 }}
+                          style={{ marginInlineStart: 6 }}
                         >
                           {s.planInfo.flag.type === 'short' ? 'Talk' : 'Move up?'}
                         </span>

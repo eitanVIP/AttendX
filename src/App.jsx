@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { StudentAuthProvider } from './context/StudentAuthContext'
+import { LangProvider } from './context/LangContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import StudentLayout from './components/StudentLayout'
@@ -53,6 +54,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <StudentAuthProvider>
+          <LangProvider>
           <QuotaGate>
             <Routes>
               <Route path={QUOTA_PATH} element={<QuotaExceeded />} />
@@ -94,6 +96,7 @@ export default function App() {
               </Route>
             </Routes>
           </QuotaGate>
+          </LangProvider>
         </StudentAuthProvider>
       </AuthProvider>
     </BrowserRouter>

@@ -1,3 +1,5 @@
+import { t } from '../lib/i18n'
+
 // The Tasks page views: the three people reach for daily as buttons, the
 // rest tucked behind one "More views" menu so the toolbar stays calm.
 // `isLead` is false for a student without task-lead rights, who has no Stats
@@ -20,21 +22,21 @@ export default function TaskViewTabs({ view, onChange, isLead = true }) {
     <div className="task-views">
       {MAIN.map(([id, name]) => (
         <button key={id} type="button" className={view === id ? '' : 'secondary'} onClick={() => onChange(id)}>
-          {name}
+          {t(name)}
         </button>
       ))}
       <select
         className={moreActive ? 'task-more-views task-more-active' : 'task-more-views'}
         value={moreActive ? view : ''}
         onChange={(e) => e.target.value && onChange(e.target.value)}
-        aria-label="More views"
+        aria-label={t('More views')}
       >
         <option value="" disabled>
-          More views…
+          {t('More views…')}
         </option>
         {more.map(([id, name]) => (
           <option key={id} value={id}>
-            {name}
+            {t(name)}
           </option>
         ))}
       </select>

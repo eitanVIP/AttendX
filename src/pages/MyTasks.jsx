@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useEffect, useMemo, useState } from 'react'
 import { communityDb } from '../firebase'
 import { useStudentAuth } from '../context/StudentAuthContext'
@@ -31,7 +32,7 @@ export default function MyTasks() {
   // A write the database refuses (say a lead who was just made a plain
   // student) fails silently otherwise - tell the student it did not save.
   const notSaved = () => {
-    setNotice('That change was not saved. If you were just removed as a task lead, sign out and back in.')
+    setNotice(t('That change was not saved. If you were just removed as a task lead, sign out and back in.'))
     setTimeout(() => setNotice(''), 8000)
   }
   const addTaskComment = (...args) => rawAddTaskComment(...args).catch(notSaved)
@@ -62,7 +63,7 @@ export default function MyTasks() {
   const partsFor = (task) => waitingParts(task, products, verified.productTypes || [])
 
   useEffect(() => {
-    document.title = 'AttendX | My Tasks'
+    document.title = `AttendX | ${t('My tasks')}`
   }, [])
 
   const shown = useMemo(
@@ -115,7 +116,7 @@ export default function MyTasks() {
     if (!task.title) return
     task.blockedReason = isBlockedStatus(statuses, task.statusId) ? (task.blockedReason || '').trim() : ''
     if (isBlockedStatus(statuses, task.statusId) && !task.blockedReason) {
-      setFormError('Say why it is blocked.')
+      setFormError(t('Say why it is blocked.'))
       return
     }
     const scheduleReason = scheduleBlockedReason({ ...task, id: editing?.id }, task.startDate, task.dueDate, allTasks, statuses)
@@ -130,10 +131,10 @@ export default function MyTasks() {
       return
     }
     setFormError('')
-    const waiting = [...waitingOn({ ...task, id: editing?.id }, allTasks, statuses).map((t) => `"${t.title}"`), ...partsFor(task).map((p) => `the part "${p.name}"`)]
+    const waiting = [...waitingOn({ ...task, id: editing?.id }, allTasks, statuses).map((t) => `"${t.title}"`), ...partsFor(task).map((p) => t('the part "{name}"', { name: p.name }))]
     if (!statusChanged && waiting.length > 0 && task.statusId !== statuses[0].id) {
       task.statusId = statuses[0].id
-      setNotice(`"${task.title}" is waiting on ${waiting.join(', ')}, so it was moved back to ${statuses[0].name}.`)
+      setNotice(t('"{title}" is waiting on {waiting}, so it was moved back to {status}.', { title: task.title, waiting: waiting.join(', '), status: statuses[0].name }))
       setTimeout(() => setNotice(''), 8000)
     }
     if (statuses.find((s) => s.id === task.statusId)?.done) task.doneRequested = false
@@ -175,7 +176,7 @@ export default function MyTasks() {
     writeTask(communityDb, verified.teamId, null, duplicateOf(editing, statuses[0].id), studentId)
     logStudentChange(verified.teamId, 'task', 'create', `Duplicated task "${editing.title}"`, student.fullName)
     setShowForm(false)
-    setInfo(`Duplicated "${editing.title}".`)
+    setInfo(t('Duplicated "{title}".', { title: editing.title }))
     setTimeout(() => setInfo(''), 6000)
   }
 
@@ -208,7 +209,7 @@ export default function MyTasks() {
   function approveDone(task) {
     const done = firstDoneStatus(statuses)
     if (!done) {
-      setNotice('Mark one of the statuses as Finished first.')
+      setNotice(t('Mark one of the statuses as Finished first.'))
       return
     }
     handleMove(task, done.id)
@@ -236,7 +237,7 @@ export default function MyTasks() {
     const created = await spawnNextOccurrence(communityDb, verified.teamId, task, statuses[0].id, studentId).catch(() => null)
     if (created) {
       logStudentChange(verified.teamId, 'task', 'create', `Added next "${task.title}" (repeating task)`, student.fullName)
-      setInfo(`Next "${task.title}" created: ${taskDateLabel(created)}`)
+      setInfo(t('Next "{title}" created: {when}', { title: task.title, when: taskDateLabel(created) }))
       setTimeout(() => setInfo(''), 8000)
     }
   }
@@ -246,7 +247,7 @@ export default function MyTasks() {
     if (!isLead) {
       if (task.assigneeId !== studentId) return
       if (statuses.find((s) => s.id === statusId)?.done) {
-        setNotice('A task lead has to approve finishing a task - use "Request done" instead.')
+        setNotice(t('A task lead has to approve finishing a task - use "Request done" instead.'))
         setTimeout(() => setNotice(''), 6000)
         return
       }
@@ -271,14 +272,14 @@ export default function MyTasks() {
     if (finished) afterDone(task)
     if (!skipUndo && !(finished && task.repeat)) {
       const before = statusOf(task, statuses).id
-      offerUndo(`Moved "${task.title}" to ${name}`, () => handleMove({ ...task, statusId }, before, { reason: task.blockedReason || '', skipUndo: true }))
+      offerUndo(t('Moved "{title}" to {status}', { title: task.title, status: name }), () => handleMove({ ...task, statusId }, before, { reason: task.blockedReason || '', skipUndo: true }))
     }
   }
 
   function handleAssign(task, assigneeId, skipUndo = false) {
     writeTask(communityDb, verified.teamId, task.id, { assigneeId, history: historyUnion(student.fullName, 'Assignee: ' + (verified.students.find((s) => s.id === task.assigneeId)?.fullName || 'nobody') + ' → ' + (verified.students.find((s) => s.id === assigneeId)?.fullName || 'nobody')) }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Unassigned task "${task.title}"`, student.fullName)
-    if (!skipUndo) offerUndo(`Unassigned "${task.title}"`, () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
+    if (!skipUndo) offerUndo(t(assigneeId ? 'Assigned "{title}"' : 'Unassigned "{title}"', { title: task.title }), () => handleAssign({ ...task, assigneeId }, task.assigneeId || '', true))
   }
 
   function handleSchedule(task, startDate, dueDate, skipUndo = false) {
@@ -291,19 +292,19 @@ export default function MyTasks() {
     setNotice('')
     writeTask(communityDb, verified.teamId, task.id, { startDate, dueDate, history: historyUnion(student.fullName, 'Rescheduled') }, studentId)
     logStudentChange(verified.teamId, 'task', 'update', `Rescheduled task "${task.title}"`, student.fullName)
-    if (!skipUndo) offerUndo(`Rescheduled "${task.title}"`, () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
+    if (!skipUndo) offerUndo(t('Rescheduled "{title}"', { title: task.title }), () => handleSchedule({ ...task, startDate, dueDate }, task.startDate || '', task.dueDate || '', true))
   }
 
-  if (loading) return <div className="page-loading">Loading tasks…</div>
+  if (loading) return <div className="page-loading">{t('Loading tasks…')}</div>
 
   return (
     <div className="page">
       <div className="page-header">
-        <h2>{isLead ? 'Tasks' : 'My tasks'}</h2>
+        <h2>{isLead ? t('Tasks') : t('My tasks')}</h2>
         <div className="page-header-actions">
           {isLead && (
             <button type="button" onClick={startNew}>
-              + New task
+              {t('+ New task')}
             </button>
           )}
         </div>
@@ -324,13 +325,13 @@ export default function MyTasks() {
         {isLead && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-            Only mine
+            {t('Only mine')}
           </label>
         )}
         {divisions.length > 0 && (
-          <select value={division} onChange={(e) => setDivision(e.target.value)} aria-label="Filter by division">
-            <option value="all">All divisions</option>
-            <option value="none">No division</option>
+          <select value={division} onChange={(e) => setDivision(e.target.value)} aria-label={t('Filter by division')}>
+            <option value="all">{t('All divisions')}</option>
+            <option value="none">{t('No division')}</option>
             {divisions.map((d) => (
               <option key={d} value={d}>
                 {d}
@@ -339,9 +340,9 @@ export default function MyTasks() {
           </select>
         )}
         {systems.length > 0 && (
-          <select value={system} onChange={(e) => setSystem(e.target.value)} aria-label="Filter by robot system">
-            <option value="all">All systems</option>
-            <option value="none">No system</option>
+          <select value={system} onChange={(e) => setSystem(e.target.value)} aria-label={t('Filter by robot system')}>
+            <option value="all">{t('All systems')}</option>
+            <option value="none">{t('No system')}</option>
             {systems.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -350,9 +351,9 @@ export default function MyTasks() {
           </select>
         )}
         {projectList.length > 0 && (
-          <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Filter by project">
-            <option value="all">All projects</option>
-            <option value="none">No project</option>
+          <select value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('Filter by project')}>
+            <option value="all">{t('All projects')}</option>
+            <option value="none">{t('No project')}</option>
             {projectList.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -363,7 +364,7 @@ export default function MyTasks() {
         {(hiddenOld > 0 || showOld) && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
             <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
-            Show finished over 2 weeks ago{hiddenOld > 0 && !showOld ? ` (${hiddenOld} hidden)` : ''}
+            {t('Show finished over 2 weeks ago')}{hiddenOld > 0 && !showOld ? ` (${t('{n} hidden', { n: hiddenOld })})` : ''}
           </label>
         )}
         <TaskViewTabs view={view} onChange={setView} isLead={isLead} />
@@ -372,11 +373,11 @@ export default function MyTasks() {
       {notice && <p className="form-error">{notice}</p>}
       {info && <p style={{ color: 'var(--ok-text)' }}>{info}</p>}
       {isLead && tasks.some((t) => t.doneRequested && !statusOf(t, statuses).done) && (
-        <p style={{ color: 'var(--warn-text)' }}>✋ {tasks.filter((t) => t.doneRequested && !statusOf(t, statuses).done).length} task(s) waiting for approval</p>
+        <p style={{ color: 'var(--warn-text)' }}>{t('✋ {n} task(s) waiting for approval', { n: tasks.filter((x) => x.doneRequested && !statusOf(x, statuses).done).length })}</p>
       )}
 
       {!isLead && tasks.length === 0 ? (
-        <p className="muted">No tasks assigned to you.</p>
+        <p className="muted">{t('No tasks assigned to you.')}</p>
       ) : (
         <TaskBoard
           tasks={shown}

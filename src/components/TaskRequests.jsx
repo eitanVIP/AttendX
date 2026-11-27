@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import FormPanel from './FormPanel'
+import { t } from '../lib/i18n'
 
 const DAY_MS = 86400000
 
@@ -16,7 +17,7 @@ export function TaskRequestList({ requests, onAccept, onDecline, embedded = fals
     <div className={embedded ? undefined : 'card'} style={embedded ? undefined : { padding: 12, marginBottom: 12 }}>
       {!embedded && (
         <button type="button" className="link-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ padding: 0, fontWeight: 600 }}>
-          📝 {pending.length} task request{pending.length === 1 ? '' : 's'} from students {open ? '▾' : '▸'}
+          📝 {pending.length === 1 ? t('1 task request from students') : t('{n} task requests from students', { n: pending.length })} {open ? '▾' : '▸'}
         </button>
       )}
       {open && (
@@ -29,7 +30,7 @@ export function TaskRequestList({ requests, onAccept, onDecline, embedded = fals
             {r.description && <div className="muted" style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{r.description}</div>}
             {declining === r.id ? (
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" style={{ flex: 1 }} />
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('Reason (optional)')} style={{ flex: 1 }} />
                 <button
                   type="button"
                   className="secondary danger"
@@ -39,19 +40,19 @@ export function TaskRequestList({ requests, onAccept, onDecline, embedded = fals
                     setReason('')
                   }}
                 >
-                  Decline
+                  {t('Decline')}
                 </button>
                 <button type="button" className="secondary" onClick={() => setDeclining(null)}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                 <button type="button" onClick={() => onAccept(r)} style={{ fontSize: 12, padding: '3px 8px' }}>
-                  Accept...
+                  {t('Accept...')}
                 </button>
                 <button type="button" className="secondary" onClick={() => setDeclining(r.id)} style={{ fontSize: 12, padding: '3px 8px' }}>
-                  Decline
+                  {t('Decline')}
                 </button>
               </div>
             )}
@@ -70,20 +71,20 @@ export function MyTaskRequests({ requests, onRequest }) {
   return (
     <div className="card" style={{ padding: 12, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong>Your task requests</strong>
+        <strong>{t('Your task requests')}</strong>
         <button type="button" className="secondary" onClick={onRequest}>
-          Request a task
+          {t('Request a task')}
         </button>
       </div>
       {recent.length === 0 ? (
-        <p className="muted" style={{ margin: '4px 0 0' }}>Need something done? Ask for a task and a lead will look at it.</p>
+        <p className="muted" style={{ margin: '4px 0 0' }}>{t('Need something done? Ask for a task and a lead will look at it.')}</p>
       ) : (
-        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+        <ul style={{ margin: '6px 0 0', paddingInlineStart: 18 }}>
           {recent.map((r) => (
             <li key={r.id}>
               {r.title}{' '}
               <span className="muted">
-                {r.status === 'pending' ? '- waiting for a lead' : r.status === 'accepted' ? '- accepted' : `- declined${r.declineReason ? `: ${r.declineReason}` : ''}`}
+                {r.status === 'pending' ? `- ${t('waiting for a lead')}` : r.status === 'accepted' ? `- ${t('accepted')}` : `- ${t('declined')}${r.declineReason ? `: ${r.declineReason}` : ''}`}
               </span>
             </li>
           ))}
@@ -111,21 +112,21 @@ export function RequestTaskPanel({ open, onClose, onSubmit, divisions = [] }) {
         setDivision('')
       }}
     >
-      <h3>Request a task</h3>
+      <h3>{t('Request a task')}</h3>
       <div className="form-grid">
         <label className="span-2">
-          What needs doing?
+          {t('What needs doing?')}
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required autoFocus />
         </label>
         <label className="span-2">
-          Details (optional)
+          {t('Details (optional)')}
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} />
         </label>
         {divisions.length > 0 && (
           <label className="span-2">
-            Division (optional)
+            {t('Division (optional)')}
             <select value={division} onChange={(e) => setDivision(e.target.value)}>
-              <option value="">None</option>
+              <option value="">{t('None')}</option>
               {divisions.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -137,9 +138,9 @@ export function RequestTaskPanel({ open, onClose, onSubmit, divisions = [] }) {
       </div>
       <div className="form-actions">
         <button type="button" className="secondary" onClick={onClose}>
-          Cancel
+          {t('Cancel')}
         </button>
-        <button type="submit">Send request</button>
+        <button type="submit">{t('Send request')}</button>
       </div>
     </FormPanel>
   )

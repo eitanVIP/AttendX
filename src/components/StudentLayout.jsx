@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Outlet } from 'react-router-dom'
 import { useStudentAuth } from '../context/StudentAuthContext'
 import Logo from './Logo'
+import LangToggle from './LangToggle'
+import { t } from '../lib/i18n'
 import { communityDb } from '../firebase'
 import { dueSoon, useTaskData } from '../lib/tasks'
 import { todayISO } from '../lib/calc'
@@ -35,7 +37,7 @@ export default function StudentLayout() {
   const anyOverdue = dueTasks.some((t) => (t.dueDate || t.startDate) < todayISO())
   const badge = (to) =>
     to === '/my-tasks' && dueTasks.length > 0 ? (
-      <span className={`nav-badge ${anyOverdue ? 'nav-badge-late' : ''}`} title="Overdue or due in the next 3 days">
+      <span className={`nav-badge ${anyOverdue ? 'nav-badge-late' : ''}`} title={t('Overdue or due in the next 3 days')}>
         {dueTasks.length}
       </span>
     ) : null
@@ -64,37 +66,38 @@ export default function StudentLayout() {
     return () => observer.disconnect()
   }, [])
 
-  if (restoring) return <div className="page-loading">Signing in…</div>
+  if (restoring) return <div className="page-loading">{t('Signing in…')}</div>
 
   if (!verified || !studentId) return <Navigate to="/student-login" replace />
 
   return (
     <div className="app-shell">
       <header className="app-header" ref={headerRef}>
-        <button className="nav-toggle" aria-label="Open menu" onClick={() => setDrawerOpen(true)}>
+        <button className="nav-toggle" aria-label={t('Open menu')} onClick={() => setDrawerOpen(true)}>
           <span />
           <span />
           <span />
         </button>
         <div className="brand">
-          <Link to="/log-hours" className="brand-logo-link" title="Community Hours">
+          <Link to="/log-hours" className="brand-logo-link" title={t('Community Hours')}>
             <Logo />
           </Link>
           {verified.teamName && <span className="brand-team">{verified.teamName}</span>}
-          <Link to="/student-login" className="brand-team" onClick={changeStudent} title="Not you? Change student">
+          <Link to="/student-login" className="brand-team" onClick={changeStudent} title={t('Not you? Change student')}>
             {student?.fullName}
           </Link>
         </div>
         <nav className="main-nav">
           {links.map((l) => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {l.label}
+              {t(l.label)}
               {badge(l.to)}
             </NavLink>
           ))}
         </nav>
+        <LangToggle />
         <button className="logout-btn" onClick={logout}>
-          Log out
+          {t('Log out')}
         </button>
       </header>
 
@@ -108,7 +111,7 @@ export default function StudentLayout() {
             <Link to="/log-hours" className="brand-logo-link" onClick={() => setDrawerOpen(false)}>
               <Logo />
             </Link>
-            <button className="nav-drawer-close" aria-label="Close menu" onClick={() => setDrawerOpen(false)}>
+            <button className="nav-drawer-close" aria-label={t('Close menu')} onClick={() => setDrawerOpen(false)}>
               &times;
             </button>
           </div>
@@ -119,7 +122,7 @@ export default function StudentLayout() {
               className={({ isActive }) => (isActive ? 'active' : '')}
               onClick={() => setDrawerOpen(false)}
             >
-              {l.label}
+              {t(l.label)}
               {badge(l.to)}
             </NavLink>
           ))}

@@ -1,4 +1,5 @@
 import { STREAK_KINDS } from '../lib/calc'
+import { t } from '../lib/i18n'
 
 // The Training/Community/Attendance switcher shown everywhere a streak
 // shows up - the Dashboard's leaderboard, the student-facing Streaks page,
@@ -9,7 +10,7 @@ export default function StreakTabs({ kind, onChange, kinds = STREAK_KINDS }) {
     <div className="filter-row" style={{ margin: '0 0 10px' }}>
       {kinds.map((k) => (
         <button key={k.id} type="button" className={kind === k.id ? 'chip active' : 'chip'} onClick={() => onChange(k.id)}>
-          {k.label}
+          {t(k.label)}
         </button>
       ))}
     </div>

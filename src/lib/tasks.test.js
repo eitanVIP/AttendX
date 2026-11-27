@@ -43,8 +43,8 @@ const task = (id, extra = {}) => ({ id, title: `Task ${id}`, statusId: 'todo', .
 
 describe('statuses', () => {
   it('falls back to the default statuses', () => {
-    expect(taskStatuses(undefined)).toBe(DEFAULT_TASK_STATUSES)
-    expect(taskStatuses({ statuses: [] })).toBe(DEFAULT_TASK_STATUSES)
+    expect(taskStatuses(undefined)).toEqual(DEFAULT_TASK_STATUSES)
+    expect(taskStatuses({ statuses: [] })).toEqual(DEFAULT_TASK_STATUSES)
     const own = [{ id: 'a', name: 'A' }]
     expect(taskStatuses({ statuses: own })).toBe(own)
   })
